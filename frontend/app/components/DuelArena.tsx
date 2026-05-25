@@ -68,6 +68,7 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
   const scoreSamplesRef = useRef<number[]>([]);
   const submittedRef = useRef(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [isMicMuted, setIsMicMuted] = useState(false);
   const [phase, setPhase] = useState<AppPhase>("lobby");
   const [roundSeconds, setRoundSeconds] = useState(ROUND_SECONDS);
   const [bestScore, setBestScore] = useState<number | null>(null);
@@ -108,12 +109,20 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     let stream: MediaStream | null = null;
 
     navigator.mediaDevices
-      .getUserMedia({ video: { width: 1280, height: 720 }, audio: false })
+      .getUserMedia({ video: { width: 1280, height: 720 }, audio: true })
       .then((mediaStream) => {
         stream = mediaStream;
         setLocalStream(mediaStream);
       })
-      .catch((err) => console.error("[Camera]", err));
+      .catch(() => {
+        navigator.mediaDevices
+          .getUserMedia({ video: { width: 1280, height: 720 }, audio: false })
+          .then((mediaStream) => {
+            stream = mediaStream;
+            setLocalStream(mediaStream);
+          })
+          .catch((err) => console.error("[Camera]", err));
+      });
 
     return () => {
       stream?.getTracks().forEach((track) => track.stop());
@@ -218,6 +227,13 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     if (expression.status === "error") return "Face tracker unavailable";
     return "10-second face check";
   }, [expression.status, phase]);
+
+  const toggleMic = useCallback(() => {
+    if (!localStream) return;
+    const next = !isMicMuted;
+    localStream.getAudioTracks().forEach((t) => { t.enabled = !next; });
+    setIsMicMuted(next);
+  }, [localStream, isMicMuted]);
 
   const finalResult = resultCopy(finalScore, partnerScore);
 
@@ -353,12 +369,15 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
       </AnimatePresence>
 
       {status === "matched" && (
-        <ChatBox
-          messages={messages}
-          onSend={sendChat}
-          onSkip={skipUser}
-          disabled={phase === "lobby"}
-        />
+        <>
+          <MicButton isMuted={isMicMuted} onToggle={toggleMic} />
+          <ChatBox
+            messages={messages}
+            onSend={sendChat}
+            onSkip={skipUser}
+            disabled={phase === "lobby"}
+          />
+        </>
       )}
 
       {(phase === "lobby" || status === "waiting") && !remoteStream && (
@@ -401,6 +420,33 @@ function StatusBadge({ status }: { status: string }) {
       <span className="w-1.5 h-1.5 rounded-full bg-white/70 inline-block" />
       {info.label}
     </span>
+  );
+}
+
+function MicButton({ isMuted, onToggle }: { isMuted: boolean; onToggle: () => void }) {
+  return (
+    <motion.button
+      onClick={onToggle}
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.93 }}
+      className={`absolute bottom-3 left-3 z-50 flex items-center gap-2 px-4 py-2 backdrop-blur-md border text-white text-sm font-semibold rounded-full transition-colors shadow-lg ${
+        isMuted
+          ? "bg-red-700/90 border-red-500 hover:bg-red-600"
+          : "bg-zinc-900/90 border-zinc-700 hover:border-zinc-500"
+      }`}
+      title={isMuted ? "Unmute mic" : "Mute mic"}
+    >
+      {isMuted ? (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 19L5 5M12 18.75a6.75 6.75 0 006.74-6.4M5.268 5.268A6.75 6.75 0 0012 18.75m0 0v3m-3 0h6M12 3a3 3 0 013 3v5.25M9.75 9.75L9 12a3 3 0 005.657 1.958M12 3a3 3 0 00-3 3v3" />
+        </svg>
+      ) : (
+        <svg className="w-4 h-4 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6.75 6.75 0 006.75-6.75v-1.5m-6.75 8.25v3m-3 0h6M12 3a3 3 0 013 3v6a3 3 0 01-6 0V6a3 3 0 013-3z" />
+        </svg>
+      )}
+      {isMuted ? "Muted" : "Mic On"}
+    </motion.button>
   );
 }
 

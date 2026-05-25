@@ -173,7 +173,6 @@ function RemoteVideo({ stream }: { stream: MediaStream | null }) {
       ref={videoRef}
       autoPlay
       playsInline
-      muted
       className="w-full h-full object-cover"
     />
   );
