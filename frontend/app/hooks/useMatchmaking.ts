@@ -7,11 +7,32 @@ import Peer, { MediaConnection } from "peerjs";
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 
+const STREAM_TIMEOUT_MS = 12_000;
+
+function buildIceServers(): RTCIceServer[] {
+  const servers: RTCIceServer[] = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" },
+  ];
+  const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
+  if (turnUrl) {
+    servers.push({
+      urls: turnUrl,
+      username: process.env.NEXT_PUBLIC_TURN_USERNAME ?? "",
+      credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL ?? "",
+    });
+  }
+  return servers;
+}
+
 export type MatchStatus =
   | "idle"
   | "connecting"
   | "waiting"
   | "matched"
+  | "stopped"
   | "error";
 
 export interface ChatMessage {
@@ -32,6 +53,8 @@ export interface MatchmakingState {
   submitScore: (score: number) => void;
   submitLiveScore: (score: number) => void;
   skipUser: () => void;
+  stopMatching: () => void;
+  startMatching: () => void;
   messages: ChatMessage[];
   sendChat: (text: string) => void;
 }
@@ -42,6 +65,9 @@ export function useMatchmaking(
   const socketRef = useRef<Socket | null>(null);
   const peerRef = useRef<Peer | null>(null);
   const callRef = useRef<MediaConnection | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const streamTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stoppedRef = useRef(false);
 
   const [status, setStatus] = useState<MatchStatus>("idle");
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -53,27 +79,69 @@ export function useMatchmaking(
   const [emojiPrompt, setEmojiPrompt] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
+  const clearStreamTimeout = useCallback(() => {
+    if (streamTimeoutRef.current) {
+      clearTimeout(streamTimeoutRef.current);
+      streamTimeoutRef.current = null;
+    }
+  }, []);
+
+  /* Keep a ref in sync so timeout callbacks can read the latest value */
+  const setRemoteStreamSynced = useCallback(
+    (stream: MediaStream | null) => {
+      remoteStreamRef.current = stream;
+      setRemoteStream(stream);
+      if (stream) clearStreamTimeout();
+    },
+    [clearStreamTimeout]
+  );
+
   const resetMatchState = useCallback(() => {
-    callRef.current?.close();
-    callRef.current = null;
-    setRemoteStream(null);
+    clearStreamTimeout();
+    if (callRef.current) {
+      callRef.current.close();
+      callRef.current = null;
+    }
+    setRemoteStreamSynced(null);
     setPartnerPeerId(null);
     setCountdown(null);
     setPartnerScore(null);
     setPartnerLiveScore(null);
     setEmojiPrompt(null);
     setMessages([]);
-  }, []);
+  }, [clearStreamTimeout, setRemoteStreamSynced]);
+
+  /* Re-join queue after a failed connection (silent recovery) */
+  const rejoinQueue = useCallback(() => {
+    resetMatchState();
+    setStatus("waiting");
+    const peerId = peerRef.current?.id;
+    if (peerId && socketRef.current?.connected) {
+      socketRef.current.emit("join_queue", { peerId });
+    }
+  }, [resetMatchState]);
+
+  /* Start a timeout — if no stream arrives within STREAM_TIMEOUT_MS, re-queue */
+  const startStreamTimeout = useCallback(() => {
+    clearStreamTimeout();
+    streamTimeoutRef.current = setTimeout(() => {
+      if (!remoteStreamRef.current) {
+        console.warn("[PeerJS] No stream after", STREAM_TIMEOUT_MS, "ms — re-queuing");
+        rejoinQueue();
+      }
+    }, STREAM_TIMEOUT_MS);
+  }, [clearStreamTimeout, rejoinQueue]);
 
   /* ── Helper: answer an incoming call ── */
   const answerCall = useCallback(
     (call: MediaConnection, stream: MediaStream) => {
       callRef.current = call;
       call.answer(stream);
-      call.on("stream", (remote) => setRemoteStream(remote));
-      call.on("close", () => setRemoteStream(null));
+      call.on("stream", (remote) => setRemoteStreamSynced(remote));
+      call.on("close", () => setRemoteStreamSynced(null));
+      call.on("error", (err) => console.error("[PeerJS call]", err));
     },
-    []
+    [setRemoteStreamSynced]
   );
 
   /* ── Helper: place an outgoing call ── */
@@ -81,10 +149,11 @@ export function useMatchmaking(
     (peer: Peer, targetPeerId: string, stream: MediaStream) => {
       const call = peer.call(targetPeerId, stream);
       callRef.current = call;
-      call.on("stream", (remote) => setRemoteStream(remote));
-      call.on("close", () => setRemoteStream(null));
+      call.on("stream", (remote) => setRemoteStreamSynced(remote));
+      call.on("close", () => setRemoteStreamSynced(null));
+      call.on("error", (err) => console.error("[PeerJS call]", err));
     },
-    []
+    [setRemoteStreamSynced]
   );
 
   useEffect(() => {
@@ -92,8 +161,8 @@ export function useMatchmaking(
 
     setStatus("connecting");
 
-    /* ── 1. Create PeerJS instance ── */
-    const peer = new Peer();
+    /* ── 1. Create PeerJS instance with multiple STUN + optional TURN ── */
+    const peer = new Peer({ config: { iceServers: buildIceServers() } });
     peerRef.current = peer;
 
     peer.on("open", (id) => {
@@ -108,14 +177,17 @@ export function useMatchmaking(
         setStatus("waiting");
       });
 
-      socket.on("waiting", () => setStatus("waiting"));
+      socket.on("waiting", () => {
+        if (!stoppedRef.current) setStatus("waiting");
+      });
 
       socket.on(
         "match_found",
         ({ partnerPeerId: ppId, role, emoji }: { partnerPeerId: string; role: string; emoji?: string }) => {
+          stoppedRef.current = false;
           callRef.current?.close();
           callRef.current = null;
-          setRemoteStream(null);
+          setRemoteStreamSynced(null);
           setPartnerPeerId(ppId);
           setEmojiPrompt(emoji ?? "\u{1F600}");
           setCountdown(null);
@@ -123,6 +195,8 @@ export function useMatchmaking(
           setPartnerLiveScore(null);
           setMessages([]);
           setStatus("matched");
+
+          startStreamTimeout();
 
           if (role === "caller") {
             placeCall(peer, ppId, localStream);
@@ -146,7 +220,11 @@ export function useMatchmaking(
 
       socket.on("match_skipped", () => {
         resetMatchState();
-        setStatus("waiting");
+        if (!stoppedRef.current) {
+          setStatus("waiting");
+        } else {
+          setStatus("stopped");
+        }
       });
 
       socket.on("chat_message", ({ text }: { text: string; fromSelf: boolean }) => {
@@ -155,7 +233,7 @@ export function useMatchmaking(
 
       socket.on("disconnect", () => {
         setStatus("idle");
-        setRemoteStream(null);
+        setRemoteStreamSynced(null);
       });
     });
 
@@ -165,18 +243,33 @@ export function useMatchmaking(
     });
 
     peer.on("error", (err) => {
-      console.error("[PeerJS]", err);
-      setStatus("error");
+      console.error("[PeerJS]", err.type, err.message);
+      if (err.type === "peer-unavailable") {
+        /* Partner disconnected before WebRTC handshake — silently re-queue */
+        console.warn("[PeerJS] peer-unavailable — re-queuing silently");
+        rejoinQueue();
+      } else if (
+        err.type === "network" ||
+        err.type === "socket-error" ||
+        err.type === "socket-closed" ||
+        err.type === "disconnected"
+      ) {
+        /* Transient PeerJS server issue — stay in waiting so user can retry */
+        setStatus("waiting");
+      } else {
+        setStatus("error");
+      }
     });
 
     return () => {
+      clearStreamTimeout();
       callRef.current?.close();
       peerRef.current?.destroy();
       socketRef.current?.disconnect();
       setStatus("idle");
       resetMatchState();
     };
-  }, [localStream, answerCall, placeCall, resetMatchState]);
+  }, [localStream, answerCall, placeCall, resetMatchState, rejoinQueue, startStreamTimeout, clearStreamTimeout, setRemoteStreamSynced]);
 
   const submitScore = useCallback((score: number) => {
     socketRef.current?.emit("submit_score", { score });
@@ -191,6 +284,22 @@ export function useMatchmaking(
     setStatus("waiting");
     socketRef.current?.emit("skip_user");
   }, [resetMatchState]);
+
+  const stopMatching = useCallback(() => {
+    stoppedRef.current = true;
+    resetMatchState();
+    setStatus("stopped");
+    socketRef.current?.emit("stop_matching");
+  }, [resetMatchState]);
+
+  const startMatching = useCallback(() => {
+    stoppedRef.current = false;
+    setStatus("waiting");
+    const peerId = peerRef.current?.id;
+    if (peerId && socketRef.current?.connected) {
+      socketRef.current.emit("join_queue", { peerId });
+    }
+  }, []);
 
   const sendChat = useCallback((text: string) => {
     if (!text.trim()) return;
@@ -210,6 +319,8 @@ export function useMatchmaking(
     submitScore,
     submitLiveScore,
     skipUser,
+    stopMatching,
+    startMatching,
     messages,
     sendChat,
   };

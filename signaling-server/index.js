@@ -218,6 +218,27 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("stop_matching", () => {
+    const roomId = socketToRoom.get(socket.id);
+
+    if (roomId) {
+      const members = cleanupRoom(roomId);
+      for (const memberId of members) {
+        if (memberId === socket.id) continue;
+        const memberSocket = io.sockets.sockets.get(memberId);
+        const memberPeerId = socketToPeer.get(memberId);
+        memberSocket?.emit("match_skipped", { bySelf: false });
+        if (memberSocket && memberPeerId) {
+          setTimeout(() => enqueueSocket(memberSocket, memberPeerId, socket.id), 250);
+        }
+      }
+    } else {
+      removeFromQueue(socket.id);
+    }
+
+    console.log(`[P] ${socket.id} stopped matching`);
+  });
+
   socket.on("disconnect", () => {
     // Remove from queue if still waiting
     removeFromQueue(socket.id);
@@ -242,6 +263,10 @@ io.on("connection", (socket) => {
 });
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+
+app.get("/online", (_req, res) => {
+  res.json({ count: io.engine.clientsCount ?? 0 });
+});
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => console.log(`Signaling server running on :${PORT}`));

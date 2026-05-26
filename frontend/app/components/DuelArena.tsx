@@ -73,6 +73,8 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
   const [roundSeconds, setRoundSeconds] = useState(ROUND_SECONDS);
   const [bestScore, setBestScore] = useState<number | null>(null);
   const [finalScore, setFinalScore] = useState<number | null>(null);
+  const [searchSession, setSearchSession] = useState(0);
+  const [noOneFound, setNoOneFound] = useState(false);
 
   const {
     status,
@@ -84,6 +86,8 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     submitScore,
     submitLiveScore,
     skipUser,
+    stopMatching,
+    startMatching,
     messages,
     sendChat,
   } = useMatchmaking(localStream);
@@ -142,7 +146,7 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
   }, [status, emojiPrompt]);
 
   useEffect(() => {
-    if (status === "waiting" || status === "idle" || status === "connecting") {
+    if (status === "waiting" || status === "idle" || status === "connecting" || status === "stopped") {
       setPhase("lobby");
       setRoundSeconds(ROUND_SECONDS);
       setBestScore(null);
@@ -152,6 +156,16 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
       submittedRef.current = false;
     }
   }, [status]);
+
+  useEffect(() => {
+    if (status !== "waiting") {
+      setNoOneFound(false);
+      return;
+    }
+    setNoOneFound(false);
+    const timer = setTimeout(() => setNoOneFound(true), 6000);
+    return () => clearTimeout(timer);
+  }, [status, searchSession]);
 
   useEffect(() => {
     if (countdown === null) return;
@@ -228,6 +242,15 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     return "10-second face check";
   }, [expression.status, phase]);
 
+  const handleRetry = useCallback(() => {
+    setSearchSession((s) => s + 1);
+    startMatching();
+  }, [startMatching]);
+
+  const handleStartMatching = useCallback(() => {
+    startMatching();
+  }, [startMatching]);
+
   const toggleMic = useCallback(() => {
     if (!localStream) return;
     const next = !isMicMuted;
@@ -270,7 +293,7 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
         </div>
       </header>
 
-      <div className="relative flex-1 grid min-h-0 grid-cols-1 gap-2 p-2 pb-64 sm:grid-cols-2 sm:gap-3 sm:p-3 sm:pb-56 lg:pb-52">
+      <div className="relative flex-1 grid min-h-0 grid-cols-1 gap-2 p-2 pb-52 xs:pb-56 sm:grid-cols-2 sm:gap-3 sm:p-3 sm:pb-48 lg:pb-40 xl:pb-36">
         <VideoPanel
           ref={webcamRef}
           label="YOU"
@@ -308,11 +331,11 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             className="absolute top-5 left-1/2 -translate-x-1/2 z-30 pointer-events-none"
           >
-            <div className="flex flex-col items-center gap-2 rounded-2xl border border-yellow-400/40 bg-black/75 px-7 py-3 shadow-2xl backdrop-blur-md">
+            <div className="flex flex-col items-center gap-1.5 sm:gap-2 rounded-2xl border border-yellow-400/40 bg-black/75 px-4 py-2 sm:px-7 sm:py-3 shadow-2xl backdrop-blur-md">
               <div className="flex items-center gap-4">
                 <span className="text-xs font-black uppercase tracking-[0.25em] text-yellow-300">Match</span>
                 <motion.span
-                  className="text-6xl leading-none"
+                  className="text-4xl sm:text-6xl leading-none"
                   animate={
                     phase === "playing"
                       ? { scale: [1, 1.12, 1], rotate: [-4, 4, -4] }
@@ -325,8 +348,8 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
               </div>
               {phase === "playing" && (
                 <div className="flex items-center gap-2 text-yellow-200">
-                  <span className="text-xs font-black uppercase tracking-[0.2em]">Timer</span>
-                  <span className="text-2xl font-black tabular-nums">{roundSeconds}s</span>
+                  <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em]">Timer</span>
+                  <span className="text-xl sm:text-2xl font-black tabular-nums">{roundSeconds}s</span>
                 </div>
               )}
               {phase === "playing" && bestScore !== null && (
@@ -351,16 +374,16 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
               initial={{ scale: 0.78, opacity: 0, y: 18 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               transition={{ type: "spring", stiffness: 260, damping: 18 }}
-              className="flex flex-col items-center text-center gap-4 px-8"
+              className="flex flex-col items-center text-center gap-3 sm:gap-4 px-4 sm:px-8"
             >
-              <span className={`text-[clamp(4.5rem,12vw,9rem)] font-black uppercase leading-none tracking-tight drop-shadow-2xl ${finalResult.tone}`}>
+              <span className={`text-[clamp(2.8rem,10vw,8rem)] font-black uppercase leading-none tracking-tight drop-shadow-2xl ${finalResult.tone}`}>
                 {finalResult.label}
               </span>
-              <div className="flex items-end gap-8">
+              <div className="flex items-end gap-6 sm:gap-8">
                 <ScoreReadout label="You" score={finalScore} highlight />
                 <ScoreReadout label="Rival" score={partnerScore} />
               </div>
-              <p className="max-w-md text-zinc-200 text-base font-semibold">
+              <p className="max-w-md text-zinc-200 text-sm sm:text-base font-semibold">
                 {finalResult.sub}
               </p>
             </motion.div>
@@ -375,13 +398,22 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
             messages={messages}
             onSend={sendChat}
             onSkip={skipUser}
+            onStop={stopMatching}
             disabled={phase === "lobby"}
           />
         </>
       )}
 
-      {(phase === "lobby" || status === "waiting") && !remoteStream && (
+      {(phase === "lobby" || status === "waiting") && !remoteStream && !noOneFound && (
         <LobbyOverlay status={status} />
+      )}
+
+      {status === "waiting" && noOneFound && (
+        <NoMatchOverlay onRetry={handleRetry} />
+      )}
+
+      {status === "stopped" && (
+        <PausedOverlay onStart={handleStartMatching} />
       )}
 
       {phase === "countdown" && <Countdown count={countdown} />}
@@ -394,10 +426,10 @@ function ScoreReadout({ label, score, highlight = false }: { label: string; scor
     <div className="flex flex-col items-center">
       <span className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400">{label}</span>
       <div className="flex items-end gap-1">
-        <span className={`text-5xl font-black tabular-nums ${highlight ? "text-white" : "text-zinc-300"}`}>
+        <span className={`text-3xl sm:text-5xl font-black tabular-nums ${highlight ? "text-white" : "text-zinc-300"}`}>
           {formatScore(score)}
         </span>
-        <span className="text-xl text-zinc-500 font-bold mb-1">/10</span>
+        <span className="text-base sm:text-xl text-zinc-500 font-bold mb-1">/10</span>
       </div>
     </div>
   );
@@ -429,7 +461,7 @@ function MicButton({ isMuted, onToggle }: { isMuted: boolean; onToggle: () => vo
       onClick={onToggle}
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.93 }}
-      className={`absolute bottom-3 left-3 z-50 flex items-center gap-2 px-4 py-2 backdrop-blur-md border text-white text-sm font-semibold rounded-full transition-colors shadow-lg ${
+      className={`absolute bottom-3 left-3 z-50 flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 backdrop-blur-md border text-white text-xs sm:text-sm font-semibold rounded-full transition-colors shadow-lg ${
         isMuted
           ? "bg-red-700/90 border-red-500 hover:bg-red-600"
           : "bg-zinc-900/90 border-zinc-700 hover:border-zinc-500"
@@ -463,13 +495,61 @@ function LobbyOverlay({ status }: { status: string }) {
         className="w-14 h-14 rounded-full border-4 border-zinc-700 border-t-yellow-400"
       />
       <div className="text-center">
-        <p className="text-2xl font-black text-white tracking-tight">
+        <p className="text-xl sm:text-2xl font-black text-white tracking-tight">
           {status === "connecting" ? "Getting camera..." : "Finding your rival..."}
         </p>
-        <p className="text-zinc-400 text-sm mt-1">
+        <p className="text-zinc-400 text-xs sm:text-sm mt-1">
           Open a second tab to test locally
         </p>
       </div>
+    </motion.div>
+  );
+}
+
+function NoMatchOverlay({ onRetry }: { onRetry: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm gap-5"
+    >
+      <span className="text-6xl">👀</span>
+      <div className="text-center">
+        <p className="text-xl sm:text-2xl font-black text-white tracking-tight">No rivals around</p>
+        <p className="text-zinc-400 text-xs sm:text-sm mt-1">Looks like no one&apos;s online right now</p>
+      </div>
+      <motion.button
+        onClick={onRetry}
+        whileHover={{ scale: 1.04 }}
+        whileTap={{ scale: 0.96 }}
+        className="pointer-events-auto rounded-full bg-violet-600 hover:bg-violet-500 px-10 py-3 text-sm font-black uppercase tracking-[0.18em] text-white shadow-2xl transition-colors"
+      >
+        Try Again
+      </motion.button>
+    </motion.div>
+  );
+}
+
+function PausedOverlay({ onStart }: { onStart: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm gap-5"
+    >
+      <span className="text-6xl">⏸️</span>
+      <div className="text-center">
+        <p className="text-xl sm:text-2xl font-black text-white tracking-tight">Matching Paused</p>
+        <p className="text-zinc-400 text-xs sm:text-sm mt-1">Click Start when you&apos;re ready to find a rival</p>
+      </div>
+      <motion.button
+        onClick={onStart}
+        whileHover={{ scale: 1.04 }}
+        whileTap={{ scale: 0.96 }}
+        className="pointer-events-auto rounded-full bg-emerald-600 hover:bg-emerald-500 px-10 py-3 text-sm font-black uppercase tracking-[0.18em] text-white shadow-2xl transition-colors"
+      >
+        Start Matching
+      </motion.button>
     </motion.div>
   );
 }

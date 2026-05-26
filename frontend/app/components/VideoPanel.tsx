@@ -48,7 +48,7 @@ const VideoPanel = forwardRef<Webcam, VideoPanelProps>(
     return (
       <div className={`relative w-full h-full rounded-2xl overflow-hidden bg-zinc-900 transition-shadow duration-700 ${panelBorder}`}>
         {!isRevealing && !isJudging && (
-          <div className="absolute top-3 left-3 z-10 bg-black/60 backdrop-blur-sm text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full text-zinc-300 border border-zinc-600">
+          <div className="absolute top-2 left-2 sm:top-3 sm:left-3 z-10 bg-black/60 backdrop-blur-sm text-[10px] sm:text-xs font-bold uppercase tracking-widest px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-zinc-300 border border-zinc-600">
             {label}
           </div>
         )}
@@ -57,9 +57,9 @@ const VideoPanel = forwardRef<Webcam, VideoPanelProps>(
           <motion.div
             initial={{ opacity: 0, scale: 0.85 }}
             animate={{ opacity: 1, scale: 1 }}
-            className={`absolute top-3 ${scoreAlign === "left" ? "left-3" : "right-3"} z-20 flex flex-col items-center justify-center w-16 h-16 rounded-2xl border-2 border-yellow-400/60 bg-black/75 backdrop-blur-sm`}
+            className={`absolute top-2 sm:top-3 ${scoreAlign === "left" ? "left-2 sm:left-3" : "right-2 sm:right-3"} z-20 flex flex-col items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl border-2 border-yellow-400/60 bg-black/75 backdrop-blur-sm`}
           >
-            <span className="text-2xl font-black leading-none text-yellow-300 tabular-nums">
+            <span className="text-lg sm:text-2xl font-black leading-none text-yellow-300 tabular-nums">
               {liveScore.toFixed(1)}
             </span>
             <span className="text-[8px] text-zinc-400 uppercase tracking-widest">/10</span>
@@ -114,7 +114,7 @@ const VideoPanel = forwardRef<Webcam, VideoPanelProps>(
         {!isLocal && !remoteStream && !frozenFrame && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-zinc-600 gap-2">
             <svg
-              className="w-16 h-16 opacity-30"
+              className="w-10 h-10 sm:w-16 sm:h-16 opacity-30"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -126,7 +126,7 @@ const VideoPanel = forwardRef<Webcam, VideoPanelProps>(
                 d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"
               />
             </svg>
-            <span className="text-sm tracking-wide">Waiting for match...</span>
+            <span className="text-xs sm:text-sm tracking-wide">Waiting for match...</span>
           </div>
         )}
 
@@ -163,9 +163,34 @@ function RemoteVideo({ stream }: { stream: MediaStream | null }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (!stream) {
+      video.srcObject = null;
+      return;
     }
+
+    video.srcObject = stream;
+
+    /* Clear the video element the instant any received track ends.
+       This fires synchronously when either RTCPeerConnection is closed,
+       so the partner's face disappears immediately without a frozen frame. */
+    const clearOnEnd = () => {
+      if (videoRef.current && videoRef.current.srcObject === stream) {
+        videoRef.current.srcObject = null;
+      }
+    };
+
+    stream.getTracks().forEach((track) => {
+      track.addEventListener("ended", clearOnEnd);
+    });
+
+    return () => {
+      stream.getTracks().forEach((track) => {
+        track.removeEventListener("ended", clearOnEnd);
+      });
+    };
   }, [stream]);
 
   return (

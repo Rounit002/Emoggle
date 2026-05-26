@@ -134,27 +134,27 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
 
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-black">
-      <header className="z-10 flex flex-none flex-col gap-2 border-b border-zinc-800 bg-zinc-950 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <div className="flex items-center gap-3">
+      <header className="z-10 flex flex-none items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-950 px-4 py-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
           <button
             onClick={onBack}
-            className="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 transition-colors hover:text-white"
+            className="flex flex-none items-center gap-1.5 text-xs font-semibold text-zinc-400 transition-colors hover:text-white"
           >
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
             Back
           </button>
-          <span className="text-lg font-black tracking-tight text-white sm:text-xl">Emoggle</span>
-          <span className="rounded-full bg-cyan-500 px-2.5 py-1 text-xs font-semibold text-white">Solo</span>
+          <span className="truncate text-base sm:text-lg font-black tracking-tight text-white">Emoggle</span>
+          <span className="flex-none rounded-full bg-cyan-500 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-semibold text-white">Solo</span>
         </div>
-        <span className={expression.status === "ready" ? "text-sm font-bold text-emerald-300" : "text-sm font-bold text-yellow-300"}>
+        <span className={`flex-none text-xs sm:text-sm font-bold truncate max-w-[140px] sm:max-w-none ${expression.status === "ready" ? "text-emerald-300" : "text-yellow-300"}`}>
           {statusText}
         </span>
       </header>
 
-      <main className="relative grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
-        <div className="relative min-h-[42vh] lg:min-h-0">
+      <main className="relative grid min-h-0 flex-1 grid-cols-1 gap-2 sm:gap-3 p-2 sm:p-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)]">
+        <div className="relative min-h-[38vh] sm:min-h-[42vh] lg:min-h-0">
           <VideoPanel
             ref={webcamRef}
             label="YOU"
@@ -175,7 +175,7 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
         <motion.div
           initial={{ opacity: 0, y: 12, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          className="flex min-h-[260px] flex-col overflow-hidden rounded-2xl border border-cyan-400/30 bg-zinc-950 shadow-2xl shadow-cyan-950/30"
+          className="flex min-h-[220px] sm:min-h-[260px] flex-col overflow-hidden rounded-2xl border border-cyan-400/30 bg-zinc-950 shadow-2xl shadow-cyan-950/30"
         >
           <div className="flex flex-none items-center justify-between border-b border-zinc-800 px-4 py-3">
             <span className="text-xs font-black uppercase tracking-[0.25em] text-cyan-300">Emoji Target</span>
@@ -195,8 +195,8 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
                 {phase === "playing" ? "Match this face" : "Ready when you are"}
               </span>
               <div className="flex items-end gap-1">
-                <span className="text-5xl font-black tabular-nums text-white">{formatScore(phase === "results" ? finalScore : liveScore)}</span>
-                <span className="mb-1 text-xl font-bold text-zinc-500">/10</span>
+                <span className="text-4xl sm:text-5xl font-black tabular-nums text-white">{formatScore(phase === "results" ? finalScore : liveScore)}</span>
+                <span className="mb-1 text-lg sm:text-xl font-bold text-zinc-500">/10</span>
               </div>
             </div>
 
@@ -240,14 +240,14 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
               transition={{ type: "spring", stiffness: 260, damping: 18 }}
               className="flex flex-col items-center gap-4 px-8 text-center"
             >
-              <span className={`text-[clamp(4rem,11vw,8rem)] font-black uppercase leading-none tracking-tight drop-shadow-2xl ${result.tone}`}>
+              <span className={`text-[clamp(2.5rem,9vw,7rem)] font-black uppercase leading-none tracking-tight drop-shadow-2xl ${result.tone}`}>
                 {result.label}
               </span>
               <div className="flex items-end gap-1">
-                <span className="text-6xl font-black tabular-nums text-white">{formatScore(finalScore)}</span>
-                <span className="mb-2 text-2xl font-bold text-zinc-400">/10</span>
+                <span className="text-4xl sm:text-6xl font-black tabular-nums text-white">{formatScore(finalScore)}</span>
+                <span className="mb-1 sm:mb-2 text-xl sm:text-2xl font-bold text-zinc-400">/10</span>
               </div>
-              <p className="max-w-md text-base font-semibold text-zinc-200">{result.sub}</p>
+              <p className="max-w-md text-sm sm:text-base font-semibold text-zinc-200 px-4">{result.sub}</p>
             </motion.div>
           </motion.div>
         )}
