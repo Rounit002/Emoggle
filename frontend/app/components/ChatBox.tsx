@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import type { ChatMessage } from "../hooks/useMatchmaking";
 
@@ -10,21 +10,33 @@ interface ChatBoxProps {
   onSkip?: () => void;
   onStop?: () => void;
   disabled?: boolean;
+  rivalTyping?: boolean;
+  onTyping?: (isTyping: boolean) => void;
 }
 
-export default function ChatBox({ messages, onSend, onSkip, onStop, disabled = false }: ChatBoxProps) {
+export default function ChatBox({ messages, onSend, onSkip, onStop, disabled = false, rivalTyping = false, onTyping }: ChatBoxProps) {
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* Auto-scroll to bottom on new message */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+    if (!onTyping) return;
+    onTyping(true);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => onTyping(false), 1500);
+  }, [onTyping]);
+
   const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed || disabled) return;
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     onSend(trimmed);
     setInput("");
   };
@@ -80,6 +92,24 @@ export default function ChatBox({ messages, onSend, onSkip, onStop, disabled = f
               Say something to your opponent…
             </p>
           )}
+          {rivalTyping && (
+            <motion.div
+              key="typing-indicator"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 4 }}
+              className="flex justify-start"
+            >
+              <div className="flex items-center gap-1 bg-zinc-800 text-zinc-400 text-xs px-3 py-1.5 rounded-2xl rounded-bl-sm">
+                <span className="inline-flex gap-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:300ms]" />
+                </span>
+                <span>typing</span>
+              </div>
+            </motion.div>
+          )}
           {messages.map((msg) => (
             <motion.div
               key={msg.ts}
@@ -105,7 +135,7 @@ export default function ChatBox({ messages, onSend, onSkip, onStop, disabled = f
             ref={inputRef}
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={handleKey}
             maxLength={200}
             placeholder="Type a message…"

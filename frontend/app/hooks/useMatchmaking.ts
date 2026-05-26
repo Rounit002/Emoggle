@@ -50,6 +50,7 @@ export interface MatchmakingState {
   partnerScore: number | null;
   partnerLiveScore: number | null;
   emojiPrompt: string | null;
+  partnerCountry: string | null;
   submitScore: (score: number) => void;
   submitLiveScore: (score: number) => void;
   skipUser: () => void;
@@ -57,11 +58,15 @@ export interface MatchmakingState {
   startMatching: () => void;
   messages: ChatMessage[];
   sendChat: (text: string) => void;
+  rivalTyping: boolean;
+  sendTyping: (isTyping: boolean) => void;
 }
 
 export function useMatchmaking(
-  localStream: MediaStream | null
+  localStream: MediaStream | null,
+  myCountry: string | null = null
 ): MatchmakingState {
+  const myCountryRef = useRef<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const peerRef = useRef<Peer | null>(null);
   const callRef = useRef<MediaConnection | null>(null);
@@ -78,6 +83,8 @@ export function useMatchmaking(
   const [partnerLiveScore, setPartnerLiveScore] = useState<number | null>(null);
   const [emojiPrompt, setEmojiPrompt] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [rivalTyping, setRivalTyping] = useState(false);
+  const [partnerCountry, setPartnerCountry] = useState<string | null>(null);
 
   const clearStreamTimeout = useCallback(() => {
     if (streamTimeoutRef.current) {
@@ -109,6 +116,8 @@ export function useMatchmaking(
     setPartnerLiveScore(null);
     setEmojiPrompt(null);
     setMessages([]);
+    setRivalTyping(false);
+    setPartnerCountry(null);
   }, [clearStreamTimeout, setRemoteStreamSynced]);
 
   /* Re-join queue after a failed connection (silent recovery) */
@@ -117,7 +126,7 @@ export function useMatchmaking(
     setStatus("waiting");
     const peerId = peerRef.current?.id;
     if (peerId && socketRef.current?.connected) {
-      socketRef.current.emit("join_queue", { peerId });
+      socketRef.current.emit("join_queue", { peerId, country: myCountryRef.current });
     }
   }, [resetMatchState]);
 
@@ -173,7 +182,7 @@ export function useMatchmaking(
       socketRef.current = socket;
 
       socket.on("connect", () => {
-        socket.emit("join_queue", { peerId: id });
+        socket.emit("join_queue", { peerId: id, country: myCountryRef.current });
         setStatus("waiting");
       });
 
@@ -183,7 +192,7 @@ export function useMatchmaking(
 
       socket.on(
         "match_found",
-        ({ partnerPeerId: ppId, role, emoji }: { partnerPeerId: string; role: string; emoji?: string }) => {
+        ({ partnerPeerId: ppId, role, emoji, partnerCountry: pc }: { partnerPeerId: string; role: string; emoji?: string; partnerCountry?: string | null }) => {
           stoppedRef.current = false;
           callRef.current?.close();
           callRef.current = null;
@@ -194,7 +203,11 @@ export function useMatchmaking(
           setPartnerScore(null);
           setPartnerLiveScore(null);
           setMessages([]);
+          setPartnerCountry(pc ?? null);
           setStatus("matched");
+          if (myCountryRef.current) {
+            socket.emit("update_country", { country: myCountryRef.current });
+          }
 
           startStreamTimeout();
 
@@ -229,6 +242,15 @@ export function useMatchmaking(
 
       socket.on("chat_message", ({ text }: { text: string; fromSelf: boolean }) => {
         setMessages((prev) => [...prev, { text, fromSelf: false, ts: Date.now() }]);
+        setRivalTyping(false);
+      });
+
+      socket.on("rival_typing", ({ isTyping }: { isTyping: boolean }) => {
+        setRivalTyping(isTyping);
+      });
+
+      socket.on("partner_country", ({ country }: { country: string }) => {
+        setPartnerCountry(country);
       });
 
       socket.on("disconnect", () => {
@@ -297,15 +319,27 @@ export function useMatchmaking(
     setStatus("waiting");
     const peerId = peerRef.current?.id;
     if (peerId && socketRef.current?.connected) {
-      socketRef.current.emit("join_queue", { peerId });
+      socketRef.current.emit("join_queue", { peerId, country: myCountryRef.current });
     }
   }, []);
 
   const sendChat = useCallback((text: string) => {
     if (!text.trim()) return;
+    socketRef.current?.emit("typing", { isTyping: false });
     socketRef.current?.emit("chat_message", { text });
     setMessages((prev) => [...prev, { text, fromSelf: true, ts: Date.now() }]);
   }, []);
+
+  const sendTyping = useCallback((isTyping: boolean) => {
+    socketRef.current?.emit("typing", { isTyping });
+  }, []);
+
+  useEffect(() => {
+    myCountryRef.current = myCountry;
+    if (myCountry && socketRef.current?.connected) {
+      socketRef.current.emit("update_country", { country: myCountry });
+    }
+  }, [myCountry]);
 
   return {
     status,
@@ -316,6 +350,7 @@ export function useMatchmaking(
     partnerScore,
     partnerLiveScore,
     emojiPrompt,
+    partnerCountry,
     submitScore,
     submitLiveScore,
     skipUser,
@@ -323,5 +358,7 @@ export function useMatchmaking(
     startMatching,
     messages,
     sendChat,
+    rivalTyping,
+    sendTyping,
   };
 }

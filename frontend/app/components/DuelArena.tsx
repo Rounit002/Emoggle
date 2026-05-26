@@ -75,6 +75,42 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
   const [finalScore, setFinalScore] = useState<number | null>(null);
   const [searchSession, setSearchSession] = useState(0);
   const [noOneFound, setNoOneFound] = useState(false);
+  const [myCountry, setMyCountry] = useState<string | null>(null);
+
+  useEffect(() => {
+    const codeToFlag = (code: string) =>
+      code.toUpperCase().replace(/./g, (c: string) =>
+        String.fromCodePoint(127462 + c.charCodeAt(0) - 65)
+      );
+
+    const tryIpWhoIs = () =>
+      fetch("https://ipwho.is/")
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.success && d.country_code && d.country) {
+            setMyCountry(`${codeToFlag(d.country_code)} ${d.country}`);
+            return true;
+          }
+          return false;
+        })
+        .catch(() => false);
+
+    const tryIpApiCo = () =>
+      fetch("https://ipapi.co/json/")
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.country_code && d.country_name) {
+            setMyCountry(`${codeToFlag(d.country_code)} ${d.country_name}`);
+            return true;
+          }
+          return false;
+        })
+        .catch(() => false);
+
+    tryIpWhoIs().then((ok) => {
+      if (!ok) tryIpApiCo();
+    });
+  }, []);
 
   const {
     status,
@@ -90,7 +126,10 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     startMatching,
     messages,
     sendChat,
-  } = useMatchmaking(localStream);
+    rivalTyping,
+    sendTyping,
+    partnerCountry,
+  } = useMatchmaking(localStream, myCountry);
 
   const publishLiveScore = useCallback(
     (rawScore: number) => {
@@ -294,36 +333,56 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
       </header>
 
       <div className="relative flex-1 grid min-h-0 grid-cols-1 gap-2 p-2 pb-52 xs:pb-56 sm:grid-cols-2 sm:gap-3 sm:p-3 sm:pb-48 lg:pb-40 xl:pb-36">
-        <VideoPanel
-          ref={webcamRef}
-          label="YOU"
-          isLocal={true}
-          frozenFrame={null}
-          liveScore={phase === "results" ? finalScore : liveScore}
-          score={finalScore}
-          verdict={null}
-          roast={null}
-          isRevealing={false}
-          isPlaying={phase === "playing" || phase === "results"}
-          isJudging={false}
-          scoreAlign="left"
-          scanBox={expression.faceBox}
-        />
+        <div className="flex flex-col min-h-0 gap-1.5">
+          <div className="relative flex-1 min-h-0">
+            <VideoPanel
+              ref={webcamRef}
+              label="YOU"
+              isLocal={true}
+              frozenFrame={null}
+              liveScore={phase === "results" ? finalScore : liveScore}
+              score={finalScore}
+              verdict={null}
+              roast={null}
+              isRevealing={false}
+              isPlaying={phase === "playing" || phase === "results"}
+              isJudging={false}
+              scoreAlign="left"
+              scanBox={expression.faceBox}
+            />
+          </div>
+          {myCountry && (
+            <div className="flex items-center gap-2 px-1 py-0.5">
+              <span className="text-3xl leading-none">{myCountry.split(" ")[0]}</span>
+              <span className="text-base font-bold text-white tracking-wide">{myCountry.split(" ").slice(1).join(" ")}</span>
+            </div>
+          )}
+        </div>
 
-        <VideoPanel
-          label="STRANGER"
-          isLocal={false}
-          remoteStream={remoteDisplayStream}
-          frozenFrame={null}
-          liveScore={phase === "results" ? partnerScore : partnerLiveScore}
-          score={partnerScore}
-          verdict={null}
-          roast={null}
-          isRevealing={false}
-          isPlaying={phase === "playing" || phase === "results"}
-          isJudging={false}
-          scoreAlign="right"
-        />
+        <div className="flex flex-col min-h-0 gap-1.5">
+          <div className="relative flex-1 min-h-0">
+            <VideoPanel
+              label="STRANGER"
+              isLocal={false}
+              remoteStream={remoteDisplayStream}
+              frozenFrame={null}
+              liveScore={phase === "results" ? partnerScore : partnerLiveScore}
+              score={partnerScore}
+              verdict={null}
+              roast={null}
+              isRevealing={false}
+              isPlaying={phase === "playing" || phase === "results"}
+              isJudging={false}
+              scoreAlign="right"
+            />
+          </div>
+          {partnerCountry && (
+            <div className="flex items-center justify-end gap-2 px-1 py-0.5">
+              <span className="text-base font-bold text-white tracking-wide">{partnerCountry.split(" ").slice(1).join(" ")}</span>
+              <span className="text-3xl leading-none">{partnerCountry.split(" ")[0]}</span>
+            </div>
+          )}
+        </div>
 
         {status === "matched" && emojiPrompt && (
           <motion.div
@@ -400,6 +459,8 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
             onSkip={skipUser}
             onStop={stopMatching}
             disabled={phase === "lobby"}
+            rivalTyping={rivalTyping}
+            onTyping={sendTyping}
           />
         </>
       )}

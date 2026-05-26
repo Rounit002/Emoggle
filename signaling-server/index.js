@@ -19,6 +19,7 @@ const socketToRoom = new Map();
 const socketToPeer = new Map();
 const countdownTimers = new Map(); // roomId -> intervalId
 const roomScores = new Map();      // roomId -> [{ socketId, score }, ...]
+const socketToCountry = new Map(); // socketId -> country string
 
 const EMOJI_PROMPTS = [
   "\u{1F600}",
@@ -94,11 +95,13 @@ function startMatch(socket, partner) {
 
   partnerSocket.emit("match_found", {
     partnerPeerId: socketToPeer.get(socket.id),
+    partnerCountry: socketToCountry.get(socket.id) ?? null,
     role: "caller",
     emoji,
   });
   socket.emit("match_found", {
     partnerPeerId: partner.peerId,
+    partnerCountry: socketToCountry.get(partner.socketId) ?? null,
     role: "receiver",
     emoji,
   });
@@ -147,9 +150,10 @@ io.on("connection", (socket) => {
   console.log(`[+] Connected: ${socket.id}`);
 
   // Client registers their PeerJS ID when ready
-  socket.on("join_queue", ({ peerId }) => {
+  socket.on("join_queue", ({ peerId, country }) => {
     console.log(`[Q] ${socket.id} joined queue with peerId=${peerId}`);
     socketToPeer.set(socket.id, peerId);
+    if (country) socketToCountry.set(socket.id, country);
 
     enqueueSocket(socket, peerId);
   });
@@ -179,6 +183,21 @@ io.on("connection", (socket) => {
     }
 
     console.log(`[S] ${socket.id} skipped room ${roomId}${partnerId ? ` with ${partnerId}` : ""}`);
+  });
+
+  /* ── Late country update (geo-fetch resolves after socket connect) ── */
+  socket.on("update_country", ({ country }) => {
+    if (!country) return;
+    socketToCountry.set(socket.id, country);
+    const roomId = socketToRoom.get(socket.id);
+    if (roomId) socket.to(roomId).emit("partner_country", { country });
+  });
+
+  /* ── Typing indicator relay ── */
+  socket.on("typing", ({ isTyping }) => {
+    const roomId = socketToRoom.get(socket.id);
+    if (!roomId) return;
+    socket.to(roomId).emit("rival_typing", { isTyping: !!isTyping });
   });
 
   /* ── Chat relay: forward message to the other person in the room only ── */
@@ -257,6 +276,7 @@ io.on("connection", (socket) => {
       }
     }
     socketToPeer.delete(socket.id);
+    socketToCountry.delete(socket.id);
 
     console.log(`[-] Disconnected: ${socket.id}`);
   });
