@@ -55,6 +55,15 @@ async function initSchema() {
         completed_at TIMESTAMP
       )
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        token VARCHAR(64) PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        expires_at TIMESTAMP DEFAULT (NOW() + INTERVAL '7 days')
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_users_socket_id ON users(socket_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_users_elo ON users(elo)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status)`);

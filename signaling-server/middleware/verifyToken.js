@@ -1,26 +1,33 @@
-const jwt = require("jsonwebtoken");
+const { pool } = require("../db");
 
-function verifyToken(req, res, next) {
+async function verifyToken(req, res, next) {
   const token = req.cookies?.token || extractBearerToken(req.headers.authorization);
 
   if (!token) {
     return res.status(401).json({ detail: "Authentication required." });
   }
 
-  if (!process.env.JWT_SECRET) {
-    console.error("[Auth] JWT_SECRET is not set");
-    return res.status(500).json({ detail: "Server authentication misconfiguration." });
-  }
-
+  let client;
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    client = await pool.connect();
+    const { rows } = await client.query(
+      `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = $1 AND s.expires_at > NOW()`,
+      [token]
+    );
+    if (!rows[0]) {
+      return res.status(401).json({ detail: "Invalid or expired session." });
+    }
+    req.user = rows[0];
     next();
-  } catch {
-    return res.status(401).json({ detail: "Invalid or expired token." });
+  } catch (err) {
+    console.error("[Auth] verifyToken error:", err.message);
+    return res.status(500).json({ detail: "Authentication error." });
+  } finally {
+    client?.release();
   }
 }
 
-function verifySocketToken(socket, next) {
+async function verifySocketToken(socket, next) {
   const token =
     socket.handshake.auth?.token ||
     parseCookieToken(socket.handshake.headers?.cookie);
@@ -30,18 +37,20 @@ function verifySocketToken(socket, next) {
     return next();
   }
 
-  if (!process.env.JWT_SECRET) {
-    socket.user = null;
-    return next();
-  }
-
+  let client;
   try {
-    socket.user = jwt.verify(token, process.env.JWT_SECRET);
+    client = await pool.connect();
+    const { rows } = await client.query(
+      `SELECT u.id, u.username, u.email FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = $1 AND s.expires_at > NOW()`,
+      [token]
+    );
+    socket.user = rows[0] || null;
   } catch {
     socket.user = null;
+  } finally {
+    client?.release();
+    next();
   }
-
-  next();
 }
 
 function extractBearerToken(authHeader) {

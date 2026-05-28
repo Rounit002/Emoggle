@@ -1,6 +1,5 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const { pool } = require("../db");
@@ -8,24 +7,28 @@ const { pool } = require("../db");
 const router = express.Router();
 
 const SALT_ROUNDS = 10;
-const JWT_EXPIRES_IN = "7d";
+const SESSION_DAYS = 7;
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-function issueJwt(res, row) {
-  const token = jwt.sign(
-    { userId: row.id, email: row.email, authProvider: row.auth_provider },
-    process.env.JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
+async function createSession(client, userId) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+  await client.query(
+    `INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3)`,
+    [token, userId, expiresAt]
   );
+  return token;
+}
+
+function setSessionCookie(res, token) {
   const isProd = process.env.NODE_ENV === "production";
   res.cookie("token", token, {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    maxAge: SESSION_DAYS * 24 * 60 * 60 * 1000,
   });
-  return token;
 }
 
 function safeUser(row) {
@@ -53,9 +56,6 @@ router.post("/register", async (req, res) => {
   if (typeof password !== "string" || password.length < 8) {
     return res.status(400).json({ detail: "Password must be at least 8 characters." });
   }
-  if (!process.env.JWT_SECRET) {
-    return res.status(500).json({ detail: "Server authentication misconfiguration." });
-  }
 
   const safeEmail = email.trim().toLowerCase();
   const safeUsername = String(username).trim().slice(0, 24);
@@ -80,7 +80,8 @@ router.post("/register", async (req, res) => {
       [newId, safeEmail, passwordHash, safeUsername, safeAge, safeGender]
     );
 
-    issueJwt(res, rows[0]);
+    const token = await createSession(client, rows[0].id);
+    setSessionCookie(res, token);
     return res.status(201).json({ user: safeUser(rows[0]) });
   } catch (err) {
     console.error("[Auth] Register error:", err.message);
@@ -96,9 +97,6 @@ router.post("/login", async (req, res) => {
 
   if (!email || !password) {
     return res.status(400).json({ detail: "email and password are required." });
-  }
-  if (!process.env.JWT_SECRET) {
-    return res.status(500).json({ detail: "Server authentication misconfiguration." });
   }
 
   const safeEmail = email.trim().toLowerCase();
@@ -128,7 +126,8 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ detail: "Invalid email or password." });
     }
 
-    issueJwt(res, user);
+    const token = await createSession(client, user.id);
+    setSessionCookie(res, token);
     return res.json({ user: safeUser(user) });
   } catch (err) {
     console.error("[Auth] Login error:", err.message);
@@ -147,9 +146,6 @@ router.post("/google", async (req, res) => {
   }
   if (!process.env.GOOGLE_CLIENT_ID) {
     return res.status(503).json({ detail: "Google OAuth is not configured on this server." });
-  }
-  if (!process.env.JWT_SECRET) {
-    return res.status(500).json({ detail: "Server authentication misconfiguration." });
   }
 
   let googlePayload;
@@ -198,7 +194,8 @@ router.post("/google", async (req, res) => {
       user = linked[0];
     }
 
-    issueJwt(res, user);
+    const token = await createSession(client, user.id);
+    setSessionCookie(res, token);
     return res.json({ user: safeUser(user) });
   } catch (err) {
     console.error("[Auth] Google auth error:", err.message);
@@ -209,8 +206,20 @@ router.post("/google", async (req, res) => {
 });
 
 // ─── POST /api/auth/logout ───────────────────────────────────────────────────
-router.post("/logout", (_req, res) => {
+router.post("/logout", async (req, res) => {
+  const token = req.cookies?.token;
   const isProd = process.env.NODE_ENV === "production";
+  if (token) {
+    let client;
+    try {
+      client = await pool.connect();
+      await client.query("DELETE FROM sessions WHERE token = $1", [token]);
+    } catch (err) {
+      console.error("[Auth] Logout error:", err.message);
+    } finally {
+      client?.release();
+    }
+  }
   res.clearCookie("token", {
     httpOnly: true,
     secure: isProd,
@@ -222,30 +231,25 @@ router.post("/logout", (_req, res) => {
 // ─── GET /api/auth/me ────────────────────────────────────────────────────────
 router.get("/me", async (req, res) => {
   const token = req.cookies?.token;
-  if (!token || !process.env.JWT_SECRET) {
+  if (!token) {
     return res.status(401).json({ detail: "Not authenticated." });
-  }
-
-  let decoded;
-  try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET);
-  } catch {
-    return res.status(401).json({ detail: "Invalid or expired token." });
   }
 
   let client;
   try {
     client = await pool.connect();
     const { rows } = await client.query(
-      `SELECT id, username, email, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at
-       FROM users WHERE id = $1`,
-      [decoded.userId]
+      `SELECT u.id, u.username, u.email, u.age, u.verified_gender, u.elo, u.is_vip, u.free_matches_left, u.auth_provider, u.created_at
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.token = $1 AND s.expires_at > NOW()`,
+      [token]
     );
-    if (!rows[0]) return res.status(404).json({ detail: "User not found." });
+    if (!rows[0]) return res.status(401).json({ detail: "Session expired or invalid." });
     return res.json({ user: safeUser(rows[0]) });
   } catch (err) {
     console.error("[Auth] /me error:", err.message);
-    return res.status(500).json({ detail: "Database error." });
+    return res.status(500).json({ detail: "Database error.", error: err.message });
   } finally {
     client?.release();
   }
