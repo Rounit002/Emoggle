@@ -11,7 +11,12 @@ async function initSchema() {
   const client = await pool.connect();
   try {
     // Ensure UUID function is available on all PostgreSQL versions
-    await client.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+    // Wrapped separately — Supabase may deny extension creation but it's already enabled
+    try {
+      await client.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
+    } catch (extErr) {
+      console.warn("[DB] pgcrypto extension note:", extErr.message);
+    }
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
