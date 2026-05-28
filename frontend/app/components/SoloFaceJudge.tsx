@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import Webcam from "react-webcam";
 import VideoPanel from "./VideoPanel";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
 
@@ -41,7 +40,7 @@ function pickEmoji(previous?: string) {
 
 function toTenPoint(rawScore: number | null) {
   if (rawScore === null) return null;
-  return Math.max(0, Math.min(10, Number((rawScore / 10).toFixed(1))));
+  return Math.max(0, Math.min(10, Number(rawScore.toFixed(2))));
 }
 
 function formatScore(score: number | null) {
@@ -59,7 +58,7 @@ function soloResult(score: number | null) {
 }
 
 export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
-  const webcamRef = useRef<Webcam>(null);
+  const webcamRef = useRef<HTMLVideoElement>(null);
   const samplesRef = useRef<number[]>([]);
   const [phase, setPhase] = useState<SoloPhase>("ready");
   const [emojiPrompt, setEmojiPrompt] = useState(() => pickEmoji());
@@ -169,6 +168,7 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
             isJudging={false}
             scoreAlign="left"
             scanBox={expression.faceBox}
+            faceLandmarks={expression.faceLandmarks}
           />
         </div>
 

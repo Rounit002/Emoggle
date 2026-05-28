@@ -1,18 +1,23 @@
 "use client";
 
 import { motion } from "framer-motion";
-import Webcam from "react-webcam";
-import { forwardRef, useEffect, useRef } from "react";
+import { forwardRef, useEffect, useRef, type RefObject } from "react";
 import AnalyzingOverlay from "./AnalyzingOverlay";
-import type { FaceBox } from "../hooks/useExpressionScorer";
+import type { FaceBox, FaceLandmark } from "../hooks/useExpressionScorer";
+import { useMediaPipeFace, type MeshConnection } from "../context/MediaPipeFaceContext";
 
 interface VideoPanelProps {
   label: string;
   isLocal: boolean;
+  playerName?: string;
+  country?: string | null;
+  rankLabel?: string;
+  localStream?: MediaStream | null;
   remoteStream?: MediaStream | null;
   frozenFrame?: string | null;
   score?: number | null;
   liveScore?: number | null;
+  opponentLiveScore?: number | null;
   verdict?: string | null;
   roast?: string | null;
   isRevealing: boolean;
@@ -20,17 +25,23 @@ interface VideoPanelProps {
   isJudging?: boolean;
   scoreAlign?: "left" | "right";
   scanBox?: FaceBox | null;
+  faceLandmarks?: FaceLandmark[] | null;
 }
 
-const VideoPanel = forwardRef<Webcam, VideoPanelProps>(
+const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
   (
     {
       label,
       isLocal,
+      playerName,
+      country,
+      rankLabel = "UNRANKED | 400 ELO",
+      localStream,
       remoteStream,
       frozenFrame,
       score,
       liveScore,
+      opponentLiveScore,
       verdict,
       roast,
       isRevealing,
@@ -38,35 +49,63 @@ const VideoPanel = forwardRef<Webcam, VideoPanelProps>(
       isJudging = false,
       scoreAlign = "right",
       scanBox = null,
+      faceLandmarks = null,
     },
     ref
   ) => {
+    const localVideoRef = useRef<HTMLVideoElement | null>(null);
     const panelBorder = isJudging
       ? "border-2 border-white/30 shadow-[0_0_0_3px_rgba(255,255,255,0.07),0_0_40px_8px_rgba(255,255,255,0.06)]"
       : "border border-zinc-700";
 
     return (
       <div className={`relative w-full h-full rounded-2xl overflow-hidden bg-zinc-900 transition-shadow duration-700 ${panelBorder}`}>
+        <div className="pointer-events-none absolute inset-0 z-20 border border-white/10 shadow-[inset_0_0_80px_rgba(0,0,0,0.65)]" />
+        <div className="pointer-events-none absolute inset-0 z-20 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:100%_4px] opacity-35 mix-blend-screen" />
+
         {!isRevealing && !isJudging && (
-          <div className="absolute top-2 left-2 sm:top-3 sm:left-3 z-10 bg-black/60 backdrop-blur-sm text-[10px] sm:text-xs font-bold uppercase tracking-widest px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-zinc-300 border border-zinc-600">
-            {label}
-          </div>
+          <>
+            <div className="absolute top-3 left-3 z-30 rounded-full border border-white/15 bg-black/65 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-zinc-200 backdrop-blur-md">
+              {label}
+            </div>
+            <div className="absolute top-3 right-3 z-30 rounded-full border border-violet-300/30 bg-zinc-950/75 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white shadow-[0_0_22px_rgba(168,85,247,0.22)] backdrop-blur-md">
+              {rankLabel.replace("|", " | ")}
+            </div>
+            <div className="absolute bottom-3 left-3 z-30 flex items-center gap-2 rounded-full border border-white/15 bg-black/65 px-3 py-1.5 backdrop-blur-md">
+              {country && <span className="text-lg leading-none">{country.split(" ")[0]}</span>}
+              <span className="text-xs font-black uppercase tracking-[0.16em] text-white">{playerName ?? label}</span>
+            </div>
+          </>
         )}
 
         {isPlaying && liveScore != null && (
           <motion.div
             initial={{ opacity: 0, scale: 0.85 }}
             animate={{ opacity: 1, scale: 1 }}
-            className={`absolute top-2 sm:top-3 ${scoreAlign === "left" ? "left-2 sm:left-3" : "right-2 sm:right-3"} z-20 flex flex-col items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-xl sm:rounded-2xl border-2 border-yellow-400/60 bg-black/75 backdrop-blur-sm`}
+            className={`absolute top-14 ${scoreAlign === "left" ? "left-3" : "right-3"} z-30 w-32 rounded-xl border border-emerald-300/25 bg-zinc-950/80 px-3 py-2 shadow-[0_0_26px_rgba(57,255,20,0.14)] backdrop-blur-md sm:w-36`}
           >
-            <span className="text-lg sm:text-2xl font-black leading-none text-yellow-300 tabular-nums">
-              {liveScore.toFixed(1)}
-            </span>
-            <span className="text-[8px] text-zinc-400 uppercase tracking-widest">/10</span>
+            <div className="text-[9px] font-black uppercase tracking-[0.18em] text-zinc-500">Overall Score</div>
+            <div className="flex items-end gap-1">
+              <span className="text-3xl font-black leading-none text-white tabular-nums">{liveScore.toFixed(1)}</span>
+              <span className="mb-0.5 text-xs font-bold text-zinc-500">/10</span>
+            </div>
+            <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-[9px] font-bold uppercase tracking-[0.12em]">
+              <span className="text-zinc-500">Geo</span>
+              <span className="truncate text-emerald-300">Live Mesh</span>
+              <span className="text-zinc-500">Rival</span>
+              <span className="truncate text-cyan-300">{opponentLiveScore == null ? "Syncing" : opponentLiveScore.toFixed(1)}</span>
+            </div>
           </motion.div>
         )}
 
-        {isPlaying && <FaceScanOverlay faceBox={scanBox} />}
+        {isLocal && (
+          <FaceScanOverlay
+            faceBox={scanBox}
+            landmarks={faceLandmarks}
+            mirrored={isLocal}
+            videoRef={localVideoRef}
+          />
+        )}
 
         {isRevealing && score !== null && verdict && (
           <motion.div
@@ -90,12 +129,13 @@ const VideoPanel = forwardRef<Webcam, VideoPanelProps>(
         )}
 
         {isLocal && !frozenFrame && (
-          <Webcam
-            ref={ref}
-            audio={false}
-            mirrored={true}
-            videoConstraints={{ width: 1280, height: 720, facingMode: "user" }}
-            className="w-full h-full object-cover"
+          <LocalVideo
+            ref={(node) => {
+              localVideoRef.current = node;
+              if (typeof ref === "function") ref(node);
+              else if (ref) ref.current = node;
+            }}
+            stream={localStream ?? undefined}
           />
         )}
 
@@ -203,33 +243,193 @@ function RemoteVideo({ stream }: { stream: MediaStream | null }) {
   );
 }
 
-function FaceScanOverlay({ faceBox }: { faceBox: FaceBox | null }) {
-  const box = faceBox ?? { x: 0.34, y: 0.2, width: 0.32, height: 0.5 };
+function getConnectionEnds(connection: MeshConnection) {
+  return Array.isArray(connection)
+    ? { start: connection[0], end: connection[1] }
+    : connection;
+}
+
+const LocalVideo = forwardRef<HTMLVideoElement, { stream?: MediaStream }>(
+  ({ stream }, ref) => {
+    const localRef = useRef<HTMLVideoElement | null>(null);
+
+    useEffect(() => {
+      const video = localRef.current;
+      if (!video) return;
+
+      let ownedStream: MediaStream | null = null;
+      let cancelled = false;
+
+      const setVideoStream = (mediaStream: MediaStream) => {
+        if (cancelled) return;
+        video.srcObject = mediaStream;
+        video.play().catch(() => {});
+      };
+
+      if (stream) {
+        setVideoStream(stream);
+      } else {
+        navigator.mediaDevices
+          .getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+            audio: false,
+          })
+          .then((mediaStream) => {
+            ownedStream = mediaStream;
+            setVideoStream(mediaStream);
+          })
+          .catch((err) => console.error("[Camera]", err));
+      }
+
+      return () => {
+        cancelled = true;
+        if (!stream) ownedStream?.getTracks().forEach((track) => track.stop());
+        if (video.srcObject === ownedStream) video.srcObject = null;
+      };
+    }, [stream]);
+
+    return (
+      <video
+        ref={(node) => {
+          localRef.current = node;
+          if (typeof ref === "function") ref(node);
+          else if (ref) ref.current = node;
+        }}
+        autoPlay
+        playsInline
+        muted
+        className="h-full w-full scale-x-[-1] object-cover"
+      />
+    );
+  }
+);
+
+LocalVideo.displayName = "LocalVideo";
+
+function FaceScanOverlay({
+  faceBox,
+  landmarks,
+  mirrored,
+  videoRef,
+}: {
+  faceBox: FaceBox | null;
+  landmarks: FaceLandmark[] | null;
+  mirrored: boolean;
+  videoRef: RefObject<HTMLVideoElement | null>;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const { contourConnections } = useMediaPipeFace();
+  const box = landmarks?.length ? faceBox : null;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const video = videoRef.current;
+    const syncCanvasResolution = () => {
+      const rect = canvas.getBoundingClientRect();
+      const width = Math.max(1, video?.videoWidth || Math.floor(rect.width));
+      const height = Math.max(1, video?.videoHeight || Math.floor(rect.height));
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
+    };
+
+    syncCanvasResolution();
+    video?.addEventListener("loadeddata", syncCanvasResolution);
+    window.addEventListener("resize", syncCanvasResolution);
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      video?.removeEventListener("loadeddata", syncCanvasResolution);
+      window.removeEventListener("resize", syncCanvasResolution);
+      return;
+    }
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!landmarks?.length) {
+      video?.removeEventListener("loadeddata", syncCanvasResolution);
+      window.removeEventListener("resize", syncCanvasResolution);
+      return;
+    }
+
+    const toCanvas = (landmark: FaceLandmark) => ({
+      x: (mirrored ? 1 - landmark.x : landmark.x) * canvas.width,
+      y: landmark.y * canvas.height,
+      z: landmark.z ?? 0,
+    });
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#39ff14";
+    ctx.lineWidth = 1;
+    ctx.shadowColor = "#39ff14";
+    ctx.shadowBlur = 4;
+
+    const pointIndexes = new Set<number>();
+    ctx.globalAlpha = 0.78;
+    for (const connection of contourConnections) {
+      const { start, end } = getConnectionEnds(connection);
+      const a = landmarks[start];
+      const b = landmarks[end];
+      if (!a || !b) continue;
+      pointIndexes.add(start);
+      pointIndexes.add(end);
+      const pa = toCanvas(a);
+      const pb = toCanvas(b);
+      ctx.beginPath();
+      ctx.moveTo(pa.x, pa.y);
+      ctx.lineTo(pb.x, pb.y);
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 4;
+    ctx.fillStyle = "#39ff14";
+    for (const index of pointIndexes) {
+      const landmark = landmarks[index];
+      if (!landmark) continue;
+      const p = toCanvas(landmark);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    return () => {
+      video?.removeEventListener("loadeddata", syncCanvasResolution);
+      window.removeEventListener("resize", syncCanvasResolution);
+    };
+  }, [contourConnections, landmarks, mirrored, videoRef]);
 
   return (
     <div className="absolute inset-0 z-10 pointer-events-none">
-      <motion.div
-        className="absolute rounded-[46%] border border-emerald-300/80 bg-emerald-400/[0.03] shadow-[0_0_24px_rgba(52,211,153,0.45)]"
-        style={{
-          left: `${box.x * 100}%`,
-          top: `${box.y * 100}%`,
-          width: `${box.width * 100}%`,
-          height: `${box.height * 100}%`,
-        }}
-        animate={{ scale: [0.98, 1.03, 0.98], opacity: [0.7, 1, 0.7] }}
-        transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
-      >
-        <div className="absolute inset-0 rounded-[46%] bg-[linear-gradient(rgba(52,211,153,0.22)_1px,transparent_1px),linear-gradient(90deg,rgba(52,211,153,0.22)_1px,transparent_1px)] bg-[length:16px_16px]" />
-        <div className="absolute -left-2 -top-2 h-6 w-6 border-l-2 border-t-2 border-emerald-300" />
-        <div className="absolute -right-2 -top-2 h-6 w-6 border-r-2 border-t-2 border-emerald-300" />
-        <div className="absolute -bottom-2 -left-2 h-6 w-6 border-b-2 border-l-2 border-emerald-300" />
-        <div className="absolute -bottom-2 -right-2 h-6 w-6 border-b-2 border-r-2 border-emerald-300" />
-        <motion.div
-          className="absolute left-[12%] right-[12%] top-1/2 h-px bg-emerald-200/90 shadow-[0_0_12px_rgba(167,243,208,0.9)]"
-          animate={{ y: ["-220%", "220%", "-220%"] }}
-          transition={{ repeat: Infinity, duration: 1.4, ease: "easeInOut" }}
-        />
-      </motion.div>
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full object-cover" />
+      {box && (
+        <>
+          <div
+            className="absolute h-7 w-7 border-l border-t border-emerald-300/75 shadow-[0_0_10px_rgba(57,255,20,0.5)]"
+            style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%` }}
+          />
+          <div
+            className="absolute h-7 w-7 border-r border-t border-emerald-300/75 shadow-[0_0_10px_rgba(57,255,20,0.5)]"
+            style={{ left: `${(box.x + box.width) * 100}%`, top: `${box.y * 100}%`, transform: "translateX(-100%)" }}
+          />
+          <div
+            className="absolute h-7 w-7 border-b border-l border-emerald-300/75 shadow-[0_0_10px_rgba(57,255,20,0.5)]"
+            style={{ left: `${box.x * 100}%`, top: `${(box.y + box.height) * 100}%`, transform: "translateY(-100%)" }}
+          />
+          <div
+            className="absolute h-7 w-7 border-b border-r border-emerald-300/75 shadow-[0_0_10px_rgba(57,255,20,0.5)]"
+            style={{
+              left: `${(box.x + box.width) * 100}%`,
+              top: `${(box.y + box.height) * 100}%`,
+              transform: "translate(-100%, -100%)",
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }

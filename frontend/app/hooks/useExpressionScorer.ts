@@ -1,12 +1,19 @@
 "use client";
 
 import { RefObject, useEffect, useRef, useState } from "react";
-import Webcam from "react-webcam";
+import { useMediaPipeFace } from "../context/MediaPipeFaceContext";
 
 interface ExpressionState {
   score: number | null;
   faceBox: FaceBox | null;
+  faceLandmarks: FaceLandmark[] | null;
   status: "idle" | "loading" | "ready" | "no-face" | "error";
+}
+
+export interface FaceLandmark {
+  x: number;
+  y: number;
+  z?: number;
 }
 
 export interface FaceBox {
@@ -18,10 +25,21 @@ export interface FaceBox {
 
 type BlendshapeMap = Record<string, number>;
 
-const MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
-const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
 const TFLITE_INFO_MESSAGE = "Created TensorFlow Lite XNNPACK delegate for CPU";
+
+function errorText(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function isBenignTfliteInfo(error: unknown) {
+  return errorText(error).includes(TFLITE_INFO_MESSAGE);
+}
 
 function clamp(value: number, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
@@ -39,7 +57,7 @@ function scale(value: number, min: number, max: number) {
   return clamp((value - min) / (max - min));
 }
 
-function getFaceBox(landmarks: Array<{ x: number; y: number }> | undefined): FaceBox | null {
+function getFaceBox(landmarks: FaceLandmark[] | undefined): FaceBox | null {
   if (!landmarks?.length) return null;
 
   let minX = 1;
@@ -64,7 +82,106 @@ function getFaceBox(landmarks: Array<{ x: number; y: number }> | undefined): Fac
   };
 }
 
-function scoreEmoji(emoji: string, shapes: BlendshapeMap) {
+function point(landmarks: FaceLandmark[], index: number) {
+  return landmarks[index] ?? null;
+}
+
+function avgY(landmarks: FaceLandmark[], indexes: number[]) {
+  const values = indexes.map((index) => point(landmarks, index)?.y).filter((value): value is number => typeof value === "number");
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+function euclideanDistance(a: FaceLandmark | null, b: FaceLandmark | null) {
+  if (!a || !b) return 0;
+  const dz = (a.z ?? 0) - (b.z ?? 0);
+  return Math.hypot(a.x - b.x, a.y - b.y, dz);
+}
+
+function faceScale(landmarks: FaceLandmark[]) {
+  const leftTemple = point(landmarks, 234);
+  const rightTemple = point(landmarks, 454);
+  const faceTop = point(landmarks, 10);
+  const faceBottom = point(landmarks, 152);
+  return euclideanDistance(leftTemple, rightTemple) || euclideanDistance(faceTop, faceBottom) || getFaceBox(landmarks)?.height || 1;
+}
+
+function scoreAstonishedGeometry(landmarks: FaceLandmark[]) {
+  const scaleBase = faceScale(landmarks);
+
+  const innerUpperLip = point(landmarks, 13);
+  const innerLowerLip = point(landmarks, 14);
+  const innerLipOpen = euclideanDistance(innerUpperLip, innerLowerLip) / scaleBase;
+
+  const browY = avg(
+    avgY(landmarks, [63, 66, 70, 105, 107]) ?? 0,
+    avgY(landmarks, [293, 296, 300, 334, 336]) ?? 0
+  );
+  const eyeY = avg(
+    avgY(landmarks, [145, 159]) ?? 0,
+    avgY(landmarks, [374, 386]) ?? 0
+  );
+  const eyebrowElevation = Math.max(0, eyeY - browY) / scaleBase;
+
+  const mouthScore = scale(innerLipOpen, 0.045, 0.22);
+  const browScore = scale(eyebrowElevation, 0.055, 0.16);
+  return Number((clamp(mouthScore * 0.72 + browScore * 0.28) * 10).toFixed(2));
+}
+
+function scoreSmileGeometry(landmarks: FaceLandmark[]) {
+  const scaleBase = faceScale(landmarks);
+  const leftCorner = point(landmarks, 61);
+  const rightCorner = point(landmarks, 291);
+  const upperLip = point(landmarks, 13);
+  const mouthWidth = euclideanDistance(leftCorner, rightCorner) / scaleBase;
+  const cornerLift = avg(
+    Math.max(0, (upperLip?.y ?? 0) - (leftCorner?.y ?? 0)),
+    Math.max(0, (upperLip?.y ?? 0) - (rightCorner?.y ?? 0))
+  ) / scaleBase;
+  return Number((avg(scale(mouthWidth, 0.28, 0.48), scale(cornerLift, 0.005, 0.05)) * 10).toFixed(2));
+}
+
+function scoreBlinkGeometry(landmarks: FaceLandmark[]) {
+  const scaleBase = faceScale(landmarks);
+  const leftEyeOpen = euclideanDistance(point(landmarks, 159), point(landmarks, 145)) / scaleBase;
+  const rightEyeOpen = euclideanDistance(point(landmarks, 386), point(landmarks, 374)) / scaleBase;
+  const asymmetry = Math.abs(leftEyeOpen - rightEyeOpen);
+  return Number((avg(scale(asymmetry, 0.015, 0.08), 1 - scale(Math.min(leftEyeOpen, rightEyeOpen), 0.01, 0.05)) * 10).toFixed(2));
+}
+
+function scoreAngryGeometry(landmarks: FaceLandmark[]) {
+  const scaleBase = faceScale(landmarks);
+  const innerBrowDrop = avg(
+    Math.max(0, (point(landmarks, 105)?.y ?? 0) - (point(landmarks, 159)?.y ?? 0)),
+    Math.max(0, (point(landmarks, 334)?.y ?? 0) - (point(landmarks, 386)?.y ?? 0))
+  ) / scaleBase;
+  const eyeNarrow = 1 - scale(avg(
+    euclideanDistance(point(landmarks, 159), point(landmarks, 145)),
+    euclideanDistance(point(landmarks, 386), point(landmarks, 374))
+  ) / scaleBase, 0.025, 0.08);
+  return Number((avg(scale(innerBrowDrop, 0.0, 0.05), eyeNarrow) * 10).toFixed(2));
+}
+
+function scoreSadGeometry(landmarks: FaceLandmark[]) {
+  const scaleBase = faceScale(landmarks);
+  const leftCorner = point(landmarks, 61);
+  const rightCorner = point(landmarks, 291);
+  const lowerLip = point(landmarks, 14);
+  const cornerDrop = avg(
+    Math.max(0, (leftCorner?.y ?? 0) - (lowerLip?.y ?? 0)),
+    Math.max(0, (rightCorner?.y ?? 0) - (lowerLip?.y ?? 0))
+  ) / scaleBase;
+  return Number((scale(cornerDrop, 0.0, 0.055) * 10).toFixed(2));
+}
+
+function scoreEmoji(emoji: string, shapes: BlendshapeMap, landmarks: FaceLandmark[]) {
+  if (landmarks.length) {
+    if (emoji === "\u{1F62E}" || emoji === "\u{1F632}") return scoreAstonishedGeometry(landmarks);
+    if (emoji === "\u{1F600}" || emoji === "\u{1F601}" || emoji === "\u{1F602}") return scoreSmileGeometry(landmarks);
+    if (emoji === "\u{1F609}" || emoji === "\u{1F61C}") return scoreBlinkGeometry(landmarks);
+    if (emoji === "\u{1F621}" || emoji === "\u{1F624}") return scoreAngryGeometry(landmarks);
+    if (emoji === "\u{1F622}" || emoji === "\u{1F62D}") return scoreSadGeometry(landmarks);
+  }
+
   const smile = avg(getScore(shapes, "mouthSmileLeft"), getScore(shapes, "mouthSmileRight"));
   const jawOpen = getScore(shapes, "jawOpen");
   const browUp = avg(
@@ -131,28 +248,29 @@ function scoreEmoji(emoji: string, shapes: BlendshapeMap) {
     }
   })();
 
-  return Math.round(clamp(raw) * 100);
+  return Number((clamp(raw) * 10).toFixed(2));
 }
 
 export function useExpressionScorer(
-  webcamRef: RefObject<Webcam | null>,
+  videoRef: RefObject<HTMLVideoElement | null>,
   emoji: string | null,
   active: boolean,
   onScore: (score: number) => void
 ): ExpressionState {
-  const [state, setState] = useState<ExpressionState>({ score: null, faceBox: null, status: "idle" });
-  const scorerRef = useRef<any>(null);
+  const [state, setState] = useState<ExpressionState>({ score: null, faceBox: null, faceLandmarks: null, status: "idle" });
   const rafRef = useRef<number | null>(null);
   const lastVideoTimeRef = useRef(-1);
   const lastSentRef = useRef(0);
   const onScoreRef = useRef(onScore);
   const detectionErrorRef = useRef(false);
+  const { landmarker, status: landmarkerStatus } = useMediaPipeFace();
 
   useEffect(() => {
     const originalInfo = console.info;
     const originalLog = console.log;
+    const originalError = console.error;
     const shouldSuppress = (args: unknown[]) =>
-      args.some((arg) => typeof arg === "string" && arg.includes(TFLITE_INFO_MESSAGE));
+      args.some((arg) => errorText(arg).includes(TFLITE_INFO_MESSAGE));
 
     console.info = (...args: unknown[]) => {
       if (!shouldSuppress(args)) originalInfo(...args);
@@ -160,10 +278,14 @@ export function useExpressionScorer(
     console.log = (...args: unknown[]) => {
       if (!shouldSuppress(args)) originalLog(...args);
     };
+    console.error = (...args: unknown[]) => {
+      if (!shouldSuppress(args)) originalError(...args);
+    };
 
     return () => {
       console.info = originalInfo;
       console.log = originalLog;
+      console.error = originalError;
     };
   }, []);
 
@@ -172,46 +294,19 @@ export function useExpressionScorer(
   }, [onScore]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadModel() {
-      if (scorerRef.current || !active) return;
-      setState((prev) => ({ ...prev, status: "loading" }));
-      try {
-        const { FaceLandmarker, FilesetResolver } = await import("@mediapipe/tasks-vision");
-        const fileset = await FilesetResolver.forVisionTasks(WASM_URL);
-        scorerRef.current = await FaceLandmarker.createFromOptions(fileset, {
-          baseOptions: {
-            modelAssetPath: MODEL_URL,
-            delegate: "GPU",
-          },
-          runningMode: "VIDEO",
-          numFaces: 1,
-          outputFaceBlendshapes: true,
-        });
-        if (!cancelled) setState((prev) => ({ ...prev, status: "ready" }));
-      } catch (error) {
-        console.error("[Expression scorer]", error);
-        if (!cancelled) setState((prev) => ({ ...prev, status: "error" }));
-      }
-    }
-
-    loadModel();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [active]);
-
-  useEffect(() => {
-    if (!active || !emoji) {
-      setState({ score: null, faceBox: null, status: scorerRef.current ? "ready" : "idle" });
+    if (landmarkerStatus === "loading" || landmarkerStatus === "idle") {
+      setState((prev) => ({ ...prev, score: null, status: "loading" }));
       return;
     }
+    if (landmarkerStatus === "error") {
+      setState((prev) => ({ ...prev, score: null, status: "error" }));
+      return;
+    }
+    if (!landmarker) return;
 
     const tick = () => {
-      const video = webcamRef.current?.video as HTMLVideoElement | undefined;
-      const scorer = scorerRef.current;
+      const video = videoRef.current;
+      const scorer = landmarker;
 
       if (!video || !scorer || video.readyState < 2) {
         rafRef.current = requestAnimationFrame(tick);
@@ -225,6 +320,10 @@ export function useExpressionScorer(
           result = scorer.detectForVideo(video, performance.now());
           detectionErrorRef.current = false;
         } catch (error) {
+          if (isBenignTfliteInfo(error)) {
+            rafRef.current = requestAnimationFrame(tick);
+            return;
+          }
           if (!detectionErrorRef.current) {
             detectionErrorRef.current = true;
             console.error("[Expression scorer]", error);
@@ -234,24 +333,26 @@ export function useExpressionScorer(
           return;
         }
         const categories = result.faceBlendshapes?.[0]?.categories;
+        const landmarks = (result.faceLandmarks?.[0] ?? []) as FaceLandmark[];
 
-        if (!categories?.length) {
-          setState((prev) => ({ ...prev, faceBox: null, status: "no-face" }));
+        if (!landmarks.length) {
+          setState((prev) => ({ ...prev, faceBox: null, faceLandmarks: null, status: "no-face" }));
         } else {
           const shapes: BlendshapeMap = {};
-          for (const category of categories) {
+          for (const category of categories ?? []) {
             shapes[category.categoryName] = category.score;
           }
 
-          const score = scoreEmoji(emoji, shapes);
+          const score = active && emoji ? scoreEmoji(emoji, shapes, landmarks) : null;
           setState({
             score,
-            faceBox: getFaceBox(result.faceLandmarks?.[0]),
+            faceBox: getFaceBox(landmarks),
+            faceLandmarks: landmarks,
             status: "ready",
           });
 
           const now = performance.now();
-          if (now - lastSentRef.current > 180) {
+          if (score !== null && now - lastSentRef.current > 180) {
             lastSentRef.current = now;
             onScoreRef.current(score);
           }
@@ -266,7 +367,7 @@ export function useExpressionScorer(
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [active, emoji, webcamRef]);
+  }, [active, emoji, landmarker, landmarkerStatus, videoRef]);
 
   return state;
 }

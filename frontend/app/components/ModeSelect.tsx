@@ -2,9 +2,26 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import MyProfileCard from "./MyProfileCard";
+import { useUserProfile } from "../context/UserProfileContext";
+import type { MatchSeeking } from "../context/UserProfileContext";
+import { useAuth } from "../context/AuthContext";
+import AuthModal from "./AuthModal";
 
 interface ModeSelectProps {
-  onSelect: (mode: "camera" | "solo") => void;
+  onSelect: (mode: "camera" | "solo", seeking?: MatchSeeking) => void;
+}
+
+interface RazorpayResponse {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+}
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
+  }
 }
 
 const SIGNALING_URL =
@@ -13,6 +30,12 @@ const SIGNALING_URL =
 export default function ModeSelect({ onSelect }: ModeSelectProps) {
   const [showModes, setShowModes] = useState(false);
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
+  const [showPreferenceModal, setShowPreferenceModal] = useState(false);
+  const [preferenceError, setPreferenceError] = useState("");
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const { profile, saveProfile } = useUserProfile();
+  const { user: authUser, updateUser, refreshUser } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,10 +59,96 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     };
   }, []);
 
+  const loadRazorpayScript = () =>
+    new Promise<boolean>((resolve) => {
+      if (window.Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+
+  const startPremiumCheckout = async (selectedSeeking: MatchSeeking) => {
+    const checkoutUsername = authUser?.username ?? profile?.username;
+    if (!checkoutUsername) return;
+    setPreferenceError("");
+    setIsCheckingOut(true);
+    try {
+      const ready = await loadRazorpayScript();
+      if (!ready || !window.Razorpay) throw new Error("Razorpay checkout could not load.");
+
+      const res = await fetch(`${SIGNALING_URL}/api/premium/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: checkoutUsername }),
+      });
+      const order = await res.json();
+      if (!res.ok) throw new Error(order.detail ?? "Could not create premium order.");
+
+      const checkout = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: "Emoggle VIP",
+        description: "Unlimited gender filters",
+        order_id: order.orderId,
+        prefill: { name: checkoutUsername },
+        theme: { color: "#facc15" },
+        handler: async (response: RazorpayResponse) => {
+          try {
+            const verifyRes = await fetch(`${SIGNALING_URL}/api/premium/verify`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...response, username: checkoutUsername }),
+            });
+            const data = await verifyRes.json();
+            if (!verifyRes.ok || !data.isVIP) throw new Error(data.detail ?? "Payment verification failed.");
+            if (profile) saveProfile({ ...profile, isVIP: true, freeGenderMatchesLeft: data.freeGenderMatchesLeft ?? profile.freeGenderMatchesLeft });
+            updateUser({ isVIP: true, freeGenderMatchesLeft: data.freeGenderMatchesLeft ?? 5 });
+            setShowPreferenceModal(false);
+            onSelect("camera", selectedSeeking);
+          } catch (verifyError) {
+            setPreferenceError(verifyError instanceof Error ? verifyError.message : "Payment verification failed.");
+          }
+        },
+      });
+      checkout.open();
+    } catch (checkoutError) {
+      setPreferenceError(checkoutError instanceof Error ? checkoutError.message : "Checkout failed.");
+    } finally {
+      setIsCheckingOut(false);
+    }
+  };
+
+  const handlePreference = (selectedSeeking: MatchSeeking) => {
+    setPreferenceError("");
+    const effectiveIsVIP = authUser?.isVIP ?? profile?.isVIP ?? false;
+    const effectiveFreeLeft = authUser?.freeGenderMatchesLeft ?? profile?.freeGenderMatchesLeft ?? 5;
+
+    if (selectedSeeking === "Anyone") {
+      setShowPreferenceModal(false);
+      onSelect("camera", "Anyone");
+      return;
+    }
+
+    if (effectiveIsVIP || effectiveFreeLeft > 0) {
+      setShowPreferenceModal(false);
+      onSelect("camera", selectedSeeking);
+      return;
+    }
+
+    startPremiumCheckout(selectedSeeking);
+  };
+
   return (
     <div className="relative w-screen min-h-screen bg-[#0b0c14] flex flex-col items-center overflow-x-hidden">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[320px] bg-violet-700/10 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute bottom-0 left-1/4 w-64 h-64 bg-indigo-900/20 rounded-full blur-[80px] pointer-events-none" />
+      <MyProfileCard profile={profile} className="absolute right-4 top-4 z-20 hidden sm:block" />
 
       <div className="w-full max-w-sm sm:max-w-md lg:max-w-lg px-5 sm:px-8 py-8 sm:py-12 lg:py-16 flex flex-col items-center gap-4 sm:gap-5 z-10">
 
@@ -153,7 +262,10 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 transition={{ delay: 0.05, duration: 0.38 }}
                 whileHover={{ scale: 1.02, y: -2 }}
                 whileTap={{ scale: 0.97 }}
-                onClick={() => onSelect("camera")}
+                onClick={() => {
+                  if (!authUser) { setShowAuthModal(true); return; }
+                  refreshUser().then(() => setShowPreferenceModal(true));
+                }}
                 className="group relative w-full flex items-center gap-4 sm:gap-5 p-4 sm:p-5 rounded-2xl bg-zinc-900 border border-zinc-700 hover:border-yellow-400/60 text-left transition-colors overflow-hidden"
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/8 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -251,6 +363,88 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
           Fair play · Expression only · No ID verification
         </motion.p>
       </div>
+      <AnimatePresence>
+        {showPreferenceModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 18, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              className="w-full max-w-md rounded-2xl border border-yellow-300/25 bg-zinc-950 p-5 text-white shadow-[0_0_60px_rgba(250,204,21,0.16)]"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-yellow-300">Match Preference</p>
+                  <h2 className="mt-2 text-2xl font-black tracking-tight">Who do you want to match?</h2>
+                </div>
+                <button
+                  onClick={() => setShowPreferenceModal(false)}
+                  className="rounded-full border border-white/15 bg-black/50 px-3 py-1 text-xs font-black text-zinc-300 hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-5 grid gap-3">
+                {(["Male", "Female", "Anyone"] as MatchSeeking[]).map((option) => {
+                  const isGenderFilter = option !== "Anyone";
+                  const effectiveIsVIP = authUser?.isVIP ?? profile?.isVIP ?? false;
+                  const effectiveFreeLeft = authUser?.freeGenderMatchesLeft ?? profile?.freeGenderMatchesLeft ?? 5;
+                  const locked = isGenderFilter && !effectiveIsVIP && effectiveFreeLeft <= 0;
+                  return (
+                    <button
+                      key={option}
+                      onClick={() => handlePreference(option)}
+                      disabled={isCheckingOut}
+                      className={`rounded-2xl border px-5 py-4 text-left transition-colors ${
+                        option === "Anyone"
+                          ? "border-cyan-300/35 bg-cyan-950/30 hover:border-cyan-300"
+                          : locked
+                            ? "border-yellow-300/35 bg-yellow-950/20 hover:border-yellow-300"
+                            : "border-emerald-300/30 bg-emerald-950/25 hover:border-emerald-300"
+                      }`}
+                    >
+                      <span className="block text-lg font-black uppercase tracking-[0.12em]">{option}</span>
+                      <span className="mt-1 block text-xs font-bold uppercase tracking-[0.12em] text-zinc-400">
+                        {option === "Anyone"
+                          ? "Always free"
+                          : effectiveIsVIP
+                            ? "VIP unlimited"
+                            : locked
+                              ? "Unlock unlimited filters"
+                              : `${effectiveFreeLeft} free filters left`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {preferenceError && (
+                <p className="mt-4 rounded-xl border border-red-400/40 bg-red-950/70 px-3 py-2 text-sm font-bold text-red-100">
+                  {preferenceError}
+                </p>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showAuthModal && (
+          <AuthModal
+            onClose={() => setShowAuthModal(false)}
+            onSuccess={() => {
+              setShowAuthModal(false);
+              setShowPreferenceModal(true);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

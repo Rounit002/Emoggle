@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 import Peer, { MediaConnection } from "peerjs";
+import { MatchSeeking, UserProfile } from "../context/UserProfileContext";
 
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
@@ -41,6 +42,20 @@ export interface ChatMessage {
   ts: number;
 }
 
+export interface MatchResult {
+  matchId: string;
+  myScore: number;
+  partnerScore: number;
+  winner: "you" | "rival" | "tie";
+  winnerSocketId: string | null;
+  myElo?: number;
+  partnerElo?: number;
+  myEloDelta?: number;
+  partnerEloDelta?: number;
+  myTier?: string;
+  partnerTier?: string;
+}
+
 export interface MatchmakingState {
   status: MatchStatus;
   remoteStream: MediaStream | null;
@@ -49,8 +64,11 @@ export interface MatchmakingState {
   countdown: number | null;
   partnerScore: number | null;
   partnerLiveScore: number | null;
+  matchResult: MatchResult | null;
   emojiPrompt: string | null;
   partnerCountry: string | null;
+  partnerUsername: string | null;
+  partnerGender: string | null;
   submitScore: (score: number) => void;
   submitLiveScore: (score: number) => void;
   skipUser: () => void;
@@ -64,15 +82,29 @@ export interface MatchmakingState {
 
 export function useMatchmaking(
   localStream: MediaStream | null,
-  myCountry: string | null = null
+  myCountry: string | null = null,
+  profile: UserProfile | null = null,
+  initialSeeking: MatchSeeking = "Anyone",
+  onProfileUpdate?: (profile: UserProfile) => void,
+  authUserId?: string,
+  onCounterUpdate?: (freeLeft: number) => void
 ): MatchmakingState {
   const myCountryRef = useRef<string | null>(null);
+  const profileRef = useRef<UserProfile | null>(null);
+  const seekingRef = useRef<MatchSeeking>(initialSeeking);
   const socketRef = useRef<Socket | null>(null);
   const peerRef = useRef<Peer | null>(null);
   const callRef = useRef<MediaConnection | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const streamTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stoppedRef = useRef(false);
+  const authUserIdRef = useRef<string | undefined>(undefined);
+  const onCounterUpdateRef = useRef<((freeLeft: number) => void) | undefined>(undefined);
+
+  profileRef.current = profile;
+  seekingRef.current = initialSeeking;
+  authUserIdRef.current = authUserId;
+  onCounterUpdateRef.current = onCounterUpdate;
 
   const [status, setStatus] = useState<MatchStatus>("idle");
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -81,10 +113,26 @@ export function useMatchmaking(
   const [countdown, setCountdown] = useState<number | null>(null);
   const [partnerScore, setPartnerScore] = useState<number | null>(null);
   const [partnerLiveScore, setPartnerLiveScore] = useState<number | null>(null);
+  const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   const [emojiPrompt, setEmojiPrompt] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [rivalTyping, setRivalTyping] = useState(false);
   const [partnerCountry, setPartnerCountry] = useState<string | null>(null);
+  const [partnerUsername, setPartnerUsername] = useState<string | null>(null);
+  const [partnerGender, setPartnerGender] = useState<string | null>(null);
+
+  const buildJoinPayload = useCallback(
+    (peerId: string) => ({
+      peerId,
+      country: myCountryRef.current,
+      username: profileRef.current?.username,
+      gender: profileRef.current?.gender,
+      seeking: seekingRef.current,
+      profile: profileRef.current,
+      userId: authUserIdRef.current ?? profileRef.current?.userId,
+    }),
+    []
+  );
 
   const clearStreamTimeout = useCallback(() => {
     if (streamTimeoutRef.current) {
@@ -114,10 +162,13 @@ export function useMatchmaking(
     setCountdown(null);
     setPartnerScore(null);
     setPartnerLiveScore(null);
+    setMatchResult(null);
     setEmojiPrompt(null);
     setMessages([]);
     setRivalTyping(false);
     setPartnerCountry(null);
+    setPartnerUsername(null);
+    setPartnerGender(null);
   }, [clearStreamTimeout, setRemoteStreamSynced]);
 
   /* Re-join queue after a failed connection (silent recovery) */
@@ -126,9 +177,9 @@ export function useMatchmaking(
     setStatus("waiting");
     const peerId = peerRef.current?.id;
     if (peerId && socketRef.current?.connected) {
-      socketRef.current.emit("join_queue", { peerId, country: myCountryRef.current });
+      socketRef.current.emit("join_queue", buildJoinPayload(peerId));
     }
-  }, [resetMatchState]);
+  }, [buildJoinPayload, resetMatchState]);
 
   /* Start a timeout — if no stream arrives within STREAM_TIMEOUT_MS, re-queue */
   const startStreamTimeout = useCallback(() => {
@@ -182,7 +233,7 @@ export function useMatchmaking(
       socketRef.current = socket;
 
       socket.on("connect", () => {
-        socket.emit("join_queue", { peerId: id, country: myCountryRef.current });
+        socket.emit("join_queue", buildJoinPayload(id));
         setStatus("waiting");
       });
 
@@ -190,9 +241,70 @@ export function useMatchmaking(
         if (!stoppedRef.current) setStatus("waiting");
       });
 
-      socket.on(
-        "match_found",
-        ({ partnerPeerId: ppId, role, emoji, partnerCountry: pc }: { partnerPeerId: string; role: string; emoji?: string; partnerCountry?: string | null }) => {
+      socket.on("usage_update", ({ freeGenderMatchesLeft, isVIP }: { freeGenderMatchesLeft?: number; isVIP?: boolean }) => {
+        if (!profileRef.current) return;
+        const nextProfile = {
+          ...profileRef.current,
+          isVIP: isVIP ?? profileRef.current.isVIP,
+          freeGenderMatchesLeft:
+            typeof freeGenderMatchesLeft === "number"
+              ? freeGenderMatchesLeft
+              : profileRef.current.freeGenderMatchesLeft,
+        };
+        profileRef.current = nextProfile;
+        onProfileUpdate?.(nextProfile);
+      });
+
+      socket.on("paywall_required", () => {
+        stoppedRef.current = true;
+        setStatus("stopped");
+      });
+
+      socket.on("counter_updated", ({ free_matches_left }: { free_matches_left: number }) => {
+        if (profileRef.current) {
+          const nextProfile = {
+            ...profileRef.current,
+            freeGenderMatchesLeft:
+              typeof free_matches_left === "number"
+                ? free_matches_left
+                : profileRef.current.freeGenderMatchesLeft,
+          };
+          profileRef.current = nextProfile;
+          onProfileUpdate?.(nextProfile);
+        }
+        if (typeof free_matches_left === "number") {
+          onCounterUpdateRef.current?.(free_matches_left);
+        }
+      });
+
+      socket.on("trigger_paywall", () => {
+        stoppedRef.current = true;
+        setStatus("stopped");
+        if (profileRef.current) {
+          const nextProfile = { ...profileRef.current, freeGenderMatchesLeft: 0 };
+          profileRef.current = nextProfile;
+          onProfileUpdate?.(nextProfile);
+        }
+        onCounterUpdateRef.current?.(0);
+      });
+
+      const handleMatchStarted = (
+        {
+          partnerPeerId: ppId,
+          role,
+          emoji,
+          partnerCountry: pc,
+          partnerUsername: pu,
+          partnerGender: pg,
+        }: {
+          partnerPeerId: string;
+          role: string;
+          emoji?: string;
+          partnerCountry?: string | null;
+          partnerUsername?: string | null;
+          partnerGender?: string | null;
+        }
+      ) => {
           stoppedRef.current = false;
           callRef.current?.close();
           callRef.current = null;
@@ -202,8 +314,11 @@ export function useMatchmaking(
           setCountdown(null);
           setPartnerScore(null);
           setPartnerLiveScore(null);
+          setMatchResult(null);
           setMessages([]);
           setPartnerCountry(pc ?? null);
+          setPartnerUsername(pu ?? null);
+          setPartnerGender(pg ?? null);
           setStatus("matched");
           if (myCountryRef.current) {
             socket.emit("update_country", { country: myCountryRef.current });
@@ -215,8 +330,10 @@ export function useMatchmaking(
             placeCall(peer, ppId, localStream);
           }
           /* receiver waits for the incoming call below */
-        }
-      );
+      };
+
+      socket.on("match_started", handleMatchStarted);
+      socket.on("match_found", handleMatchStarted);
 
       /* ── 3. Handle countdown sync from server ── */
       socket.on("countdown_tick", ({ count }: { count: number }) => {
@@ -225,6 +342,15 @@ export function useMatchmaking(
 
       socket.on("scores_ready", ({ partnerScore: ps }: { myScore: number; partnerScore: number }) => {
         setPartnerScore(ps);
+      });
+
+      socket.on("partner_score", ({ score }: { score: number }) => {
+        setPartnerScore(score);
+      });
+
+      socket.on("match_result", (result: MatchResult) => {
+        setMatchResult(result);
+        setPartnerScore(result.partnerScore);
       });
 
       socket.on("partner_live_score", ({ score }: { score: number }) => {
@@ -238,6 +364,16 @@ export function useMatchmaking(
         } else {
           setStatus("stopped");
         }
+      });
+
+      socket.on("opponent_left", () => {
+        resetMatchState();
+        if (!stoppedRef.current) setStatus("waiting");
+      });
+
+      socket.on("match_ended", () => {
+        resetMatchState();
+        if (!stoppedRef.current) setStatus("waiting");
       });
 
       socket.on("chat_message", ({ text }: { text: string; fromSelf: boolean }) => {
@@ -291,7 +427,7 @@ export function useMatchmaking(
       setStatus("idle");
       resetMatchState();
     };
-  }, [localStream, answerCall, placeCall, resetMatchState, rejoinQueue, startStreamTimeout, clearStreamTimeout, setRemoteStreamSynced]);
+  }, [localStream, answerCall, placeCall, resetMatchState, rejoinQueue, startStreamTimeout, clearStreamTimeout, setRemoteStreamSynced, buildJoinPayload]);
 
   const submitScore = useCallback((score: number) => {
     socketRef.current?.emit("submit_score", { score });
@@ -319,9 +455,9 @@ export function useMatchmaking(
     setStatus("waiting");
     const peerId = peerRef.current?.id;
     if (peerId && socketRef.current?.connected) {
-      socketRef.current.emit("join_queue", { peerId, country: myCountryRef.current });
+      socketRef.current.emit("join_queue", buildJoinPayload(peerId));
     }
-  }, []);
+  }, [buildJoinPayload]);
 
   const sendChat = useCallback((text: string) => {
     if (!text.trim()) return;
@@ -341,6 +477,10 @@ export function useMatchmaking(
     }
   }, [myCountry]);
 
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
   return {
     status,
     remoteStream,
@@ -349,8 +489,11 @@ export function useMatchmaking(
     countdown,
     partnerScore,
     partnerLiveScore,
+    matchResult,
     emojiPrompt,
     partnerCountry,
+    partnerUsername,
+    partnerGender,
     submitScore,
     submitLiveScore,
     skipUser,

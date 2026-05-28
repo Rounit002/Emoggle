@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import Webcam from "react-webcam";
 import VideoPanel from "./VideoPanel";
 import Countdown from "./Countdown";
 import ChatBox from "./ChatBox";
 import { useMatchmaking } from "../hooks/useMatchmaking";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
+import { useUserProfile } from "../context/UserProfileContext";
+import type { MatchSeeking } from "../context/UserProfileContext";
+import { useAuth } from "../context/AuthContext";
 
 const ROUND_SECONDS = 10;
 
@@ -20,23 +22,69 @@ type AppPhase =
 
 interface DuelArenaProps {
   onBack: () => void;
+  initialSeeking?: MatchSeeking;
 }
+
+interface RankSnapshot {
+  tier: string;
+  elo: number;
+  delta: number | null;
+}
+
+const DEFAULT_RANK: RankSnapshot = { tier: "Statue", elo: 400, delta: null };
 
 function toTenPoint(rawScore: number | null) {
   if (rawScore === null) return null;
-  return Math.max(0, Math.min(10, Number((rawScore / 10).toFixed(1))));
+  return Math.max(0, Math.min(10, Number(rawScore.toFixed(2))));
+}
+
+function formatRank(rank: RankSnapshot) {
+  const tier = rank.tier || DEFAULT_RANK.tier;
+  const elo = Number.isFinite(rank.elo) ? rank.elo : DEFAULT_RANK.elo;
+  return `${tier.toUpperCase()} | ${elo} ELO`;
+}
+
+function formatDelta(delta: number | null) {
+  if (delta === null) return "";
+  return `${delta >= 0 ? "+" : ""}${delta}`;
+}
+
+function finiteOr(value: number | undefined, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function formatScore(score: number | null) {
   return score === null ? "--" : score.toFixed(1);
 }
 
-function resultCopy(myScore: number | null, rivalScore: number | null) {
+function resultCopy(myScore: number | null, rivalScore: number | null, winner?: "you" | "rival" | "tie") {
   if (myScore === null || rivalScore === null) {
     return {
       label: "Hold Up",
       tone: "text-yellow-300",
       sub: "Waiting for rival score...",
+    };
+  }
+
+  if (winner === "tie") {
+    return {
+      label: "Twin Energy",
+      tone: "text-yellow-300",
+      sub: "Exact same geometry score. That round is a clean tie.",
+    };
+  }
+  if (winner === "you") {
+    return {
+      label: myScore >= 8 ? "Ate That" : "Face Card Won",
+      tone: "text-emerald-300",
+      sub: "Your geometry matched the emoji closer this round.",
+    };
+  }
+  if (winner === "rival") {
+    return {
+      label: rivalScore >= 8 ? "Got Cooked" : "Almost Ate",
+      tone: "text-red-300",
+      sub: "Rival's face geometry landed closer to the emoji.",
     };
   }
 
@@ -62,8 +110,8 @@ function resultCopy(myScore: number | null, rivalScore: number | null) {
   };
 }
 
-export default function DuelArena({ onBack }: DuelArenaProps) {
-  const webcamRef = useRef<Webcam>(null);
+export default function DuelArena({ onBack, initialSeeking = "Anyone" }: DuelArenaProps) {
+  const webcamRef = useRef<HTMLVideoElement>(null);
   const bestScoreRef = useRef(0);
   const scoreSamplesRef = useRef<number[]>([]);
   const submittedRef = useRef(false);
@@ -76,40 +124,19 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
   const [searchSession, setSearchSession] = useState(0);
   const [noOneFound, setNoOneFound] = useState(false);
   const [myCountry, setMyCountry] = useState<string | null>(null);
+  const [myRank, setMyRank] = useState<RankSnapshot>(DEFAULT_RANK);
+  const [partnerRank, setPartnerRank] = useState<RankSnapshot>(DEFAULT_RANK);
+  const { profile, saveProfile } = useUserProfile();
+  const { user: authUser, updateUser } = useAuth();
 
   useEffect(() => {
-    const codeToFlag = (code: string) =>
-      code.toUpperCase().replace(/./g, (c: string) =>
-        String.fromCodePoint(127462 + c.charCodeAt(0) - 65)
-      );
-
-    const tryIpWhoIs = () =>
-      fetch("https://ipwho.is/")
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.success && d.country_code && d.country) {
-            setMyCountry(`${codeToFlag(d.country_code)} ${d.country}`);
-            return true;
-          }
-          return false;
-        })
-        .catch(() => false);
-
-    const tryIpApiCo = () =>
-      fetch("https://ipapi.co/json/")
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.country_code && d.country_name) {
-            setMyCountry(`${codeToFlag(d.country_code)} ${d.country_name}`);
-            return true;
-          }
-          return false;
-        })
-        .catch(() => false);
-
-    tryIpWhoIs().then((ok) => {
-      if (!ok) tryIpApiCo();
-    });
+    const region = Intl.DateTimeFormat().resolvedOptions().locale.split("-").at(-1);
+    if (!region || region.length !== 2) return;
+    const flag = region
+      .toUpperCase()
+      .replace(/./g, (c: string) => String.fromCodePoint(127462 + c.charCodeAt(0) - 65));
+    const regionName = new Intl.DisplayNames(["en"], { type: "region" }).of(region.toUpperCase());
+    setMyCountry(regionName ? `${flag} ${regionName}` : flag);
   }, []);
 
   const {
@@ -118,6 +145,7 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     countdown,
     partnerScore,
     partnerLiveScore,
+    matchResult,
     emojiPrompt,
     submitScore,
     submitLiveScore,
@@ -129,7 +157,17 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     rivalTyping,
     sendTyping,
     partnerCountry,
-  } = useMatchmaking(localStream, myCountry);
+    partnerUsername,
+    partnerGender,
+  } = useMatchmaking(
+    localStream,
+    myCountry,
+    profile,
+    initialSeeking,
+    saveProfile,
+    authUser?.id,
+    (freeLeft) => updateUser({ freeGenderMatchesLeft: freeLeft })
+  );
 
   const publishLiveScore = useCallback(
     (rawScore: number) => {
@@ -178,6 +216,7 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
       setRoundSeconds(ROUND_SECONDS);
       setBestScore(null);
       setFinalScore(null);
+      setPartnerRank(DEFAULT_RANK);
       bestScoreRef.current = 0;
       scoreSamplesRef.current = [];
       submittedRef.current = false;
@@ -221,6 +260,20 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
       setPhase("playing");
     }
   }, [countdown]);
+
+  useEffect(() => {
+    if (!matchResult) return;
+    setMyRank({
+      tier: matchResult.myTier || DEFAULT_RANK.tier,
+      elo: finiteOr(matchResult.myElo, DEFAULT_RANK.elo),
+      delta: typeof matchResult.myEloDelta === "number" && Number.isFinite(matchResult.myEloDelta) ? matchResult.myEloDelta : null,
+    });
+    setPartnerRank({
+      tier: matchResult.partnerTier || DEFAULT_RANK.tier,
+      elo: finiteOr(matchResult.partnerElo, DEFAULT_RANK.elo),
+      delta: typeof matchResult.partnerEloDelta === "number" && Number.isFinite(matchResult.partnerEloDelta) ? matchResult.partnerEloDelta : null,
+    });
+  }, [matchResult]);
 
   useEffect(() => {
     if (phase !== "playing" || liveScore === null) return;
@@ -297,11 +350,14 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     setIsMicMuted(next);
   }, [localStream, isMicMuted]);
 
-  const finalResult = resultCopy(finalScore, partnerScore);
+  const finalResult = resultCopy(finalScore, partnerScore, matchResult?.winner);
+  const myRankLabel = formatRank(myRank);
+  const partnerRankLabel = formatRank(partnerRank);
 
   return (
-    <div className="relative w-screen h-screen bg-black flex flex-col overflow-hidden">
-      <header className="flex-none flex flex-col gap-2 px-4 py-3 bg-zinc-950 border-b border-zinc-800 z-10 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[#050507] text-white">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(57,255,20,0.08),transparent_28%),radial-gradient(circle_at_80%_20%,rgba(34,211,238,0.08),transparent_30%)]" />
+      <header className="relative z-30 flex flex-none flex-col gap-2 border-b border-zinc-800/80 bg-zinc-950/95 px-4 py-3 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <button
             onClick={onBack}
@@ -332,13 +388,17 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
         </div>
       </header>
 
-      <div className="relative flex-1 grid min-h-0 grid-cols-1 gap-2 p-2 pb-52 xs:pb-56 sm:grid-cols-2 sm:gap-3 sm:p-3 sm:pb-48 lg:pb-40 xl:pb-36">
+      <div className="relative grid min-h-0 flex-1 grid-cols-1 gap-3 p-2 pb-52 xs:pb-56 md:grid-cols-2 md:p-3 md:pb-48 lg:pb-40 xl:pb-36">
         <div className="flex flex-col min-h-0 gap-1.5">
           <div className="relative flex-1 min-h-0">
             <VideoPanel
               ref={webcamRef}
               label="YOU"
+              playerName={profile?.username ?? "YOU"}
+              country={myCountry}
+              rankLabel={myRankLabel}
               isLocal={true}
+              localStream={localStream}
               frozenFrame={null}
               liveScore={phase === "results" ? finalScore : liveScore}
               score={finalScore}
@@ -348,7 +408,9 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
               isPlaying={phase === "playing" || phase === "results"}
               isJudging={false}
               scoreAlign="left"
+              opponentLiveScore={partnerLiveScore}
               scanBox={expression.faceBox}
+              faceLandmarks={expression.faceLandmarks}
             />
           </div>
           {myCountry && (
@@ -363,6 +425,9 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
           <div className="relative flex-1 min-h-0">
             <VideoPanel
               label="STRANGER"
+              playerName={partnerUsername ?? "RIVAL"}
+              country={partnerGender ? `${partnerGender}${partnerCountry ? ` | ${partnerCountry}` : ""}` : partnerCountry}
+              rankLabel={partnerRankLabel}
               isLocal={false}
               remoteStream={remoteDisplayStream}
               frozenFrame={null}
@@ -374,6 +439,7 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
               isPlaying={phase === "playing" || phase === "results"}
               isJudging={false}
               scoreAlign="right"
+              opponentLiveScore={liveScore}
             />
           </div>
           {partnerCountry && (
@@ -388,27 +454,34 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
           <motion.div
             initial={{ opacity: 0, y: -10, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            className="absolute top-5 left-1/2 -translate-x-1/2 z-30 pointer-events-none"
+            className="pointer-events-none absolute left-1/2 top-4 z-40 -translate-x-1/2"
           >
-            <div className="flex flex-col items-center gap-1.5 sm:gap-2 rounded-2xl border border-yellow-400/40 bg-black/75 px-4 py-2 sm:px-7 sm:py-3 shadow-2xl backdrop-blur-md">
-              <div className="flex items-center gap-4">
-                <span className="text-xs font-black uppercase tracking-[0.25em] text-yellow-300">Match</span>
+            <div className="flex flex-col items-center gap-2">
+              <div className="flex items-center gap-3 rounded-full border border-violet-300/30 bg-zinc-950/85 px-5 py-2 shadow-[0_0_34px_rgba(168,85,247,0.26)] backdrop-blur-md">
+                <span className="h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_18px_rgba(57,255,20,0.95)]" />
+                <span className="text-xs font-black uppercase tracking-[0.22em] text-white">{myRank.tier}</span>
+                <span className="h-4 w-px bg-zinc-600" />
+                <span className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">{myRank.elo} ELO</span>
+              </div>
+              <div className="flex items-center gap-3 rounded-3xl border border-cyan-300/25 bg-black/80 px-5 py-3 shadow-[0_0_40px_rgba(34,211,238,0.18)] backdrop-blur-md">
+                <span className="text-[10px] font-black uppercase tracking-[0.25em] text-cyan-300">Target</span>
                 <motion.span
-                  className="text-4xl sm:text-6xl leading-none"
+                  className="text-5xl leading-none drop-shadow-[0_0_22px_rgba(34,211,238,0.45)] sm:text-7xl"
                   animate={
                     phase === "playing"
-                      ? { scale: [1, 1.12, 1], rotate: [-4, 4, -4] }
+                      ? { scale: [1, 1.14, 1], rotateY: [0, 18, -18, 0], rotateZ: [-4, 4, -4] }
                       : { scale: 1, rotate: 0 }
                   }
                   transition={{ repeat: phase === "playing" ? Infinity : 0, duration: 1.1, ease: "easeInOut" }}
                 >
                   {emojiPrompt}
                 </motion.span>
+                <span className="text-[10px] font-black uppercase tracking-[0.25em] text-cyan-300">3D Emoji</span>
               </div>
               {phase === "playing" && (
-                <div className="flex items-center gap-2 text-yellow-200">
-                  <span className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em]">Timer</span>
-                  <span className="text-xl sm:text-2xl font-black tabular-nums">{roundSeconds}s</span>
+                <div className="flex items-center gap-2 rounded-full border border-yellow-300/30 bg-black/70 px-4 py-1.5 text-yellow-200 backdrop-blur-md">
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em]">Round</span>
+                  <span className="text-xl font-black tabular-nums">{roundSeconds}s</span>
                 </div>
               )}
               {phase === "playing" && bestScore !== null && (
@@ -442,6 +515,16 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
                 <ScoreReadout label="You" score={finalScore} highlight />
                 <ScoreReadout label="Rival" score={partnerScore} />
               </div>
+              {matchResult && (
+                <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-black uppercase tracking-[0.16em]">
+                  <span className="rounded-full border border-emerald-300/30 bg-emerald-950/60 px-3 py-1 text-emerald-200">
+                    {myRank.tier} {myRank.elo} ELO {formatDelta(myRank.delta)}
+                  </span>
+                  <span className="rounded-full border border-cyan-300/25 bg-cyan-950/50 px-3 py-1 text-cyan-200">
+                    Rival {partnerRank.tier} {partnerRank.elo} ELO {formatDelta(partnerRank.delta)}
+                  </span>
+                </div>
+              )}
               <p className="max-w-md text-zinc-200 text-sm sm:text-base font-semibold">
                 {finalResult.sub}
               </p>
