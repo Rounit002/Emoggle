@@ -7,6 +7,12 @@ if (DB_HOST && DB_USER && DB_NAME) {
   process.env.DATABASE_URL = `postgresql://${encodeURIComponent(DB_USER)}:${encodeURIComponent(DB_PASSWORD || "")}@${DB_HOST}:${DB_PORT || 5432}/${DB_NAME}`;
 }
 
+// Startup env diagnostic
+console.log("[ENV] NODE_ENV:", process.env.NODE_ENV);
+console.log("[ENV] JWT_SECRET set:", !!process.env.JWT_SECRET, "| length:", process.env.JWT_SECRET?.length ?? 0);
+console.log("[ENV] DATABASE_URL set:", !!process.env.DATABASE_URL);
+console.log("[ENV] FRONTEND_URL:", process.env.FRONTEND_URL);
+
 const express = require("express");
 const http = require("http");
 const crypto = require("crypto");
