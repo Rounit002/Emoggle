@@ -20,7 +20,7 @@ async function initSchema() {
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id UUID PRIMARY KEY,
         socket_id VARCHAR UNIQUE,
         username VARCHAR DEFAULT 'anonymous',
         age INT,
@@ -43,7 +43,7 @@ async function initSchema() {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR UNIQUE`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS matches (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        id UUID PRIMARY KEY,
         player1_id UUID REFERENCES users(id),
         player2_id UUID REFERENCES users(id),
         current_emoji VARCHAR,
