@@ -3,6 +3,9 @@
   "version": "2.0.0",
   "description": "Emoggle matchmaking signaling server with pg (raw SQL)",
   "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",

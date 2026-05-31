@@ -974,6 +974,7 @@ io.on("connection", (socket) => {
 });
 
 // ─── HTTP routes ─────────────────────────────────────────────────────────────
+app.get("/", (_req, res) => res.send("ok"));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
 app.get("/online", (_req, res) => {
@@ -987,7 +988,7 @@ process.on("SIGTERM", async () => {
   process.exit(0);
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 // Initialize schema then start server
 initSchema()
