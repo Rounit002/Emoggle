@@ -24,12 +24,29 @@ const authRouter = require("./routes/auth");
 const { verifySocketToken } = require("./middleware/verifyToken");
 
 const app = express();
-app.use(cors({ origin: process.env.FRONTEND_URL || true, credentials: true }));
+const defaultOrigins = ["http://localhost:3000", "https://emoggle.vercel.app"]; 
+const envOrigins = (process.env.FRONTEND_URL || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const allowedOrigins = Array.from(new Set([...defaultOrigins, ...envOrigins]));
+console.log("[ENV] Allowed CORS origins:", allowedOrigins.join(", "));
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  })
+);
 app.use(cookieParser());
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: process.env.FRONTEND_URL || "*", methods: ["GET", "POST"], credentials: true },
+  cors: { origin: allowedOrigins, methods: ["GET", "POST"], credentials: true },
 });
 io.use(verifySocketToken);
 
