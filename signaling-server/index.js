@@ -20,8 +20,6 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const { pool, initSchema } = require("./db");
-const authRouter = require("./routes/auth");
-const { verifySocketToken } = require("./middleware/verifyToken");
 
 const app = express();
 app.set("trust proxy", 1); // Trust Render's reverse proxy
@@ -53,7 +51,6 @@ const io = new Server(server, {
   pingInterval: 25000,
   allowEIO3: true,
 });
-io.use(verifySocketToken);
 
 // ─── In-memory state (minimal; keyed by matchId for easy cleanup) ────────────
 const waitingQueue = []; // { socketId, peerId, userId, skippedSocketId }
@@ -314,8 +311,6 @@ app.post("/api/premium/webhook", express.raw({ type: "application/json" }), asyn
 
 app.use(express.json({ limit: "1mb" }));
 
-app.use("/api/auth", authRouter);
-
 // ─── Onboarding endpoint (raw INSERT) ────────────────────────────────────────
 app.post("/api/users/onboard", async (req, res) => {
   const { username, age, verified_gender } = req.body ?? {};
@@ -328,8 +323,13 @@ app.post("/api/users/onboard", async (req, res) => {
   const safeAge = typeof age === "number" && age > 0 ? Math.floor(age) : null;
   const safeGender = typeof verified_gender === "string" ? verified_gender.trim() : null;
 
-  const client = await pool.connect();
+  if (!dbAvailable) {
+    return res.status(503).json({ detail: "Database unavailable.", needsOnboarding: true });
+  }
+
+  let client;
   try {
+    client = await pool.connect();
     const newId = crypto.randomUUID();
     const { rows } = await client.query(
       `INSERT INTO users (id, username, age, verified_gender) VALUES ($1, $2, $3, $4) RETURNING id`,
@@ -341,7 +341,7 @@ app.post("/api/users/onboard", async (req, res) => {
     console.error("[DB] Onboard insert failed:", err.message, err.detail ?? "");
     return res.status(500).json({ detail: "Failed to create user profile.", error: err.message });
   } finally {
-    client.release();
+    client?.release();
   }
 });
 
@@ -626,9 +626,10 @@ async function startMatch(socket, partner) {
 
   // Create Match record in the database
   let match;
-  const client = await pool.connect();
+  let client;
   try {
     if (!dbAvailable) throw new Error("Database unavailable");
+    client = await pool.connect();
     const matchId = crypto.randomUUID();
     const { rows } = await client.query(
       `INSERT INTO matches (id, player1_id, player2_id, current_emoji, status) VALUES ($1, $2, $3, $4, 'ACTIVE') RETURNING *`,
@@ -641,7 +642,7 @@ async function startMatch(socket, partner) {
       id: `memory_match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     };
   } finally {
-    client.release();
+    client?.release();
   }
 
   const roomId = `match_${match.id}`;
@@ -995,15 +996,28 @@ process.on("SIGTERM", async () => {
 
 const PORT = process.env.PORT || 3000;
 
-// Initialize schema then start server
-initSchema()
-  .then(() => {
-    dbAvailable = true;
-    dbWarningShown = false;
-    server.listen(PORT, () => console.log(`[OK] Signaling server running on :${PORT} — database connected`));
-  })
-  .catch((err) => {
-    console.error("[FATAL] Could not initialize DB schema:", err.message);
-    warnDbFallback(err);
-    server.listen(PORT, () => console.log(`[WARN] Signaling server running on :${PORT} — DB unavailable, using memory fallback`));
-  });
+// Initialize schema then start server (skip DB if env missing)
+if (!process.env.DATABASE_URL) {
+  console.warn("[DB] DATABASE_URL missing — running in memory-only mode");
+  dbAvailable = false;
+  dbWarningShown = true;
+  server.listen(PORT, () =>
+    console.log(`[WARN] Signaling server running on :${PORT} — DB unavailable, using memory fallback`)
+  );
+} else {
+  initSchema()
+    .then(() => {
+      dbAvailable = true;
+      dbWarningShown = false;
+      server.listen(PORT, () =>
+        console.log(`[OK] Signaling server running on :${PORT} — database connected`)
+      );
+    })
+    .catch((err) => {
+      console.error("[FATAL] Could not initialize DB schema:", err.message);
+      warnDbFallback(err);
+      server.listen(PORT, () =>
+        console.log(`[WARN] Signaling server running on :${PORT} — DB unavailable, using memory fallback`)
+      );
+    });
+}
