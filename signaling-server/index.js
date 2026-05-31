@@ -184,7 +184,7 @@ async function markUserVip(username) {
   if (!normalized) return null;
   memoryVipUsers.add(normalized);
 
-  if (!dbAvailable) return { username: normalized, isVIP: true, freeGenderMatchesLeft: 5 };
+  if (!dbAvailable) return { username: normalized, isVIP: true, freeGenderMatchesLeft: 0 };
 
   const client = await pool.connect();
   try {
@@ -206,14 +206,14 @@ async function markUserVip(username) {
     return mapUserRow(res.rows[0]);
   } catch (err) {
     warnDbFallback(err);
-    return { username: normalized, isVIP: true, freeGenderMatchesLeft: 5 };
+    return { username: normalized, isVIP: true, freeGenderMatchesLeft: 0 };
   } finally {
     client.release();
   }
 }
 
 function getMemoryFreeGenderMatches(username) {
-  if (!memoryFreeGenderMatches.has(username)) memoryFreeGenderMatches.set(username, 5);
+  if (!memoryFreeGenderMatches.has(username)) memoryFreeGenderMatches.set(username, 0);
   return memoryFreeGenderMatches.get(username);
 }
 
@@ -240,11 +240,11 @@ async function getVipStatus(username) {
 
 async function getPremiumStatus(username) {
   const normalized = typeof username === "string" ? username.trim().slice(0, 24) : "";
-  if (!normalized) return { isVIP: false, freeGenderMatchesLeft: 5 };
+  if (!normalized) return { isVIP: false, freeGenderMatchesLeft: 0 };
   if (!dbAvailable) {
     return {
       isVIP: memoryVipUsers.has(normalized),
-      freeGenderMatchesLeft: getMemoryFreeGenderMatches(normalized),
+      freeGenderMatchesLeft: 0,
     };
   }
 
@@ -257,13 +257,13 @@ async function getPremiumStatus(username) {
     const user = rows[0];
     return {
       isVIP: user?.is_vip === true || memoryVipUsers.has(normalized),
-      freeGenderMatchesLeft: user?.free_matches_left ?? getMemoryFreeGenderMatches(normalized),
+      freeGenderMatchesLeft: user?.is_vip === true ? (user?.free_matches_left ?? 0) : 0,
     };
   } catch (err) {
     warnDbFallback(err);
     return {
       isVIP: memoryVipUsers.has(normalized),
-      freeGenderMatchesLeft: getMemoryFreeGenderMatches(normalized),
+      freeGenderMatchesLeft: 0,
     };
   } finally {
     client.release();
@@ -271,47 +271,11 @@ async function getPremiumStatus(username) {
 }
 
 async function consumeGenderFilterCredit(meta) {
-  if (!meta || meta.isVIP || meta.seeking === "Anyone") return meta?.freeGenderMatchesLeft ?? 5;
-  const username = meta.username || "anonymous";
-
-  if (!dbAvailable || !meta.userId?.startsWith || meta.userId.startsWith("memory_user_")) {
-    const next = Math.max(0, getMemoryFreeGenderMatches(username) - 1);
-    memoryFreeGenderMatches.set(username, next);
-    meta.freeGenderMatchesLeft = next;
-    return next;
-  }
-
-  const client = await pool.connect();
-  try {
-    const { rows } = await client.query(
-      `UPDATE users SET free_matches_left = free_matches_left - 1 WHERE id = $1 AND is_vip = false AND free_matches_left > 0 RETURNING free_matches_left`,
-      [meta.userId]
-    );
-    if (rows.length > 0) {
-      // Row was updated — read back the new count
-      const newCount = rows[0].free_matches_left;
-      meta.freeGenderMatchesLeft = newCount;
-      return newCount;
-    }
-    // No row updated: user is VIP or already at 0 — re-read current state
-    const { rows: current } = await client.query(
-      `SELECT free_matches_left, is_vip FROM users WHERE id = $1`,
-      [meta.userId]
-    );
-    if (current.length > 0) {
-      meta.isVIP = current[0].is_vip === true;
-      meta.freeGenderMatchesLeft = Math.max(0, current[0].free_matches_left ?? 0);
-    }
-    return meta.freeGenderMatchesLeft;
-  } catch (err) {
-    warnDbFallback(err);
-    const next = Math.max(0, getMemoryFreeGenderMatches(username) - 1);
-    memoryFreeGenderMatches.set(username, next);
-    meta.freeGenderMatchesLeft = next;
-    return next;
-  } finally {
-    client.release();
-  }
+  // Free tier removed: no decrements; gender filters require VIP.
+  if (!meta) return 0;
+  if (meta.seeking === "Anyone" || meta.isVIP) return meta?.freeGenderMatchesLeft ?? 0;
+  meta.freeGenderMatchesLeft = 0;
+  return 0;
 }
 
 app.post("/api/premium/webhook", express.raw({ type: "application/json" }), async (req, res) => {
@@ -804,7 +768,7 @@ io.on("connection", (socket) => {
     let isVIP = user.isVIP === true;
     let freeGenderMatchesLeft = user.freeGenderMatchesLeft ?? getMemoryFreeGenderMatches(user.username);
 
-    // ─── Fresh DB guard: verify freemium balance before gender-filtered queue ──
+    // ─── Refresh VIP status from DB when applying gender filter ──
     if (profileSeeking !== "Anyone" && dbAvailable && user.id && !String(user.id).startsWith("memory_user_")) {
       const balanceClient = await pool.connect();
       try {
@@ -823,7 +787,11 @@ io.on("connection", (socket) => {
       }
     }
 
-    if (profileSeeking !== "Anyone" && !isVIP && freeGenderMatchesLeft <= 0) {
+    // Sync client with authoritative identifiers and counters
+    socket.emit("user_id", { userId: user.id });
+    socket.emit("usage_update", { isVIP, freeGenderMatchesLeft });
+
+    if (profileSeeking !== "Anyone" && !isVIP) {
       socket.emit("trigger_paywall", { free_matches_left: 0, isVIP: false });
       socket.emit("paywall_required", { freeGenderMatchesLeft: 0, isVIP: false });
       return;

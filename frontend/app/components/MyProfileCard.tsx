@@ -145,7 +145,7 @@ export default function MyProfileCard({ profile, elo = 400, className = "" }: My
         <span className="col-span-2">
           Gender Filters{" "}
           <strong className="block text-sm text-zinc-200">
-            {profile.isVIP ? "Unlimited" : `${profile.freeGenderMatchesLeft ?? 5} free left`}
+            {profile.isVIP ? "Unlimited" : "Requires VIP"}
           </strong>
         </span>
       </div>

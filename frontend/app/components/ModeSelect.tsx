@@ -188,7 +188,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
   const handlePreference = (selectedSeeking: MatchSeeking) => {
     setPreferenceError("");
     const effectiveIsVIP = profile?.isVIP ?? false;
-    const effectiveFreeLeft = profile?.freeGenderMatchesLeft ?? 5;
+    const effectiveFreeLeft = profile?.freeGenderMatchesLeft ?? 0;
 
     if (selectedSeeking === "Anyone") {
       setShowPreferenceModal(false);
@@ -196,7 +196,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
       return;
     }
 
-    if (effectiveIsVIP || effectiveFreeLeft > 0) {
+    if (effectiveIsVIP) {
       setShowPreferenceModal(false);
       onSelect("camera", selectedSeeking);
       return;
@@ -483,8 +483,8 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 {(["Male", "Female", "Anyone"] as MatchSeeking[]).map((option) => {
                   const isGenderFilter = option !== "Anyone";
                   const effectiveIsVIP = profile?.isVIP ?? false;
-                  const effectiveFreeLeft = profile?.freeGenderMatchesLeft ?? 5;
-                  const locked = isGenderFilter && !effectiveIsVIP && effectiveFreeLeft <= 0;
+                  const effectiveFreeLeft = profile?.freeGenderMatchesLeft ?? 0;
+                  const locked = isGenderFilter && !effectiveIsVIP;
                   return (
                     <button
                       key={option}
@@ -504,9 +504,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                           ? "Always free"
                           : effectiveIsVIP
                             ? "VIP unlimited"
-                            : locked
-                              ? "Unlock unlimited filters"
-                              : `${effectiveFreeLeft} free filters left`}
+                            : "Unlock unlimited filters"}
                       </span>
                     </button>
                   );

@@ -261,6 +261,17 @@ export function useMatchmaking(
         onProfileUpdate?.(nextProfile);
       });
 
+      // Persist server-assigned UUID even if user skipped onboarding
+      socket.on("user_id", ({ userId }: { userId?: string }) => {
+        if (!userId) return;
+        const current = profileRef.current;
+        if (!current) return;
+        if (typeof current.userId === "string" && current.userId.length > 0) return;
+        const nextProfile = { ...current, userId } as any;
+        profileRef.current = nextProfile;
+        onProfileUpdate?.(nextProfile);
+      });
+
       socket.on("paywall_required", () => {
         stoppedRef.current = true;
         setStatus("stopped");

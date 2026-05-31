@@ -97,7 +97,7 @@ function parseProfile(value: string | null): UserProfile | null {
         freeGenderMatchesLeft:
           typeof parsed.freeGenderMatchesLeft === "number" && Number.isFinite(parsed.freeGenderMatchesLeft)
             ? parsed.freeGenderMatchesLeft
-            : 5,
+            : 0,
         userId: typeof parsed.userId === "string" ? parsed.userId : undefined,
         deviceId: typeof (parsed as any).deviceId === "string" ? (parsed as any).deviceId : getOrCreateDeviceId(),
       };
@@ -149,7 +149,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
             freeGenderMatchesLeft:
               typeof data.freeGenderMatchesLeft === "number"
                 ? data.freeGenderMatchesLeft
-                : loaded.freeGenderMatchesLeft,
+                : (typeof loaded.freeGenderMatchesLeft === "number" ? loaded.freeGenderMatchesLeft : 0),
             userId: data.id,
           };
           window.localStorage.setItem(STORAGE_KEY, JSON.stringify(synced));

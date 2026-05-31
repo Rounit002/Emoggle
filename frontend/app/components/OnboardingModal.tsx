@@ -183,7 +183,7 @@ export default function OnboardingModal({ onSubmit }: OnboardingModalProps) {
         verifiedGender: predictedGender,
         isVerified: true,
         isVIP: false,
-        freeGenderMatchesLeft: 5,
+        freeGenderMatchesLeft: 0,
       };
 
       // Register with backend to get a persistent UUID for socket sync
