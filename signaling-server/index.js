@@ -12,6 +12,12 @@ console.log("[ENV] NODE_ENV:", process.env.NODE_ENV);
 console.log("[ENV] JWT_SECRET set:", !!process.env.JWT_SECRET, "| length:", process.env.JWT_SECRET?.length ?? 0);
 console.log("[ENV] DATABASE_URL set:", !!process.env.DATABASE_URL);
 console.log("[ENV] FRONTEND_URL:", process.env.FRONTEND_URL);
+console.log(
+  "[ENV] Razorpay configured:",
+  !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET,
+  "| webhook:",
+  !!process.env.RAZORPAY_WEBHOOK_SECRET
+);
 
 const express = require("express");
 const http = require("http");
@@ -388,6 +394,10 @@ app.post("/api/premium/checkout", async (req, res) => {
 
   if (!username) return res.status(400).json({ detail: "Username is required." });
   if (!keyId || !keySecret) {
+    console.warn("[Razorpay] Missing config:", {
+      keyId: !!keyId,
+      keySecret: !!keySecret,
+    });
     return res.status(503).json({ detail: "Razorpay is not configured on this backend." });
   }
 
@@ -445,6 +455,15 @@ app.post("/api/premium/verify", async (req, res) => {
   const user = await markUserVip(username);
   io.emit("vip_status", { username: user.username, isVIP: true });
   return res.json({ isVIP: true, username: user.username, freeGenderMatchesLeft: user.freeGenderMatchesLeft ?? 5 });
+});
+
+// Minimal diagnostics (no secrets) to verify Razorpay config in production
+app.get("/api/premium/config", (_req, res) => {
+  res.json({
+    configured: !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET,
+    webhookConfigured: !!process.env.RAZORPAY_WEBHOOK_SECRET,
+    priceINR: VIP_PRICE_INR,
+  });
 });
 
 app.get("/api/premium/status", async (req, res) => {
