@@ -23,15 +23,15 @@ function getOrCreateDeviceId(): string {
   try {
     const existing = window.localStorage.getItem(DEVICE_ID_KEY);
     let id: string | null = existing;
-    if (!existing) {
+    if (!id) {
       // Best-effort stable ID for this browser install
-      const rnd = (typeof crypto !== "undefined" && (crypto as any).randomUUID)
+      const newId: string = (typeof crypto !== "undefined" && (crypto as any).randomUUID)
         ? (crypto as any).randomUUID()
         : `${Math.random().toString(36).slice(2)}-${Date.now()}`;
-      id = rnd;
-      window.localStorage.setItem(DEVICE_ID_KEY, id);
+      id = newId;
+      window.localStorage.setItem(DEVICE_ID_KEY, newId);
     }
-    return id as string;
+    return id;
   } catch {
     // Fallback ephemeral
     return `${Math.random().toString(36).slice(2)}-${Date.now()}`;
