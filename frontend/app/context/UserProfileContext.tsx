@@ -16,6 +16,46 @@ export interface UserProfile {
   freeGenderMatchesLeft?: number;
   elo?: number;
   userId?: string;
+  deviceId?: string;
+}
+
+function getOrCreateDeviceId(): string {
+  try {
+    const existing = window.localStorage.getItem(DEVICE_ID_KEY);
+    let id: string | null = existing;
+    if (!existing) {
+      // Best-effort stable ID for this browser install
+      const rnd = (typeof crypto !== "undefined" && (crypto as any).randomUUID)
+        ? (crypto as any).randomUUID()
+        : `${Math.random().toString(36).slice(2)}-${Date.now()}`;
+      id = rnd;
+      window.localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id as string;
+  } catch {
+    // Fallback ephemeral
+    return `${Math.random().toString(36).slice(2)}-${Date.now()}`;
+  }
+}
+
+function getVipReceipt(): { deviceId?: string; ts?: number; provider?: string } | null {
+  try {
+    const raw = window.localStorage.getItem(VIP_RECEIPT_KEY);
+    if (!raw) return null;
+    if (raw.startsWith("v1:")) {
+      const b64 = raw.slice(3);
+      try {
+        const json = atob(b64);
+        return JSON.parse(json);
+      } catch {
+        return null;
+      }
+    }
+    // Backward compatibility: plain JSON
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 interface UserProfileContextValue {
@@ -26,6 +66,8 @@ interface UserProfileContextValue {
 }
 
 const STORAGE_KEY = "emoggle:user-profile";
+const DEVICE_ID_KEY = "emoggle:device-id";
+const VIP_RECEIPT_KEY = "emoggle:vip-receipt";
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 const UserProfileContext = createContext<UserProfileContextValue | null>(null);
@@ -57,6 +99,7 @@ function parseProfile(value: string | null): UserProfile | null {
             ? parsed.freeGenderMatchesLeft
             : 5,
         userId: typeof parsed.userId === "string" ? parsed.userId : undefined,
+        deviceId: typeof (parsed as any).deviceId === "string" ? (parsed as any).deviceId : getOrCreateDeviceId(),
       };
     }
   } catch {
@@ -71,7 +114,10 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const loaded = parseProfile(window.localStorage.getItem(STORAGE_KEY));
-    setProfile(loaded);
+    const deviceId = getOrCreateDeviceId();
+    const receipt = getVipReceipt();
+    const hasLocalVip = !!receipt && receipt.deviceId === deviceId;
+    setProfile(loaded ? { ...loaded, isVIP: loaded.isVIP || hasLocalVip } : null);
     setHasLoadedProfile(true);
 
     // Login validation: if a userId exists, verify it against the DB
@@ -92,10 +138,14 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
         .then((data) => {
           if (!data) return;
           // Hydrate profile with authoritative DB values
+          const deviceId2 = getOrCreateDeviceId();
+          const receipt2 = getVipReceipt();
+          const hasLocalVip2 = !!receipt2 && receipt2.deviceId === deviceId2;
           const synced: UserProfile = {
             ...loaded,
             elo: data.elo ?? loaded.elo,
-            isVIP: data.isVIP === true,
+            // Never downgrade local VIP when a local receipt for this device exists
+            isVIP: loaded.isVIP === true || hasLocalVip2 || data.isVIP === true,
             freeGenderMatchesLeft:
               typeof data.freeGenderMatchesLeft === "number"
                 ? data.freeGenderMatchesLeft
@@ -117,7 +167,8 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
         const normalized = {
           ...nextProfile,
           username: nextProfile.username.trim().slice(0, 24),
-        };
+          deviceId: getOrCreateDeviceId(),
+        } as UserProfile;
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
         setProfile(normalized);
       },

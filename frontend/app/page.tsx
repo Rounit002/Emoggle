@@ -7,20 +7,17 @@ import SoloFaceJudge from "./components/SoloFaceJudge";
 import OnboardingModal from "./components/OnboardingModal";
 import { UserProfileProvider, useUserProfile } from "./context/UserProfileContext";
 import { MediaPipeFaceProvider } from "./context/MediaPipeFaceContext";
-import { AuthProvider } from "./context/AuthContext";
 import type { MatchSeeking } from "./context/UserProfileContext";
 
 type View = "home" | "arena" | "solo";
 
 export default function Home() {
   return (
-    <AuthProvider>
-      <MediaPipeFaceProvider>
-        <UserProfileProvider>
-          <HomeContent />
-        </UserProfileProvider>
-      </MediaPipeFaceProvider>
-    </AuthProvider>
+    <MediaPipeFaceProvider>
+      <UserProfileProvider>
+        <HomeContent />
+      </UserProfileProvider>
+    </MediaPipeFaceProvider>
   );
 }
 

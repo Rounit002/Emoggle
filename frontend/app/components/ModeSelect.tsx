@@ -5,8 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import MyProfileCard from "./MyProfileCard";
 import { useUserProfile } from "../context/UserProfileContext";
 import type { MatchSeeking } from "../context/UserProfileContext";
-import { useAuth } from "../context/AuthContext";
-import AuthModal from "./AuthModal";
+// Auth removed — rely on local profile only
 
 interface ModeSelectProps {
   onSelect: (mode: "camera" | "solo", seeking?: MatchSeeking) => void;
@@ -34,8 +33,60 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
   const [preferenceError, setPreferenceError] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const { profile, saveProfile } = useUserProfile();
-  const { user: authUser, updateUser, refreshUser } = useAuth();
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  // ── Device VIP persistence (local)
+  const DEVICE_ID_KEY = "emoggle:device-id";
+  const VIP_RECEIPT_KEY = "emoggle:vip-receipt";
+  const [isDeviceVIP, setIsDeviceVIP] = useState(false);
+  const [hasLocalVipReceipt, setHasLocalVipReceipt] = useState(false);
+
+  function getOrCreateDeviceId(): string {
+    try {
+      const existing = window.localStorage.getItem(DEVICE_ID_KEY);
+      let id: string | null = existing;
+      if (!existing) {
+        const rnd = (typeof crypto !== "undefined" && (crypto as any).randomUUID)
+          ? (crypto as any).randomUUID()
+          : `${Math.random().toString(36).slice(2)}-${Date.now()}`;
+        id = rnd;
+        window.localStorage.setItem(DEVICE_ID_KEY, id as string);
+      }
+      return id as string;
+    } catch {
+      return `${Math.random().toString(36).slice(2)}-${Date.now()}`;
+    }
+  }
+
+  function getVipReceipt(): { deviceId?: string; ts?: number; provider?: string } | null {
+    try {
+      const raw = window.localStorage.getItem(VIP_RECEIPT_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function markDeviceVip(provider: string = "razorpay") {
+    const deviceId = getOrCreateDeviceId();
+    try {
+      const payload = JSON.stringify({ deviceId, ts: Date.now(), provider });
+      const v1 = `v1:${btoa(payload)}`;
+      window.localStorage.setItem(VIP_RECEIPT_KEY, v1);
+      setHasLocalVipReceipt(true);
+      setIsDeviceVIP(true);
+    } catch {
+      // ignore storage errors
+    }
+    if (profile) saveProfile({ ...profile, isVIP: true });
+  }
+
+  function restoreVipFromReceipt() {
+    const rec = getVipReceipt();
+    const deviceId = getOrCreateDeviceId();
+    if (rec && rec.deviceId === deviceId) {
+      setIsDeviceVIP(true);
+      if (profile) saveProfile({ ...profile, isVIP: true });
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +110,15 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     };
   }, []);
 
+  // Read VIP receipt on mount
+  useEffect(() => {
+    const rec = getVipReceipt();
+    const deviceId = getOrCreateDeviceId();
+    const match = !!rec && rec.deviceId === deviceId;
+    setIsDeviceVIP(match);
+    setHasLocalVipReceipt(!!rec);
+  }, []);
+
   const loadRazorpayScript = () =>
     new Promise<boolean>((resolve) => {
       if (window.Razorpay) {
@@ -73,7 +133,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     });
 
   const startPremiumCheckout = async (selectedSeeking: MatchSeeking) => {
-    const checkoutUsername = authUser?.username ?? profile?.username;
+    const checkoutUsername = profile?.username;
     if (!checkoutUsername) return;
     setPreferenceError("");
     setIsCheckingOut(true);
@@ -107,8 +167,9 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
             });
             const data = await verifyRes.json();
             if (!verifyRes.ok || !data.isVIP) throw new Error(data.detail ?? "Payment verification failed.");
+            // Mark VIP locally for this device and persist profile flag
+            markDeviceVip("razorpay");
             if (profile) saveProfile({ ...profile, isVIP: true, freeGenderMatchesLeft: data.freeGenderMatchesLeft ?? profile.freeGenderMatchesLeft });
-            updateUser({ isVIP: true, freeGenderMatchesLeft: data.freeGenderMatchesLeft ?? 5 });
             setShowPreferenceModal(false);
             onSelect("camera", selectedSeeking);
           } catch (verifyError) {
@@ -126,8 +187,8 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
 
   const handlePreference = (selectedSeeking: MatchSeeking) => {
     setPreferenceError("");
-    const effectiveIsVIP = authUser?.isVIP ?? profile?.isVIP ?? false;
-    const effectiveFreeLeft = authUser?.freeGenderMatchesLeft ?? profile?.freeGenderMatchesLeft ?? 5;
+    const effectiveIsVIP = profile?.isVIP ?? false;
+    const effectiveFreeLeft = profile?.freeGenderMatchesLeft ?? 5;
 
     if (selectedSeeking === "Anyone") {
       setShowPreferenceModal(false);
@@ -191,6 +252,35 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
             <span className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Online Now</span>
           )}
         </motion.div>
+
+        {/* Device VIP badge + restore */}
+        <div className="mt-2 flex items-center gap-2">
+          {(isDeviceVIP || profile?.isVIP) && (
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-yellow-300">
+              VIP active on this device
+            </span>
+          )}
+          {!profile?.isVIP && hasLocalVipReceipt && (
+            <button
+              onClick={restoreVipFromReceipt}
+              className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300 hover:text-cyan-200 border border-cyan-300/30 rounded-full px-2 py-0.5"
+            >
+              Restore VIP on this device
+            </button>
+          )}
+          {(isDeviceVIP || hasLocalVipReceipt) && (
+            <button
+              onClick={() => {
+                try { window.localStorage.removeItem(VIP_RECEIPT_KEY); } catch {}
+                setIsDeviceVIP(false);
+                setHasLocalVipReceipt(false);
+              }}
+              className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 hover:text-zinc-200 border border-zinc-700/60 rounded-full px-2 py-0.5"
+            >
+              Clear device VIP
+            </button>
+          )}
+        </div>
 
         {/* Main action card */}
         <AnimatePresence mode="wait">
@@ -263,8 +353,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 whileHover={{ scale: 1.02, y: -2 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => {
-                  if (!authUser) { setShowAuthModal(true); return; }
-                  refreshUser().then(() => setShowPreferenceModal(true));
+                  setShowPreferenceModal(true);
                 }}
                 className="group relative w-full flex items-center gap-4 sm:gap-5 p-4 sm:p-5 rounded-2xl bg-zinc-900 border border-zinc-700 hover:border-yellow-400/60 text-left transition-colors overflow-hidden"
               >
@@ -393,8 +482,8 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
               <div className="mt-5 grid gap-3">
                 {(["Male", "Female", "Anyone"] as MatchSeeking[]).map((option) => {
                   const isGenderFilter = option !== "Anyone";
-                  const effectiveIsVIP = authUser?.isVIP ?? profile?.isVIP ?? false;
-                  const effectiveFreeLeft = authUser?.freeGenderMatchesLeft ?? profile?.freeGenderMatchesLeft ?? 5;
+                  const effectiveIsVIP = profile?.isVIP ?? false;
+                  const effectiveFreeLeft = profile?.freeGenderMatchesLeft ?? 5;
                   const locked = isGenderFilter && !effectiveIsVIP && effectiveFreeLeft <= 0;
                   return (
                     <button
@@ -434,17 +523,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {showAuthModal && (
-          <AuthModal
-            onClose={() => setShowAuthModal(false)}
-            onSuccess={() => {
-              setShowAuthModal(false);
-              setShowPreferenceModal(true);
-            }}
-          />
-        )}
-      </AnimatePresence>
+      {/* Auth modal removed */}
     </div>
   );
 }

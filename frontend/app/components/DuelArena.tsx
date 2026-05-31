@@ -9,7 +9,6 @@ import { useMatchmaking } from "../hooks/useMatchmaking";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
 import { useUserProfile } from "../context/UserProfileContext";
 import type { MatchSeeking } from "../context/UserProfileContext";
-import { useAuth } from "../context/AuthContext";
 
 const ROUND_SECONDS = 10;
 
@@ -127,7 +126,6 @@ export default function DuelArena({ onBack, initialSeeking = "Anyone" }: DuelAre
   const [myRank, setMyRank] = useState<RankSnapshot>(DEFAULT_RANK);
   const [partnerRank, setPartnerRank] = useState<RankSnapshot>(DEFAULT_RANK);
   const { profile, saveProfile } = useUserProfile();
-  const { user: authUser, updateUser } = useAuth();
 
   useEffect(() => {
     const region = Intl.DateTimeFormat().resolvedOptions().locale.split("-").at(-1);
@@ -165,8 +163,10 @@ export default function DuelArena({ onBack, initialSeeking = "Anyone" }: DuelAre
     profile,
     initialSeeking,
     saveProfile,
-    authUser?.id,
-    (freeLeft) => updateUser({ freeGenderMatchesLeft: freeLeft })
+    undefined,
+    (freeLeft) => {
+      if (profile) saveProfile({ ...profile, freeGenderMatchesLeft: freeLeft });
+    }
   );
 
   const publishLiveScore = useCallback(
