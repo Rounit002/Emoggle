@@ -6,6 +6,7 @@ import DuelArena from "./components/DuelArena";
 import SoloFaceJudge from "./components/SoloFaceJudge";
 import OnboardingModal from "./components/OnboardingModal";
 import { UserProfileProvider, useUserProfile } from "./context/UserProfileContext";
+import { AuthProvider } from "./context/AuthContext";
 import { MediaPipeFaceProvider } from "./context/MediaPipeFaceContext";
 import type { MatchSeeking } from "./context/UserProfileContext";
 
@@ -14,9 +15,11 @@ type View = "home" | "arena" | "solo";
 export default function Home() {
   return (
     <MediaPipeFaceProvider>
-      <UserProfileProvider>
-        <HomeContent />
-      </UserProfileProvider>
+      <AuthProvider>
+        <UserProfileProvider>
+          <HomeContent />
+        </UserProfileProvider>
+      </AuthProvider>
     </MediaPipeFaceProvider>
   );
 }

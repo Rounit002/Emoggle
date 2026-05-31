@@ -43,6 +43,8 @@ function safeUser(row) {
     freeGenderMatchesLeft: row.free_matches_left,
     authProvider: row.auth_provider,
     createdAt: row.created_at,
+    loginCount: row.login_count,
+    lastLoginAt: row.last_login_at,
   };
 }
 
@@ -74,9 +76,9 @@ router.post("/register", async (req, res) => {
     const newId = crypto.randomUUID();
 
     const { rows } = await client.query(
-      `INSERT INTO users (id, email, password_hash, username, age, verified_gender, auth_provider)
-       VALUES ($1, $2, $3, $4, $5, $6, 'local')
-       RETURNING id, username, email, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at`,
+      `INSERT INTO users (id, email, password_hash, username, age, verified_gender, auth_provider, login_count, last_login_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'local', 1, NOW())
+       RETURNING id, username, email, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at, login_count, last_login_at`,
       [newId, safeEmail, passwordHash, safeUsername, safeAge, safeGender]
     );
 
@@ -105,7 +107,7 @@ router.post("/login", async (req, res) => {
   try {
     client = await pool.connect();
     const { rows } = await client.query(
-      `SELECT id, username, email, password_hash, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at
+      `SELECT id, username, email, password_hash, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at, login_count, last_login_at
        FROM users WHERE email = $1`,
       [safeEmail]
     );
@@ -126,9 +128,14 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ detail: "Invalid email or password." });
     }
 
+    const updated = await client.query(
+      `UPDATE users SET login_count = COALESCE(login_count,0) + 1, last_login_at = NOW() WHERE id = $1
+       RETURNING id, username, email, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at, login_count, last_login_at`,
+      [user.id]
+    );
     const token = await createSession(client, user.id);
     setSessionCookie(res, token);
-    return res.json({ user: safeUser(user) });
+    return res.json({ user: safeUser(updated.rows[0]) });
   } catch (err) {
     console.error("[Auth] Login error:", err.message);
     return res.status(500).json({ detail: "Login failed.", error: err.message });
@@ -167,7 +174,7 @@ router.post("/google", async (req, res) => {
   try {
     client = await pool.connect();
     const { rows } = await client.query(
-      `SELECT id, username, email, google_id, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at
+      `SELECT id, username, email, google_id, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at, login_count, last_login_at
        FROM users WHERE google_id = $1 OR (email = $2 AND $2 IS NOT NULL)
        LIMIT 1`,
       [googleId, safeEmail]
@@ -179,24 +186,29 @@ router.post("/google", async (req, res) => {
       const newId = crypto.randomUUID();
       const safeUsername = (name ?? safeEmail?.split("@")[0] ?? "user").slice(0, 24);
       const { rows: inserted } = await client.query(
-        `INSERT INTO users (id, email, google_id, username, auth_provider)
-         VALUES ($1, $2, $3, $4, 'google')
-         RETURNING id, username, email, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at`,
+        `INSERT INTO users (id, email, google_id, username, auth_provider, login_count, last_login_at)
+         VALUES ($1, $2, $3, $4, 'google', 1, NOW())
+         RETURNING id, username, email, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at, login_count, last_login_at`,
         [newId, safeEmail, googleId, safeUsername]
       );
       user = inserted[0];
     } else if (!user.google_id) {
       const { rows: linked } = await client.query(
         `UPDATE users SET google_id = $1, auth_provider = 'google' WHERE id = $2
-         RETURNING id, username, email, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at`,
+         RETURNING id, username, email, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at, login_count, last_login_at`,
         [googleId, user.id]
       );
       user = linked[0];
     }
 
+    const updated = await client.query(
+      `UPDATE users SET login_count = COALESCE(login_count,0) + 1, last_login_at = NOW() WHERE id = $1
+       RETURNING id, username, email, age, verified_gender, elo, is_vip, free_matches_left, auth_provider, created_at, login_count, last_login_at`,
+      [user.id]
+    );
     const token = await createSession(client, user.id);
     setSessionCookie(res, token);
-    return res.json({ user: safeUser(user) });
+    return res.json({ user: safeUser(updated.rows[0]) });
   } catch (err) {
     console.error("[Auth] Google auth error:", err.message);
     return res.status(500).json({ detail: "Google authentication failed.", error: err.message });
@@ -239,7 +251,7 @@ router.get("/me", async (req, res) => {
   try {
     client = await pool.connect();
     const { rows } = await client.query(
-      `SELECT u.id, u.username, u.email, u.age, u.verified_gender, u.elo, u.is_vip, u.free_matches_left, u.auth_provider, u.created_at
+      `SELECT u.id, u.username, u.email, u.age, u.verified_gender, u.elo, u.is_vip, u.free_matches_left, u.auth_provider, u.created_at, u.login_count, u.last_login_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token = $1 AND s.expires_at > NOW()`,

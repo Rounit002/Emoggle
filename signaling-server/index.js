@@ -305,6 +305,14 @@ app.post("/api/premium/webhook", express.raw({ type: "application/json" }), asyn
 });
 
 app.use(express.json({ limit: "1mb" }));
+// Auth routes (email/password + Google)
+try {
+  const authRouter = require("./routes/auth");
+  app.use("/api/auth", authRouter);
+  console.log("[Auth] Routes mounted at /api/auth");
+} catch (e) {
+  console.warn("[Auth] Could not mount auth routes:", e?.message);
+}
 
 // ─── Onboarding endpoint (raw INSERT) ────────────────────────────────────────
 app.post("/api/users/onboard", async (req, res) => {
@@ -1002,7 +1010,7 @@ process.on("SIGTERM", async () => {
   process.exit(0);
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 // Initialize schema then start server (skip DB if env missing)
 if (!process.env.DATABASE_URL) {

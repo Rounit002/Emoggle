@@ -33,7 +33,9 @@ async function initSchema() {
         email VARCHAR UNIQUE,
         password_hash VARCHAR,
         auth_provider VARCHAR DEFAULT 'local',
-        google_id VARCHAR UNIQUE
+        google_id VARCHAR UNIQUE,
+        login_count INT DEFAULT 0,
+        last_login_at TIMESTAMP
       )
     `);
 
@@ -42,6 +44,8 @@ async function initSchema() {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR DEFAULT 'local'`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR UNIQUE`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS login_count INT DEFAULT 0`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS matches (
         id UUID PRIMARY KEY,

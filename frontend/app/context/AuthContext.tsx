@@ -24,6 +24,8 @@ export interface AuthUser {
   freeGenderMatchesLeft: number;
   authProvider: string;
   createdAt: string;
+  loginCount?: number;
+  lastLoginAt?: string | null;
 }
 
 interface RegisterPayload {
@@ -71,8 +73,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       credentials: "include",
       body: JSON.stringify({ email, password }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail ?? "Login failed.");
+    const text = await res.text();
+    let data: any = null;
+    try { data = JSON.parse(text); } catch {}
+    if (!res.ok) {
+      throw new Error((data && data.detail) || `HTTP ${res.status} ${res.statusText}`);
+    }
+    if (!data?.user) throw new Error("Invalid server response.");
     setUser(data.user);
   }, []);
 
@@ -83,8 +90,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       credentials: "include",
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail ?? "Registration failed.");
+    const text = await res.text();
+    let data: any = null;
+    try { data = JSON.parse(text); } catch {}
+    if (!res.ok) {
+      throw new Error((data && data.detail) || `HTTP ${res.status} ${res.statusText}`);
+    }
+    if (!data?.user) throw new Error("Invalid server response.");
     setUser(data.user);
   }, []);
 
@@ -95,8 +107,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       credentials: "include",
       body: JSON.stringify({ idToken }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail ?? "Google login failed.");
+    const text = await res.text();
+    let data: any = null;
+    try { data = JSON.parse(text); } catch {}
+    if (!res.ok) {
+      throw new Error((data && data.detail) || `HTTP ${res.status} ${res.statusText}`);
+    }
+    if (!data?.user) throw new Error("Invalid server response.");
     setUser(data.user);
   }, []);
 
