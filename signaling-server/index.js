@@ -12,11 +12,36 @@ console.log("[ENV] NODE_ENV:", process.env.NODE_ENV);
 console.log("[ENV] JWT_SECRET set:", !!process.env.JWT_SECRET, "| length:", process.env.JWT_SECRET?.length ?? 0);
 console.log("[ENV] DATABASE_URL set:", !!process.env.DATABASE_URL);
 console.log("[ENV] FRONTEND_URL:", process.env.FRONTEND_URL);
+// Helpers to read Razorpay envs robustly (trim + common fallback names)
+function getEnvTrim(name) {
+  const v = process.env[name];
+  if (typeof v !== "string") return undefined;
+  const t = v.trim();
+  return t.length ? t : undefined;
+}
+
+function readRazorpayConfig() {
+  const keyId =
+    getEnvTrim("RAZORPAY_KEY_ID") ||
+    getEnvTrim("RAZORPAY_KEY") ||
+    getEnvTrim("RAZORPAY_ID") ||
+    getEnvTrim("RAZORPAY_API_KEY") ||
+    getEnvTrim("RZP_KEY_ID");
+  const keySecret =
+    getEnvTrim("RAZORPAY_KEY_SECRET") ||
+    getEnvTrim("RAZORPAY_SECRET") ||
+    getEnvTrim("RAZORPAY_API_SECRET") ||
+    getEnvTrim("RZP_KEY_SECRET");
+  const webhookSecret = getEnvTrim("RAZORPAY_WEBHOOK_SECRET") || getEnvTrim("RZP_WEBHOOK_SECRET");
+  return { keyId, keySecret, webhookSecret };
+}
+
+const __rzp = readRazorpayConfig();
 console.log(
   "[ENV] Razorpay configured:",
-  !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET,
+  !!__rzp.keyId && !!__rzp.keySecret,
   "| webhook:",
-  !!process.env.RAZORPAY_WEBHOOK_SECRET
+  !!__rzp.webhookSecret
 );
 
 const express = require("express");
@@ -290,7 +315,7 @@ async function consumeGenderFilterCredit(meta) {
 }
 
 app.post("/api/premium/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  const { webhookSecret: secret } = readRazorpayConfig();
   const signature = req.headers["x-razorpay-signature"];
   const rawBody = req.body?.toString("utf8") ?? "";
 
@@ -388,8 +413,7 @@ app.get("/api/users/me", async (req, res) => {
 });
 
 app.post("/api/premium/checkout", async (req, res) => {
-  const keyId = process.env.RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  const { keyId, keySecret } = readRazorpayConfig();
   const username = typeof req.body?.username === "string" ? req.body.username.trim().slice(0, 24) : "";
 
   if (!username) return res.status(400).json({ detail: "Username is required." });
@@ -434,7 +458,7 @@ app.post("/api/premium/checkout", async (req, res) => {
 });
 
 app.post("/api/premium/verify", async (req, res) => {
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  const { keySecret } = readRazorpayConfig();
   const {
     username,
     razorpay_order_id: orderId,
@@ -459,11 +483,8 @@ app.post("/api/premium/verify", async (req, res) => {
 
 // Minimal diagnostics (no secrets) to verify Razorpay config in production
 app.get("/api/premium/config", (_req, res) => {
-  res.json({
-    configured: !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET,
-    webhookConfigured: !!process.env.RAZORPAY_WEBHOOK_SECRET,
-    priceINR: VIP_PRICE_INR,
-  });
+  const { keyId, keySecret, webhookSecret } = readRazorpayConfig();
+  res.json({ configured: !!keyId && !!keySecret, webhookConfigured: !!webhookSecret, priceINR: VIP_PRICE_INR });
 });
 
 app.get("/api/premium/status", async (req, res) => {
