@@ -24,6 +24,7 @@ const authRouter = require("./routes/auth");
 const { verifySocketToken } = require("./middleware/verifyToken");
 
 const app = express();
+app.set("trust proxy", 1); // Trust Render's reverse proxy
 const defaultOrigins = ["http://localhost:3000", "https://emoggle.vercel.app"]; 
 const envOrigins = (process.env.FRONTEND_URL || "")
   .split(",")
@@ -47,6 +48,10 @@ app.use(cookieParser());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: allowedOrigins, methods: ["GET", "POST"], credentials: true },
+  transports: ["websocket", "polling"],
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  allowEIO3: true,
 });
 io.use(verifySocketToken);
 

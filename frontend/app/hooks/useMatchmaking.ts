@@ -229,7 +229,13 @@ export function useMatchmaking(
       setLocalPeerId(id);
 
       /* ── 2. Connect to signaling server ── */
-      const socket = io(SIGNALING_URL, { transports: ["websocket"] });
+      const socket = io(SIGNALING_URL, {
+        transports: ["websocket", "polling"],
+        withCredentials: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+        timeout: 20000,
+      });
       socketRef.current = socket;
 
       socket.on("connect", () => {
