@@ -128,13 +128,43 @@ export default function DuelArena({ onBack, initialSeeking = "Anyone" }: DuelAre
   const { profile, saveProfile } = useUserProfile();
 
   useEffect(() => {
-    const region = Intl.DateTimeFormat().resolvedOptions().locale.split("-").at(-1);
-    if (!region || region.length !== 2) return;
-    const flag = region
-      .toUpperCase()
-      .replace(/./g, (c: string) => String.fromCodePoint(127462 + c.charCodeAt(0) - 65));
-    const regionName = new Intl.DisplayNames(["en"], { type: "region" }).of(region.toUpperCase());
-    setMyCountry(regionName ? `${flag} ${regionName}` : flag);
+    let isCancelled = false;
+    const base = process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
+    fetch(`${base}/api/geo`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data || isCancelled) return;
+        if (typeof data.country === "string" && data.country) {
+          setMyCountry(data.country);
+          return;
+        }
+        const code: string | null = typeof data?.countryCode === "string" ? data.countryCode.toUpperCase() : null;
+        if (code && code.length === 2) {
+          const flag = code.replace(/./g, (c: string) => String.fromCodePoint(127462 + c.charCodeAt(0) - 65));
+          const name = new Intl.DisplayNames(["en"], { type: "region" }).of(code);
+          setMyCountry(name ? `${flag} ${name}` : flag);
+          return;
+        }
+        const region = Intl.DateTimeFormat().resolvedOptions().locale.split("-").at(-1);
+        if (!region || region.length !== 2) return;
+        const flag = region
+          .toUpperCase()
+          .replace(/./g, (c: string) => String.fromCodePoint(127462 + c.charCodeAt(0) - 65));
+        const regionName = new Intl.DisplayNames(["en"], { type: "region" }).of(region.toUpperCase());
+        setMyCountry(regionName ? `${flag} ${regionName}` : flag);
+      })
+      .catch(() => {
+        const region = Intl.DateTimeFormat().resolvedOptions().locale.split("-").at(-1);
+        if (!region || region.length !== 2) return;
+        const flag = region
+          .toUpperCase()
+          .replace(/./g, (c: string) => String.fromCodePoint(127462 + c.charCodeAt(0) - 65));
+        const regionName = new Intl.DisplayNames(["en"], { type: "region" }).of(region.toUpperCase());
+        setMyCountry(regionName ? `${flag} ${regionName}` : flag);
+      });
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   const {

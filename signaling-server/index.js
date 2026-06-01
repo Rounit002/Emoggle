@@ -50,6 +50,12 @@ const crypto = require("crypto");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
+let geoip;
+try {
+  geoip = require("geoip-lite");
+} catch {
+  geoip = { lookup: () => null };
+}
 const { pool, initSchema } = require("./db");
 
 const app = express();
@@ -167,6 +173,31 @@ function calculateMatchElo(player1Elo, player2Elo, player1Score, player2Score) {
 
 function clampScore(score) {
   return Math.max(0, Math.min(10, score));
+}
+
+function cleanIp(ip) {
+  if (!ip) return null;
+  let s = typeof ip === "string" ? ip : String(ip);
+  if (s.startsWith("::ffff:")) s = s.slice(7);
+  if (s === "::1") return "127.0.0.1";
+  return s;
+}
+
+function isoFlag(code) {
+  const cc = typeof code === "string" ? code.toUpperCase() : "";
+  if (cc.length !== 2) return null;
+  return cc.replace(/./g, (c) => String.fromCodePoint(127462 + c.charCodeAt(0) - 65));
+}
+
+function countryLabelFromCode(code) {
+  const cc = typeof code === "string" ? code.toUpperCase() : "";
+  if (cc.length !== 2) return null;
+  const flag = isoFlag(cc);
+  let name = null;
+  try {
+    name = new Intl.DisplayNames(["en"], { type: "region" }).of(cc);
+  } catch {}
+  return name ? `${flag} ${name}` : flag;
 }
 
 function verifyHmac(payload, signature, secret) {
@@ -462,6 +493,30 @@ app.get("/api/premium/config", (_req, res) => {
 app.get("/api/premium/status", async (req, res) => {
   const username = typeof req.query.username === "string" ? req.query.username : "";
   res.json({ username, ...(await getPremiumStatus(username)) });
+});
+
+app.get("/api/geo", (req, res) => {
+  const headers = req.headers || {};
+  let codeHeader = headers["cf-ipcountry"] || headers["x-vercel-ip-country"] || headers["x-country-code"];
+  if (Array.isArray(codeHeader)) codeHeader = codeHeader[0];
+  let countryCode = typeof codeHeader === "string" && codeHeader.length === 2 ? String(codeHeader).toUpperCase() : null;
+  const xf = Array.isArray(headers["x-forwarded-for"]) ? headers["x-forwarded-for"][0] : headers["x-forwarded-for"];
+  const rawIp = typeof xf === "string" && xf.length ? xf.split(",")[0].trim() : (req.ip || req.socket?.remoteAddress || "");
+  const ip = cleanIp(rawIp);
+  let source = countryCode ? "header" : "geoip";
+  if (!countryCode && ip) {
+    try {
+      const g = geoip.lookup(ip);
+      if (g && g.country) countryCode = String(g.country).toUpperCase();
+    } catch {}
+  }
+  const flag = countryCode ? isoFlag(countryCode) : null;
+  let countryName = null;
+  try {
+    if (countryCode) countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(countryCode);
+  } catch {}
+  const country = countryCode ? (countryName ? `${flag} ${countryName}` : flag) : null;
+  res.json({ ip: ip || null, countryCode: countryCode || null, country, source });
 });
 
 function normalizeGender(value) {
@@ -805,13 +860,30 @@ io.on("connection", (socket) => {
       return;
     }
 
+    const headers = socket.handshake?.headers || {};
+    let codeHeader = headers["cf-ipcountry"] || headers["x-vercel-ip-country"] || headers["x-country-code"];
+    if (Array.isArray(codeHeader)) codeHeader = codeHeader[0];
+    let detectedCode = typeof codeHeader === "string" && codeHeader.length === 2 ? String(codeHeader).toUpperCase() : null;
+    if (!detectedCode) {
+      const xf = Array.isArray(headers["x-forwarded-for"]) ? headers["x-forwarded-for"][0] : headers["x-forwarded-for"];
+      const rawIp = typeof xf === "string" && xf.length ? xf.split(",")[0].trim() : (socket.handshake?.address || socket.request?.connection?.remoteAddress || "");
+      const ip = cleanIp(rawIp);
+      if (ip) {
+        try {
+          const g = geoip.lookup(ip);
+          if (g && g.country) detectedCode = String(g.country).toUpperCase();
+        } catch {}
+      }
+    }
+    const detectedCountry = detectedCode ? countryLabelFromCode(detectedCode) : null;
+
     socketMeta.set(socket.id, {
       peerId,
       userId: user.id,
       username: profileUsername || user.username || "anonymous",
       gender: profileGender,
       seeking: profileSeeking,
-      country: country ?? null,
+      country: detectedCountry ?? country ?? null,
       elo: user.elo ?? DEFAULT_ELO,
       isVIP,
       freeGenderMatchesLeft,
