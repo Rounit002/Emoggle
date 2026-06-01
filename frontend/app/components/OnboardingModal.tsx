@@ -15,6 +15,7 @@ const MODEL_URL = "/models";
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 const genders: UserGender[] = ["Male", "Female"];
+const DISABLE_GENDER_VERIFICATION = true;
 
 function calculateAge(dateOfBirth: string) {
   const dob = new Date(`${dateOfBirth}T00:00:00`);
@@ -135,7 +136,7 @@ export default function OnboardingModal({ onSubmit }: OnboardingModalProps) {
     };
   }, [modelsReady, step]);
 
-  const handleProfileSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleProfileSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = username.trim();
     const age = calculateAge(dateOfBirth);
@@ -147,6 +148,52 @@ export default function OnboardingModal({ onSubmit }: OnboardingModalProps) {
       setError("Enter a valid date of birth.");
       return;
     }
+
+    if (DISABLE_GENDER_VERIFICATION) {
+      if (age < 18) {
+        setError("Access Denied: You must be 18 or older to use Emoggle.");
+        return;
+      }
+
+      setError("");
+      setIsSubmitting(true);
+
+      const baseProfile: UserProfile = {
+        username: trimmed.slice(0, 24),
+        gender,
+        dateOfBirth,
+        age,
+        verifiedGender: gender,
+        isVerified: true,
+        isVIP: false,
+        freeGenderMatchesLeft: 0,
+      };
+
+      try {
+        const res = await fetch(`${SIGNALING_URL}/api/users/onboard`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: baseProfile.username,
+            age: baseProfile.age,
+            verified_gender: baseProfile.verifiedGender,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (typeof data.id === "string") {
+            baseProfile.userId = data.id;
+          }
+        }
+      } catch {
+      } finally {
+        setIsSubmitting(false);
+      }
+
+      onSubmit(baseProfile);
+      return;
+    }
+
     setError("");
     setStep("scan");
   };

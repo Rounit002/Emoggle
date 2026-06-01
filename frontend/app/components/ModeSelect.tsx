@@ -7,6 +7,7 @@ import { useUserProfile } from "../context/UserProfileContext";
 import { useAuth } from "../context/AuthContext";
 import AuthModal from "./AuthModal";
 import type { MatchSeeking } from "../context/UserProfileContext";
+import Link from "next/link";
 // Auth removed — rely on local profile only
 
 interface ModeSelectProps {
@@ -37,12 +38,14 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
   const [pendingAction, setPendingAction] = useState<null | { type: "duel" | "solo" }>(null);
   const [preferenceError, setPreferenceError] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [showComingSoon, setShowComingSoon] = useState(false);
   const { profile, saveProfile } = useUserProfile();
   // ── Device VIP persistence (local)
   const DEVICE_ID_KEY = "emoggle:device-id";
   const VIP_RECEIPT_KEY = "emoggle:vip-receipt";
   const [isDeviceVIP, setIsDeviceVIP] = useState(false);
   const [hasLocalVipReceipt, setHasLocalVipReceipt] = useState(false);
+  const [priceINR, setPriceINR] = useState<number | null>(null);
 
   function getOrCreateDeviceId(): string {
     try {
@@ -124,6 +127,24 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     setHasLocalVipReceipt(!!rec);
   }, []);
 
+  // Fetch premium config (price) for displaying in UI and legal copy
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${SIGNALING_URL}/api/premium/config`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && typeof data?.priceINR === "number") setPriceINR(data.priceINR);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const loadRazorpayScript = () =>
     new Promise<boolean>((resolve) => {
       if (window.Razorpay) {
@@ -156,13 +177,15 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
 
       const checkout = new window.Razorpay({
         key: order.keyId,
-        amount: order.amount,
-        currency: order.currency,
+        // When using Orders API, pass only order_id to prevent amount/currency mismatches
+        order_id: order.orderId,
         name: "Emoggle VIP",
         description: "Unlimited gender filters",
-        order_id: order.orderId,
-        prefill: { name: checkoutUsername },
+        image: "/favicon.ico",
+        prefill: { name: checkoutUsername, email: (user as any)?.email },
+        retry: { enabled: true, max_count: 2 },
         theme: { color: "#facc15" },
+        modal: { ondismiss: () => setIsCheckingOut(false) },
         handler: async (response: RazorpayResponse) => {
           try {
             const verifyRes = await fetch(`${SIGNALING_URL}/api/premium/verify`, {
@@ -419,6 +442,32 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
               </motion.button>
+
+              <motion.button
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.18, duration: 0.38 }}
+                whileHover={{ scale: 1.02, y: -2 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => setShowComingSoon(true)}
+                className="group relative w-full flex items-center gap-4 sm:gap-5 p-4 sm:p-5 rounded-2xl bg-zinc-900 border border-zinc-700 hover:border-pink-400/60 text-left transition-colors overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-pink-500/8 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="flex-none w-14 h-14 rounded-xl bg-pink-500/15 border border-pink-400/30 flex items-center justify-center text-2xl group-hover:bg-pink-500/25 transition-colors">
+                  🎭
+                </div>
+                <div className="flex-1 z-10">
+                  <p className="text-base font-black text-white tracking-tight">Celebrity Face Mimic</p>
+                  <p className="text-zinc-400 text-xs mt-0.5 leading-snug">Imitate a famous face and get scored.</p>
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-pink-400 animate-pulse" />
+                    <span className="text-[10px] font-bold text-pink-300 uppercase tracking-widest">Coming soon</span>
+                  </div>
+                </div>
+                <svg className="w-4 h-4 text-zinc-600 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </motion.button>
             </motion.div>
           )}
         </AnimatePresence>
@@ -507,6 +556,9 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.24em] text-yellow-300">Match Preference</p>
                   <h2 className="mt-2 text-2xl font-black tracking-tight">Who do you want to match?</h2>
+                  {priceINR !== null && (
+                    <p className="mt-1 text-xs text-zinc-400">VIP price: ₹{priceINR} (incl. taxes where applicable)</p>
+                  )}
                 </div>
                 <button
                   onClick={() => setShowPreferenceModal(false)}
@@ -553,6 +605,47 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                   {preferenceError}
                 </p>
               )}
+
+              {/* Legal copy for Razorpay compliance */}
+              <p className="mt-4 text-[11px] leading-relaxed text-zinc-400">
+                By proceeding to pay, you agree to our {" "}
+                <Link href="/terms" className="underline underline-offset-2">Terms</Link>, {" "}
+                <Link href="/privacy" className="underline underline-offset-2">Privacy Policy</Link>, and {" "}
+                <Link href="/refund" className="underline underline-offset-2">Refund &amp; Cancellation</Link>. Payments are processed by {" "}
+                <a href="https://razorpay.com/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">Razorpay</a>.
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showComingSoon && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 18, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.98 }}
+              className="w-full max-w-md rounded-2xl border border-pink-300/25 bg-zinc-950 p-5 text-white shadow-[0_0_60px_rgba(244,114,182,0.16)]"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.24em] text-pink-300">Coming Soon</p>
+                  <h2 className="mt-2 text-2xl font-black tracking-tight">Celebrity Face Mimic</h2>
+                  <p className="mt-2 text-sm text-zinc-400">This mode is under development. Stay tuned!</p>
+                </div>
+                <button
+                  onClick={() => setShowComingSoon(false)}
+                  className="rounded-full border border-white/15 bg-black/50 px-3 py-1 text-xs font-black text-zinc-300 hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
