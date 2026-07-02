@@ -4,14 +4,12 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import MyProfileCard from "./MyProfileCard";
 import { useUserProfile } from "../context/UserProfileContext";
-import { useAuth } from "../context/AuthContext";
-import AuthModal from "./AuthModal";
 import type { MatchSeeking } from "../context/UserProfileContext";
 import Link from "next/link";
 // Auth removed — rely on local profile only
 
 interface ModeSelectProps {
-  onSelect: (mode: "camera" | "solo", seeking?: MatchSeeking) => void;
+  onSelect: (mode: "camera" | "solo" | "celebrity", seeking?: MatchSeeking) => void;
 }
 
 interface RazorpayResponse {
@@ -30,12 +28,9 @@ const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 
 export default function ModeSelect({ onSelect }: ModeSelectProps) {
-  const { user } = useAuth();
   const [showModes, setShowModes] = useState(false);
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
   const [showPreferenceModal, setShowPreferenceModal] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [pendingAction, setPendingAction] = useState<null | { type: "duel" | "solo" }>(null);
   const [preferenceError, setPreferenceError] = useState("");
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [showComingSoon, setShowComingSoon] = useState(false);
@@ -182,7 +177,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
         name: "Emoggle VIP",
         description: "Unlimited gender filters",
         image: "/favicon.ico",
-        prefill: { name: checkoutUsername, email: (user as any)?.email },
+        prefill: { name: checkoutUsername },
         retry: { enabled: true, max_count: 2 },
         theme: { color: "#facc15" },
         modal: { ondismiss: () => setIsCheckingOut(false) },
@@ -381,11 +376,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 whileHover={{ scale: 1.02, y: -2 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => {
-                  if (!user) {
-                    setPendingAction({ type: "duel" });
-                    setShowAuthModal(true);
-                    return;
-                  }
                   setShowPreferenceModal(true);
                 }}
                 className="group relative w-full flex items-center gap-4 sm:gap-5 p-4 sm:p-5 rounded-2xl bg-zinc-900 border border-zinc-700 hover:border-yellow-400/60 text-left transition-colors overflow-hidden"
@@ -417,11 +407,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 whileHover={{ scale: 1.02, y: -2 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => {
-                  if (!user) {
-                    setPendingAction({ type: "solo" });
-                    setShowAuthModal(true);
-                    return;
-                  }
                   onSelect("solo");
                 }}
                 className="group relative w-full flex items-center gap-4 sm:gap-5 p-4 sm:p-5 rounded-2xl bg-zinc-900 border border-zinc-700 hover:border-cyan-400/60 text-left transition-colors overflow-hidden"
@@ -449,7 +434,9 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 transition={{ delay: 0.18, duration: 0.38 }}
                 whileHover={{ scale: 1.02, y: -2 }}
                 whileTap={{ scale: 0.97 }}
-                onClick={() => setShowComingSoon(true)}
+                onClick={() => {
+                  onSelect("celebrity");
+                }}
                 className="group relative w-full flex items-center gap-4 sm:gap-5 p-4 sm:p-5 rounded-2xl bg-zinc-900 border border-zinc-700 hover:border-pink-400/60 text-left transition-colors overflow-hidden"
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-pink-500/8 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -458,10 +445,10 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 </div>
                 <div className="flex-1 z-10">
                   <p className="text-base font-black text-white tracking-tight">Celebrity Face Mimic</p>
-                  <p className="text-zinc-400 text-xs mt-0.5 leading-snug">Imitate a famous face and get scored.</p>
+                  <p className="text-zinc-400 text-xs mt-0.5 leading-snug">Match famous faces vs a random stranger.</p>
                   <div className="flex items-center gap-1.5 mt-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-pink-400 animate-pulse" />
-                    <span className="text-[10px] font-bold text-pink-300 uppercase tracking-widest">Coming soon</span>
+                    <span className="text-[10px] font-bold text-pink-300 uppercase tracking-widest">New Mode</span>
                   </div>
                 </div>
                 <svg className="w-4 h-4 text-zinc-600 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -471,26 +458,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
             </motion.div>
           )}
         </AnimatePresence>
-
-      {/* Auth modal */}
-      <AnimatePresence>
-        {showAuthModal && (
-          <AuthModal
-            onClose={() => setShowAuthModal(false)}
-            onSuccess={() => {
-              const action = pendingAction;
-              setPendingAction(null);
-              setShowAuthModal(false);
-              if (!action) return;
-              if (action.type === "duel") {
-                setShowPreferenceModal(true);
-              } else if (action.type === "solo") {
-                onSelect("solo");
-              }
-            }}
-          />
-        )}
-      </AnimatePresence>
 
         {/* Bottom feature links (always visible on landing) */}
         <AnimatePresence>

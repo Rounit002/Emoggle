@@ -4,22 +4,20 @@ import { useState } from "react";
 import ModeSelect from "./components/ModeSelect";
 import DuelArena from "./components/DuelArena";
 import SoloFaceJudge from "./components/SoloFaceJudge";
+import CelebrityDuelArena from "./components/CelebrityDuelArena";
 import OnboardingModal from "./components/OnboardingModal";
 import { UserProfileProvider, useUserProfile } from "./context/UserProfileContext";
-import { AuthProvider } from "./context/AuthContext";
 import { MediaPipeFaceProvider } from "./context/MediaPipeFaceContext";
 import type { MatchSeeking } from "./context/UserProfileContext";
 
-type View = "home" | "arena" | "solo";
+type View = "home" | "arena" | "solo" | "celebrity";
 
 export default function Home() {
   return (
     <MediaPipeFaceProvider>
-      <AuthProvider>
-        <UserProfileProvider>
-          <HomeContent />
-        </UserProfileProvider>
-      </AuthProvider>
+      <UserProfileProvider>
+        <HomeContent />
+      </UserProfileProvider>
     </MediaPipeFaceProvider>
   );
 }
@@ -31,12 +29,14 @@ function HomeContent() {
 
   if (view === "arena") return <DuelArena onBack={() => setView("home")} initialSeeking={arenaSeeking} />;
   if (view === "solo") return <SoloFaceJudge onBack={() => setView("home")} />;
+  if (view === "celebrity") return <CelebrityDuelArena onBack={() => setView("home")} initialSeeking={arenaSeeking} />;
   return (
     <>
       <ModeSelect
         onSelect={(mode, seeking = "Anyone") => {
           if (mode === "camera") setArenaSeeking(seeking);
-          setView(mode === "camera" ? "arena" : "solo");
+          if (mode === "celebrity") setArenaSeeking(seeking);
+          setView(mode === "camera" ? "arena" : mode === "solo" ? "solo" : "celebrity");
         }}
       />
       {hasLoadedProfile && !profile && <OnboardingModal onSubmit={saveProfile} />}

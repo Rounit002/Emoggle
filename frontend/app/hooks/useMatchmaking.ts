@@ -101,10 +101,13 @@ export function useMatchmaking(
   const authUserIdRef = useRef<string | undefined>(undefined);
   const onCounterUpdateRef = useRef<((freeLeft: number) => void) | undefined>(undefined);
 
+  const onProfileUpdateRef = useRef<((profile: UserProfile) => void) | undefined>(undefined);
+  
   profileRef.current = profile;
   seekingRef.current = initialSeeking;
   authUserIdRef.current = authUserId;
   onCounterUpdateRef.current = onCounterUpdate;
+  onProfileUpdateRef.current = onProfileUpdate;
 
   const [status, setStatus] = useState<MatchStatus>("idle");
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -258,7 +261,7 @@ export function useMatchmaking(
               : profileRef.current.freeGenderMatchesLeft,
         };
         profileRef.current = nextProfile;
-        onProfileUpdate?.(nextProfile);
+        onProfileUpdateRef.current?.(nextProfile);
       });
 
       // Persist server-assigned UUID even if user skipped onboarding
@@ -269,7 +272,7 @@ export function useMatchmaking(
         if (typeof current.userId === "string" && current.userId.length > 0) return;
         const nextProfile = { ...current, userId } as any;
         profileRef.current = nextProfile;
-        onProfileUpdate?.(nextProfile);
+        onProfileUpdateRef.current?.(nextProfile);
       });
 
       socket.on("paywall_required", () => {
@@ -287,7 +290,7 @@ export function useMatchmaking(
                 : profileRef.current.freeGenderMatchesLeft,
           };
           profileRef.current = nextProfile;
-          onProfileUpdate?.(nextProfile);
+          onProfileUpdateRef.current?.(nextProfile);
         }
         if (typeof free_matches_left === "number") {
           onCounterUpdateRef.current?.(free_matches_left);
@@ -300,7 +303,7 @@ export function useMatchmaking(
         if (profileRef.current) {
           const nextProfile = { ...profileRef.current, freeGenderMatchesLeft: 0 };
           profileRef.current = nextProfile;
-          onProfileUpdate?.(nextProfile);
+          onProfileUpdateRef.current?.(nextProfile);
         }
         onCounterUpdateRef.current?.(0);
       });

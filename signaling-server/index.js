@@ -336,13 +336,14 @@ app.post("/api/premium/webhook", express.raw({ type: "application/json" }), asyn
 });
 
 app.use(express.json({ limit: "1mb" }));
-// Auth routes (email/password + Google)
+
+// Celebrity Face Mimic routes
 try {
-  const authRouter = require("./routes/auth");
-  app.use("/api/auth", authRouter);
-  console.log("[Auth] Routes mounted at /api/auth");
+  const celebrityRouter = require("./routes/celebrity");
+  app.use("/api/celebrity", celebrityRouter);
+  console.log("[Celebrity] Routes mounted at /api/celebrity");
 } catch (e) {
-  console.warn("[Auth] Could not mount auth routes:", e?.message);
+  console.warn("[Celebrity] Could not mount celebrity routes:", e?.message);
 }
 
 // ─── Onboarding endpoint (raw INSERT) ────────────────────────────────────────

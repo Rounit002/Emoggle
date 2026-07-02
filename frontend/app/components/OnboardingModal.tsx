@@ -15,7 +15,7 @@ const MODEL_URL = "/models";
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 const genders: UserGender[] = ["Male", "Female"];
-const DISABLE_GENDER_VERIFICATION = true;
+const DISABLE_GENDER_VERIFICATION = false;
 
 function calculateAge(dateOfBirth: string) {
   const dob = new Date(`${dateOfBirth}T00:00:00`);
@@ -334,7 +334,7 @@ export default function OnboardingModal({ onSubmit }: OnboardingModalProps) {
           ) : (
             <div className="space-y-4">
               <div className="relative aspect-video overflow-hidden rounded-2xl border border-emerald-300/30 bg-black shadow-[0_0_35px_rgba(57,255,20,0.12)]">
-                <video ref={videoRef} muted playsInline className="h-full w-full scale-x-[-1] object-cover" />
+                <video ref={videoRef} muted playsInline className="h-full w-full object-cover" />
                 <div className="pointer-events-none absolute inset-4 rounded-2xl border border-emerald-300/45 shadow-[0_0_24px_rgba(57,255,20,0.28)]" />
                 <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(57,255,20,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(57,255,20,0.12)_1px,transparent_1px)] bg-[length:28px_28px] opacity-25" />
                 <div className="absolute bottom-3 left-3 rounded-full border border-white/15 bg-black/75 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-emerald-200 backdrop-blur-md">

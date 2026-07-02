@@ -54,3 +54,18 @@ enum MatchStatus {
   CANCELLED
   DISCONNECTED
 }
+
+model CelebrityFace {
+  id              Int      @id @default(autoincrement())
+  name            String
+  category        String   // 'meme', 'celebrity', 'character'
+  imageUrl        String
+  difficulty      String   @default("medium") // 'easy', 'medium', 'hard'
+  facialLandmarks Json?    // Pre-computed landmark data for comparison
+  usageCount      Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([category])
+  @@index([difficulty])
+  @@index([usageCount])
+}

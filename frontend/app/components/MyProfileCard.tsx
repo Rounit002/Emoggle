@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { UserProfile, useUserProfile } from "../context/UserProfileContext";
 
 interface MyProfileCardProps {
@@ -25,7 +24,6 @@ function calculateAge(dateOfBirth: string) {
 
 export default function MyProfileCard({ profile, elo = 400, className = "" }: MyProfileCardProps) {
   const { saveProfile } = useUserProfile();
-  const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
   const [username, setUsername] = useState(profile?.username ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(profile?.dateOfBirth ?? "");
@@ -98,13 +96,6 @@ export default function MyProfileCard({ profile, elo = 400, className = "" }: My
       <div className="flex items-center justify-between gap-3">
         <div className="text-[9px] font-black uppercase tracking-[0.22em] text-cyan-300">My Profile</div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => router.push("/profile")}
-            aria-label="Open Profile"
-            className="rounded-full border border-white/15 bg-black/50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-zinc-200 transition-colors hover:border-cyan-300 hover:text-cyan-200"
-          >
-            👤
-          </button>
           <button
             onClick={() => {
               if (isEditing) handleSave();

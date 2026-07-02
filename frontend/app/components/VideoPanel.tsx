@@ -102,7 +102,7 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
           <FaceScanOverlay
             faceBox={scanBox}
             landmarks={faceLandmarks}
-            mirrored={isLocal}
+            mirrored={false}
             videoRef={localVideoRef}
           />
         )}
@@ -298,7 +298,7 @@ const LocalVideo = forwardRef<HTMLVideoElement, { stream?: MediaStream }>(
         autoPlay
         playsInline
         muted
-        className="h-full w-full scale-x-[-1] object-cover"
+        className="h-full w-full object-cover"
       />
     );
   }
