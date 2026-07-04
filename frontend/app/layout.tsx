@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Emoggle",
   description: "Two strangers. One emoji. Best expression wins.",
+  verification: {
+    google: "tp-Som6f5x--YJD2TzUFgeBkuNU1dboLd4pfvpZq6Nk",
+  },
 };
 
 export const viewport: Viewport = {
