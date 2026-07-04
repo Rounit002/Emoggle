@@ -1,4 +1,4 @@
-const path = require("path");
+﻿const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 // Build DATABASE_URL from discrete env vars (must happen before pg pool init)
@@ -50,6 +50,7 @@ const crypto = require("crypto");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
+const rateLimit = require("express-rate-limit");
 let geoip;
 try {
   geoip = require("geoip-lite");
@@ -60,6 +61,25 @@ const { pool, initSchema } = require("./db");
 
 const app = express();
 app.set("trust proxy", 1); // Trust Render's reverse proxy
+
+// ─── Rate Limiters ─────────────────────────────────────────────────────────
+// General API limiter: 60 requests per minute per IP
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { detail: "Too many requests, please try again later." },
+});
+
+// Strict limiter for write/registration endpoints: 10 per 10 minutes per IP
+const strictLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { detail: "Too many requests, please try again later." },
+}); // Trust Render's reverse proxy
 const defaultOrigins = ["http://localhost:3000", "https://emoggle.vercel.app"]; 
 const envOrigins = (process.env.FRONTEND_URL || "")
   .split(",")
@@ -337,6 +357,9 @@ app.post("/api/premium/webhook", express.raw({ type: "application/json" }), asyn
 
 app.use(express.json({ limit: "1mb" }));
 
+// Apply rate limiting to all /api routes
+app.use("/api", apiLimiter);
+
 // Celebrity Face Mimic routes
 try {
   const celebrityRouter = require("./routes/celebrity");
@@ -347,7 +370,7 @@ try {
 }
 
 // ─── Onboarding endpoint (raw INSERT) ────────────────────────────────────────
-app.post("/api/users/onboard", async (req, res) => {
+app.post("/api/users/onboard", strictLimiter, async (req, res) => {
   const { username, age, verified_gender } = req.body ?? {};
   if (!username || typeof username !== "string") {
     return res.status(400).json({ detail: "Username is required." });
@@ -355,8 +378,10 @@ app.post("/api/users/onboard", async (req, res) => {
   const safeUsername = username.trim().slice(0, 24);
   if (!safeUsername) return res.status(400).json({ detail: "Username is required." });
 
-  const safeAge = typeof age === "number" && age > 0 ? Math.floor(age) : null;
-  const safeGender = typeof verified_gender === "string" ? verified_gender.trim() : null;
+  const safeAge = typeof age === "number" && age >= 13 && age <= 120 ? Math.floor(age) : null;
+  const ALLOWED_GENDERS = ["Male", "Female", "Other"];
+  const rawGender = typeof verified_gender === "string" ? verified_gender.trim() : null;
+  const safeGender = rawGender && ALLOWED_GENDERS.includes(rawGender) ? rawGender : null;
 
   if (!dbAvailable) {
     return res.status(503).json({ detail: "Database unavailable.", needsOnboarding: true });
@@ -491,8 +516,33 @@ app.get("/api/premium/config", (_req, res) => {
   res.json({ configured: !!keyId && !!keySecret, webhookConfigured: !!webhookSecret, priceINR: VIP_PRICE_INR });
 });
 
-app.get("/api/premium/status", async (req, res) => {
+app.get("/api/premium/status", apiLimiter, async (req, res) => {
   const username = typeof req.query.username === "string" ? req.query.username : "";
+  const userId = typeof req.query.userId === "string" ? req.query.userId.trim() : "";
+
+  if (!username || !userId) {
+    return res.status(400).json({ detail: "username and userId are required." });
+  }
+
+  // Verify the userId belongs to the username to prevent user enumeration
+  if (dbAvailable) {
+    const client = await pool.connect();
+    try {
+      const { rows } = await client.query(
+        `SELECT id FROM users WHERE id = $1 AND username = $2 LIMIT 1`,
+        [userId, username.trim().slice(0, 24)]
+      );
+      if (rows.length === 0) {
+        return res.status(403).json({ detail: "Access denied." });
+      }
+    } catch (err) {
+      warnDbFallback(err);
+      // Allow through if DB is down — degraded mode
+    } finally {
+      client.release();
+    }
+  }
+
   res.json({ username, ...(await getPremiumStatus(username)) });
 });
 
@@ -1072,7 +1122,7 @@ io.on("connection", (socket) => {
 app.get("/", (_req, res) => res.send("ok"));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
-app.get("/online", (_req, res) => {
+app.get("/online", apiLimiter, (_req, res) => {
   res.json({ count: io.engine.clientsCount ?? 0 });
 });
 

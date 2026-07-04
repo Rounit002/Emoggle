@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { UserProfile, useUserProfile } from "../context/UserProfileContext";
@@ -39,7 +39,9 @@ export default function MyProfileCard({ profile, elo = 400, className = "" }: My
     let cancelled = false;
     const syncVip = async () => {
       try {
-        const res = await fetch(`${SIGNALING_URL}/api/premium/status?username=${encodeURIComponent(profile.username)}`, {
+        const userId = (profile as { userId?: string }).userId ?? "";
+        const statusUrl = `${SIGNALING_URL}/api/premium/status?username=${encodeURIComponent(profile.username)}${userId ? `&userId=${encodeURIComponent(userId)}` : ""}`;
+        const res = await fetch(statusUrl, {
           cache: "no-store",
         });
         if (!res.ok) return;
