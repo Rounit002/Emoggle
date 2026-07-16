@@ -12,37 +12,6 @@ console.log("[ENV] NODE_ENV:", process.env.NODE_ENV);
 console.log("[ENV] JWT_SECRET set:", !!process.env.JWT_SECRET, "| length:", process.env.JWT_SECRET?.length ?? 0);
 console.log("[ENV] DATABASE_URL set:", !!process.env.DATABASE_URL);
 console.log("[ENV] FRONTEND_URL:", process.env.FRONTEND_URL);
-// Helpers to read Razorpay envs robustly (trim + common fallback names)
-function getEnvTrim(name) {
-  const v = process.env[name];
-  if (typeof v !== "string") return undefined;
-  const t = v.trim();
-  return t.length ? t : undefined;
-}
-
-function readRazorpayConfig() {
-  const keyId =
-    getEnvTrim("RAZORPAY_KEY_ID") ||
-    getEnvTrim("RAZORPAY_KEY") ||
-    getEnvTrim("RAZORPAY_ID") ||
-    getEnvTrim("RAZORPAY_API_KEY") ||
-    getEnvTrim("RZP_KEY_ID");
-  const keySecret =
-    getEnvTrim("RAZORPAY_KEY_SECRET") ||
-    getEnvTrim("RAZORPAY_SECRET") ||
-    getEnvTrim("RAZORPAY_API_SECRET") ||
-    getEnvTrim("RZP_KEY_SECRET");
-  const webhookSecret = getEnvTrim("RAZORPAY_WEBHOOK_SECRET") || getEnvTrim("RZP_WEBHOOK_SECRET");
-  return { keyId, keySecret, webhookSecret };
-}
-
-const __rzp = readRazorpayConfig();
-console.log(
-  "[ENV] Razorpay configured:",
-  !!__rzp.keyId && !!__rzp.keySecret,
-  "| webhook:",
-  !!__rzp.webhookSecret
-);
 
 const express = require("express");
 const http = require("http");
@@ -118,7 +87,6 @@ const ROUND_COUNTDOWN_SEC = 3;
 const MATCH_DURATION_SEC = 10;
 const DEFAULT_ELO = 1000;
 const ELO_K = 32;
-const VIP_PRICE_INR = Number(process.env.VIP_PRICE_INR || 99);
 let dbAvailable = true;
 let dbWarningShown = false;
 const memoryVipUsers = new Set();
@@ -220,49 +188,6 @@ function countryLabelFromCode(code) {
   return name ? `${flag} ${name}` : flag;
 }
 
-function verifyHmac(payload, signature, secret) {
-  if (!payload || !signature || !secret) return false;
-  const expected = crypto.createHmac("sha256", secret).update(payload).digest("hex");
-  try {
-    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
-  } catch {
-    return false;
-  }
-}
-
-async function markUserVip(username) {
-  const normalized = typeof username === "string" ? username.trim().slice(0, 24) : "";
-  if (!normalized) return null;
-  memoryVipUsers.add(normalized);
-
-  if (!dbAvailable) return { username: normalized, isVIP: true, freeGenderMatchesLeft: 0 };
-
-  const client = await pool.connect();
-  try {
-    const { rows } = await client.query(
-      `SELECT id FROM users WHERE username = $1 ORDER BY created_at DESC LIMIT 1`,
-      [normalized]
-    );
-    if (rows.length > 0) {
-      const res = await client.query(
-        `UPDATE users SET is_vip = true WHERE id = $1 RETURNING *`,
-        [rows[0].id]
-      );
-      return mapUserRow(res.rows[0]);
-    }
-    const res = await client.query(
-      `INSERT INTO users (id, username, is_vip) VALUES ($1, $2, true) RETURNING *`,
-      [crypto.randomUUID(), normalized]
-    );
-    return mapUserRow(res.rows[0]);
-  } catch (err) {
-    warnDbFallback(err);
-    return { username: normalized, isVIP: true, freeGenderMatchesLeft: 0 };
-  } finally {
-    client.release();
-  }
-}
-
 function getMemoryFreeGenderMatches(username) {
   if (!memoryFreeGenderMatches.has(username)) memoryFreeGenderMatches.set(username, 0);
   return memoryFreeGenderMatches.get(username);
@@ -328,32 +253,6 @@ async function consumeGenderFilterCredit(meta) {
   meta.freeGenderMatchesLeft = 0;
   return 0;
 }
-
-app.post("/api/premium/webhook", express.raw({ type: "application/json" }), async (req, res) => {
-  const { webhookSecret: secret } = readRazorpayConfig();
-  const signature = req.headers["x-razorpay-signature"];
-  const rawBody = req.body?.toString("utf8") ?? "";
-
-  if (!verifyHmac(rawBody, signature, secret)) {
-    return res.status(401).json({ detail: "Invalid Razorpay webhook signature." });
-  }
-
-  try {
-    const event = JSON.parse(rawBody);
-    const payment = event?.payload?.payment?.entity;
-    const order = event?.payload?.order?.entity;
-    const username = payment?.notes?.username || order?.notes?.username;
-
-    if ((event.event === "payment.captured" || event.event === "order.paid") && username) {
-      await markUserVip(username);
-      io.emit("vip_status", { username, isVIP: true });
-    }
-
-    return res.json({ received: true });
-  } catch {
-    return res.status(400).json({ detail: "Invalid webhook payload." });
-  }
-});
 
 app.use(express.json({ limit: "1mb" }));
 
@@ -439,81 +338,6 @@ app.get("/api/users/me", async (req, res) => {
   } finally {
     client.release();
   }
-});
-
-app.post("/api/premium/checkout", async (req, res) => {
-  const { keyId, keySecret } = readRazorpayConfig();
-  const username = typeof req.body?.username === "string" ? req.body.username.trim().slice(0, 24) : "";
-
-  if (!username) return res.status(400).json({ detail: "Username is required." });
-  if (!keyId || !keySecret) {
-    console.warn("[Razorpay] Missing config:", {
-      keyId: !!keyId,
-      keySecret: !!keySecret,
-    });
-    return res.status(503).json({ detail: "Razorpay is not configured on this backend." });
-  }
-
-  try {
-    const amount = Math.max(1, Math.round(VIP_PRICE_INR * 100));
-    const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
-    const orderRes = await fetch("https://api.razorpay.com/v1/orders", {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        amount,
-        currency: "INR",
-        receipt: `vip_${Date.now()}`,
-        notes: { username },
-      }),
-    });
-    const order = await orderRes.json();
-    if (!orderRes.ok) {
-      return res.status(502).json({ detail: order.error?.description || "Razorpay order creation failed." });
-    }
-
-    return res.json({
-      keyId,
-      orderId: order.id,
-      amount: order.amount,
-      currency: order.currency,
-    });
-  } catch (err) {
-    return res.status(502).json({ detail: err.message || "Razorpay checkout failed." });
-  }
-});
-
-app.post("/api/premium/verify", async (req, res) => {
-  const { keySecret } = readRazorpayConfig();
-  const {
-    username,
-    razorpay_order_id: orderId,
-    razorpay_payment_id: paymentId,
-    razorpay_signature: signature,
-  } = req.body ?? {};
-
-  if (!keySecret) return res.status(503).json({ detail: "Razorpay is not configured on this backend." });
-  if (!username || !orderId || !paymentId || !signature) {
-    return res.status(400).json({ detail: "Missing Razorpay verification fields." });
-  }
-
-  const payload = `${orderId}|${paymentId}`;
-  if (!verifyHmac(payload, signature, keySecret)) {
-    return res.status(401).json({ detail: "Invalid Razorpay payment signature." });
-  }
-
-  const user = await markUserVip(username);
-  io.emit("vip_status", { username: user.username, isVIP: true });
-  return res.json({ isVIP: true, username: user.username, freeGenderMatchesLeft: user.freeGenderMatchesLeft ?? 5 });
-});
-
-// Minimal diagnostics (no secrets) to verify Razorpay config in production
-app.get("/api/premium/config", (_req, res) => {
-  const { keyId, keySecret, webhookSecret } = readRazorpayConfig();
-  res.json({ configured: !!keyId && !!keySecret, webhookConfigured: !!webhookSecret, priceINR: VIP_PRICE_INR });
 });
 
 app.get("/api/premium/status", apiLimiter, async (req, res) => {

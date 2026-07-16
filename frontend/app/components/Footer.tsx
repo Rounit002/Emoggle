@@ -22,17 +22,6 @@ export default function Footer() {
 
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-gray-500">© {year} Emoggle. All rights reserved.</p>
-          <p className="text-xs text-gray-500">
-            Payments are processed securely by {" "}
-            <a
-              href="https://razorpay.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline decoration-dotted hover:text-gray-700"
-            >
-              Razorpay
-            </a>.
-          </p>
         </div>
       </div>
     </footer>

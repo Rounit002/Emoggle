@@ -18,21 +18,19 @@ export default function PrivacyPage() {
       <ul>
         <li>Account information such as email and display name.</li>
         <li>Usage data such as interactions, device type, and approximate region.</li>
-        <li>Payment metadata necessary to process purchases via Razorpay.</li>
       </ul>
 
       <h2>How We Use Information</h2>
       <ul>
         <li>To provide, maintain, and improve the Emoggle experience.</li>
-        <li>To process payments and verify purchases.</li>
         <li>To enforce our Terms and ensure platform safety.</li>
       </ul>
 
       <h2>Data Sharing</h2>
       <p>
         We do not sell your personal information. We share data only with
-        service providers (e.g., Razorpay) as needed to operate the service or
-        when required by law.
+        service providers as needed to operate the service or when required by
+        law.
       </p>
 
       <h2>Data Retention</h2>

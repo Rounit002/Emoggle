@@ -12,18 +12,6 @@ interface ModeSelectProps {
   onSelect: (mode: "camera" | "solo" | "celebrity", seeking?: MatchSeeking) => void;
 }
 
-interface RazorpayResponse {
-  razorpay_payment_id: string;
-  razorpay_order_id: string;
-  razorpay_signature: string;
-}
-
-declare global {
-  interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
-  }
-}
-
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 
@@ -32,7 +20,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
   const [showPreferenceModal, setShowPreferenceModal] = useState(false);
   const [preferenceError, setPreferenceError] = useState("");
-  const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [showComingSoon, setShowComingSoon] = useState(false);
   const { profile, saveProfile } = useUserProfile();
   // ── Device VIP persistence (local)
@@ -40,7 +27,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
   const VIP_RECEIPT_KEY = "emoggle:vip-receipt";
   const [isDeviceVIP, setIsDeviceVIP] = useState(false);
   const [hasLocalVipReceipt, setHasLocalVipReceipt] = useState(false);
-  const [priceINR, setPriceINR] = useState<number | null>(null);
 
   function getOrCreateDeviceId(): string {
     try {
@@ -66,20 +52,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     } catch {
       return null;
     }
-  }
-
-  function markDeviceVip(provider: string = "razorpay") {
-    const deviceId = getOrCreateDeviceId();
-    try {
-      const payload = JSON.stringify({ deviceId, ts: Date.now(), provider });
-      const v1 = `v1:${btoa(payload)}`;
-      window.localStorage.setItem(VIP_RECEIPT_KEY, v1);
-      setHasLocalVipReceipt(true);
-      setIsDeviceVIP(true);
-    } catch {
-      // ignore storage errors
-    }
-    if (profile) saveProfile({ ...profile, isVIP: true });
   }
 
   function restoreVipFromReceipt() {
@@ -122,110 +94,10 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     setHasLocalVipReceipt(!!rec);
   }, []);
 
-  // Fetch premium config (price) for displaying in UI and legal copy
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`${SIGNALING_URL}/api/premium/config`, { cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled && typeof data?.priceINR === "number") setPriceINR(data.priceINR);
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const loadRazorpayScript = () =>
-    new Promise<boolean>((resolve) => {
-      if (window.Razorpay) {
-        resolve(true);
-        return;
-      }
-      const script = document.createElement("script");
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-      document.body.appendChild(script);
-    });
-
-  const startPremiumCheckout = async (selectedSeeking: MatchSeeking) => {
-    const checkoutUsername = profile?.username;
-    if (!checkoutUsername) return;
-    setPreferenceError("");
-    setIsCheckingOut(true);
-    try {
-      const ready = await loadRazorpayScript();
-      if (!ready || !window.Razorpay) throw new Error("Razorpay checkout could not load.");
-
-      const res = await fetch(`${SIGNALING_URL}/api/premium/checkout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: checkoutUsername }),
-      });
-      const order = await res.json();
-      if (!res.ok) throw new Error(order.detail ?? "Could not create premium order.");
-
-      const checkout = new window.Razorpay({
-        key: order.keyId,
-        // When using Orders API, pass only order_id to prevent amount/currency mismatches
-        order_id: order.orderId,
-        name: "Emoggle VIP",
-        description: "Unlimited gender filters",
-        image: "/favicon.ico",
-        prefill: { name: checkoutUsername },
-        retry: { enabled: true, max_count: 2 },
-        theme: { color: "#facc15" },
-        modal: { ondismiss: () => setIsCheckingOut(false) },
-        handler: async (response: RazorpayResponse) => {
-          try {
-            const verifyRes = await fetch(`${SIGNALING_URL}/api/premium/verify`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ ...response, username: checkoutUsername }),
-            });
-            const data = await verifyRes.json();
-            if (!verifyRes.ok || !data.isVIP) throw new Error(data.detail ?? "Payment verification failed.");
-            // Mark VIP locally for this device and persist profile flag
-            markDeviceVip("razorpay");
-            if (profile) saveProfile({ ...profile, isVIP: true, freeGenderMatchesLeft: data.freeGenderMatchesLeft ?? profile.freeGenderMatchesLeft });
-            setShowPreferenceModal(false);
-            onSelect("camera", selectedSeeking);
-          } catch (verifyError) {
-            setPreferenceError(verifyError instanceof Error ? verifyError.message : "Payment verification failed.");
-          }
-        },
-      });
-      checkout.open();
-    } catch (checkoutError) {
-      setPreferenceError(checkoutError instanceof Error ? checkoutError.message : "Checkout failed.");
-    } finally {
-      setIsCheckingOut(false);
-    }
-  };
-
   const handlePreference = (selectedSeeking: MatchSeeking) => {
     setPreferenceError("");
-    const effectiveIsVIP = profile?.isVIP ?? false;
-    const effectiveFreeLeft = profile?.freeGenderMatchesLeft ?? 0;
-
-    if (selectedSeeking === "Anyone") {
-      setShowPreferenceModal(false);
-      onSelect("camera", "Anyone");
-      return;
-    }
-
-    if (effectiveIsVIP) {
-      setShowPreferenceModal(false);
-      onSelect("camera", selectedSeeking);
-      return;
-    }
-
-    startPremiumCheckout(selectedSeeking);
+    setShowPreferenceModal(false);
+    onSelect("camera", selectedSeeking);
   };
 
   return (
@@ -523,9 +395,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.24em] text-yellow-300">Match Preference</p>
                   <h2 className="mt-2 text-2xl font-black tracking-tight">Who do you want to match?</h2>
-                  {priceINR !== null && (
-                    <p className="mt-1 text-xs text-zinc-400">VIP price: ₹{priceINR} (incl. taxes where applicable)</p>
-                  )}
                 </div>
                 <button
                   onClick={() => setShowPreferenceModal(false)}
@@ -537,30 +406,19 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
 
               <div className="mt-5 grid gap-3">
                 {(["Male", "Female", "Anyone"] as MatchSeeking[]).map((option) => {
-                  const isGenderFilter = option !== "Anyone";
-                  const effectiveIsVIP = profile?.isVIP ?? false;
-                  const effectiveFreeLeft = profile?.freeGenderMatchesLeft ?? 0;
-                  const locked = isGenderFilter && !effectiveIsVIP;
                   return (
                     <button
                       key={option}
                       onClick={() => handlePreference(option)}
-                      disabled={isCheckingOut}
                       className={`rounded-2xl border px-5 py-4 text-left transition-colors ${
                         option === "Anyone"
                           ? "border-cyan-300/35 bg-cyan-950/30 hover:border-cyan-300"
-                          : locked
-                            ? "border-yellow-300/35 bg-yellow-950/20 hover:border-yellow-300"
-                            : "border-emerald-300/30 bg-emerald-950/25 hover:border-emerald-300"
+                          : "border-emerald-300/30 bg-emerald-950/25 hover:border-emerald-300"
                       }`}
                     >
                       <span className="block text-lg font-black uppercase tracking-[0.12em]">{option}</span>
                       <span className="mt-1 block text-xs font-bold uppercase tracking-[0.12em] text-zinc-400">
-                        {option === "Anyone"
-                          ? "Always free"
-                          : effectiveIsVIP
-                            ? "VIP unlimited"
-                            : "Unlock unlimited filters"}
+                        Always free
                       </span>
                     </button>
                   );
@@ -573,13 +431,11 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 </p>
               )}
 
-              {/* Legal copy for Razorpay compliance */}
+              {/* Legal copy */}
               <p className="mt-4 text-[11px] leading-relaxed text-zinc-400">
-                By proceeding to pay, you agree to our {" "}
-                <Link href="/terms" className="underline underline-offset-2">Terms</Link>, {" "}
-                <Link href="/privacy" className="underline underline-offset-2">Privacy Policy</Link>, and {" "}
-                <Link href="/refund" className="underline underline-offset-2">Refund &amp; Cancellation</Link>. Payments are processed by {" "}
-                <a href="https://razorpay.com/" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">Razorpay</a>.
+                By continuing, you agree to our {" "}
+                <Link href="/terms" className="underline underline-offset-2">Terms</Link> and {" "}
+                <Link href="/privacy" className="underline underline-offset-2">Privacy Policy</Link>.
               </p>
             </motion.div>
           </motion.div>

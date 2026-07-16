@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   title: "Emoggle",
   description: "Two strangers. One emoji. Best expression wins.",
   verification: {
-    google: "tp-Som6f5x--YJD2TzUFgeBkuNU1dboLd4pfvpZq6Nk",
+    google: "jjtAhtZBJ3d7RmE3X5bBDnTgmpDYfMYPB5__7XH64NE",
   },
 };
 

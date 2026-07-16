@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Terms & Conditions - Emoggle",
-  description: "Terms and conditions for using Emoggle and purchasing VIP.",
+  description: "Terms and conditions for using Emoggle.",
 };
 
 export default function TermsPage() {
@@ -10,9 +10,8 @@ export default function TermsPage() {
     <div className="mx-auto max-w-3xl px-6 py-12 prose prose-zinc">
       <h1>Terms & Conditions</h1>
       <p>
-        Welcome to Emoggle. By accessing or using our website, creating an
-        account, or purchasing any product or service (including Emoggle VIP),
-        you agree to be bound by these Terms & Conditions.
+        Welcome to Emoggle. By accessing or using our website or creating an
+        account, you agree to be bound by these Terms & Conditions.
       </p>
 
       <h2>Eligibility</h2>
@@ -26,18 +25,6 @@ export default function TermsPage() {
       <p>
         You are responsible for all activity under your account. Keep your
         account credentials secure and do not share them with others.
-      </p>
-
-      <h2>Purchases and Billing</h2>
-      <p>
-        Purchases are processed by Razorpay on our behalf. Prices are displayed
-        in INR unless otherwise specified. Taxes may apply as required by law.
-      </p>
-
-      <h2>Refunds and Cancellations</h2>
-      <p>
-        Please review our <a href="/refund">Refunds Policy</a> for details on
-        eligibility and how to request support.
       </p>
 
       <h2>Acceptable Use</h2>

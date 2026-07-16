@@ -23,9 +23,8 @@
 - Real-time peer-to-peer video communication
 - Facial landmark detection and expression scoring
 - ELO-based matchmaking and ranking system
-- Gender-filtered matchmaking (VIP feature)
+- Gender-filtered matchmaking
 - AI-powered fashion judging
-- Payment integration (Razorpay)
 - Multi-region deployment support
 
 ---
@@ -100,7 +99,6 @@
 | **Prisma** | ORM for database |
 | **PostgreSQL** | Relational database |
 | **JWT** | Authentication tokens |
-| **Razorpay SDK** | Payment processing |
 | **geoip-lite** | IP geolocation |
 | **cookie-parser** | Cookie handling |
 | **crypto** | Encryption & hashing |
@@ -171,7 +169,6 @@ app/hooks/
   - Matchmaking queue management
   - Active match tracking
   - ELO calculation
-  - Payment webhook handling
 
 #### Routing
 ```
@@ -302,40 +299,6 @@ Client A                    Signaling Server                    Client B
 ```
 
 ---
-### 4. Payment Flow (Razorpay VIP Upgrade)
-
-```
-Client                   Signaling Server              Razorpay
-  │                            │                          │
-  │ 1. Click "Upgrade to VIP"  │                          │
-  ├───────────────────────────►│                          │
-  │    { username }            │                          │
-  │                            │ 2. Create order          │
-  │                            ├─────────────────────────►│
-  │                            │    amount: ₹99           │
-  │                            │◄─────────────────────────┤
-  │◄───────────────────────────┤ 3. Return order details  │
-  │  { orderId, keyId }        │                          │
-  │                            │                          │
-  │ 4. Open Razorpay Checkout  │                          │
-  ├────────────────────────────┼─────────────────────────►│
-  │                            │                          │
-  │◄────────────────────────────────────────────────────┤
-  │ 5. Payment completed       │                          │
-  │    { razorpay_payment_id, razorpay_signature }       │
-  │                            │                          │
-  │ 6. POST /api/premium/verify│                          │
-  ├───────────────────────────►│                          │
-  │                            │ 7. Verify HMAC signature │
-  │                            │ 8. UPDATE users          │
-  │                            │    SET is_vip = true     │
-  │                            │                          │
-  │◄───────────────────────────┤ 9. Emit 'vip_status'     │
-  │  { isVIP: true }           │    to all clients        │
-  │                            │                          │
-```
-
----
 
 ## Database Schema
 
@@ -418,31 +381,10 @@ CREATE INDEX idx_matches_player2_id ON matches(player2_id);
 
 ---
 
-#### Premium/Payment
+#### Premium/Status
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/premium/checkout` | Create Razorpay order |
-| POST | `/api/premium/verify` | Verify payment signature |
-| GET | `/api/premium/status?username={name}` | Check VIP status |
-| GET | `/api/premium/config` | Get payment configuration |
-| POST | `/api/premium/webhook` | Razorpay webhook handler |
-
-**Checkout Request:**
-```json
-{
-  "username": "string"
-}
-```
-
-**Checkout Response:**
-```json
-{
-  "keyId": "rzp_***",
-  "orderId": "order_***",
-  "amount": 9900,
-  "currency": "INR"
-}
-```
+| GET | `/api/premium/status?username={name}&userId={id}` | Check VIP status |
 
 ---
 
@@ -587,11 +529,6 @@ peer.on('call', (call) => {
 - **Input Validation:** Sanitize all user inputs
 - **SQL Injection Prevention:** Parameterized queries (Prisma ORM)
 
-#### Payment Security
-- **HMAC Verification:** Razorpay webhook signatures
-- **Timing-Safe Comparison:** `crypto.timingSafeEqual()`
-- **No Plaintext Secrets:** Environment variables only
-
 #### WebRTC Security
 - **Peer ID Obfuscation:** Random UUIDs
 - **Media Encryption:** Mandatory DTLS-SRTP
@@ -638,7 +575,6 @@ NEXT_PUBLIC_SIGNALING_SERVER_URL=https://api.emoggle.com
 NEXT_PUBLIC_AI_JUDGE_URL=https://ai-judge.emoggle.com
 NEXT_PUBLIC_PEERJS_HOST=0.peerjs.com
 NEXT_PUBLIC_PEERJS_PORT=443
-NEXT_PUBLIC_RAZORPAY_KEY_ID=rzp_***
 ```
 
 #### Signaling Server (.env)
@@ -646,10 +582,6 @@ NEXT_PUBLIC_RAZORPAY_KEY_ID=rzp_***
 DATABASE_URL=postgresql://user:pass@host:5432/emoggle
 JWT_SECRET=***
 FRONTEND_URL=https://emoggle.vercel.app
-RAZORPAY_KEY_ID=rzp_***
-RAZORPAY_KEY_SECRET=***
-RAZORPAY_WEBHOOK_SECRET=***
-VIP_PRICE_INR=99
 NODE_ENV=production
 ```
 
@@ -910,16 +842,6 @@ function findMatch(currentUser, waitingQueue) {
 - Release connections immediately after query
 - Use transactions for multi-query operations
 
-### 4. Payment Webhook Reliability
-
-**Problem:** Missed webhook events
-
-**Solutions:**
-- HMAC signature verification
-- Idempotent webhook handlers
-- Manual payment verification endpoint
-- Webhook retry logic on Razorpay dashboard
-
 ---
 ## Development Workflow
 
@@ -1101,16 +1023,7 @@ npm run dev --prefix frontend
 - Verify network connectivity
 - Application falls back to in-memory mode
 
-#### 4. "Payment failed"
-**Cause:** Razorpay integration issue
-
-**Solution:**
-- Verify RAZORPAY_KEY_ID and KEY_SECRET
-- Check webhook URL is accessible
-- Test with Razorpay test mode keys
-- Review Razorpay dashboard logs
-
-#### 5. "MediaPipe loading forever"
+#### 4. "MediaPipe loading forever"
 **Cause:** WASM files not loaded
 
 **Solution:**
@@ -1174,7 +1087,6 @@ Brief description of changes
 - [Socket.io Documentation](https://socket.io/docs/)
 - [PeerJS Documentation](https://peerjs.com/docs/)
 - [MediaPipe Face Mesh](https://developers.google.com/mediapipe/solutions/vision/face_landmarker)
-- [Razorpay Integration](https://razorpay.com/docs/)
 - [Google Gemini API](https://ai.google.dev/docs)
 - [Prisma ORM](https://www.prisma.io/docs)
 
@@ -1210,7 +1122,6 @@ Brief description of changes
 
 ### Version 0.3.0 (Current)
 - AI fashion judge integration
-- Razorpay payment system
 - Gender-based matchmaking
 - VIP subscription tier
 - Profile management
