@@ -1,0 +1,16 @@
+
+> frontend@0.1.0 dev
+> next dev
+
+[1m[38;2;173;127;168m▲ Next.js 16.2.6[39m[22m (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://10.44.44.173:3000
+[32m[1m✓[22m[39m Ready in 11.2s
+
+[37m[1m○[22m[39m Compiling / ...
+ GET / [32m200[39m in 35.1s[2m (next.js: 30.3s, application-code: 4.8s)[22m
+ GET / [32m200[39m in 807ms[2m (next.js: 174ms, application-code: 634ms)[22m
+[32m[1m✓[22m[39m Compiled in 1153ms
+ GET / [32m200[39m in 1659ms[2m (next.js: 934ms, application-code: 725ms)[22m
+ GET / [32m200[39m in 277ms[2m (next.js: 29ms, application-code: 247ms)[22m
+ GET / [32m200[39m in 1464ms[2m (next.js: 155ms, application-code: 1309ms)[22m

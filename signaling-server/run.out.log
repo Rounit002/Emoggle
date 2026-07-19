@@ -1,0 +1,8 @@
+[ENV] NODE_ENV: [90mundefined[39m
+[ENV] JWT_SECRET set: [33mtrue[39m | length: [33m128[39m
+[ENV] DATABASE_URL set: [33mtrue[39m
+[ENV] FRONTEND_URL: http://localhost:3000
+[ENV] Allowed CORS origins: http://localhost:3000, https://emoggle.vercel.app, https://emoggle.com, https://www.emoggle.com
+[Celebrity] Routes mounted at /api/celebrity
+[DB] Schema initialized successfully
+[OK] Signaling server running on :3001 — database connected

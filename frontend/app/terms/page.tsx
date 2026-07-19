@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Terms & Conditions - Emoggle",
+  title: "Terms & Conditions",
   description: "Terms and conditions for using Emoggle.",
+  alternates: { canonical: "/terms" },
+  openGraph: { url: "/terms" },
 };
 
 export default function TermsPage() {

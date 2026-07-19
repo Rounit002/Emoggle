@@ -41,15 +41,12 @@ const apiLimiter = rateLimit({
   message: { detail: "Too many requests, please try again later." },
 });
 
-// Strict limiter for write/registration endpoints: 10 per 10 minutes per IP
-const strictLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { detail: "Too many requests, please try again later." },
-}); // Trust Render's reverse proxy
-const defaultOrigins = ["http://localhost:3000", "https://emoggle.vercel.app"]; 
+const defaultOrigins = [
+  "http://localhost:3000",
+  "https://emoggle.vercel.app",
+  "https://emoggle.com",
+  "https://www.emoggle.com",
+];
 const envOrigins = (process.env.FRONTEND_URL || "")
   .split(",")
   .map((s) => s.trim())
@@ -89,8 +86,6 @@ const DEFAULT_ELO = 1000;
 const ELO_K = 32;
 let dbAvailable = true;
 let dbWarningShown = false;
-const memoryVipUsers = new Set();
-const memoryFreeGenderMatches = new Map();
 
 const EMOJI_PROMPTS = [
   "\u{1F600}", "\u{1F601}", "\u{1F602}", "\u{1F62E}", "\u{1F632}",
@@ -115,12 +110,8 @@ function mapUserRow(row) {
   return {
     id: row.id,
     socketId: row.socket_id,
-    username: row.username,
-    age: row.age,
-    verifiedGender: row.verified_gender,
     elo: row.elo,
     isVIP: row.is_vip,
-    freeGenderMatchesLeft: row.free_matches_left,
     createdAt: row.created_at,
   };
 }
@@ -188,72 +179,6 @@ function countryLabelFromCode(code) {
   return name ? `${flag} ${name}` : flag;
 }
 
-function getMemoryFreeGenderMatches(username) {
-  if (!memoryFreeGenderMatches.has(username)) memoryFreeGenderMatches.set(username, 0);
-  return memoryFreeGenderMatches.get(username);
-}
-
-async function getVipStatus(username) {
-  const normalized = typeof username === "string" ? username.trim().slice(0, 24) : "";
-  if (!normalized) return false;
-  if (memoryVipUsers.has(normalized)) return true;
-  if (!dbAvailable) return false;
-
-  const client = await pool.connect();
-  try {
-    const { rows } = await client.query(
-      `SELECT is_vip FROM users WHERE username = $1 ORDER BY created_at DESC LIMIT 1`,
-      [normalized]
-    );
-    return rows[0]?.is_vip === true;
-  } catch (err) {
-    warnDbFallback(err);
-    return memoryVipUsers.has(normalized);
-  } finally {
-    client.release();
-  }
-}
-
-async function getPremiumStatus(username) {
-  const normalized = typeof username === "string" ? username.trim().slice(0, 24) : "";
-  if (!normalized) return { isVIP: false, freeGenderMatchesLeft: 0 };
-  if (!dbAvailable) {
-    return {
-      isVIP: memoryVipUsers.has(normalized),
-      freeGenderMatchesLeft: 0,
-    };
-  }
-
-  const client = await pool.connect();
-  try {
-    const { rows } = await client.query(
-      `SELECT is_vip, free_matches_left FROM users WHERE username = $1 ORDER BY created_at DESC LIMIT 1`,
-      [normalized]
-    );
-    const user = rows[0];
-    return {
-      isVIP: user?.is_vip === true || memoryVipUsers.has(normalized),
-      freeGenderMatchesLeft: user?.is_vip === true ? (user?.free_matches_left ?? 0) : 0,
-    };
-  } catch (err) {
-    warnDbFallback(err);
-    return {
-      isVIP: memoryVipUsers.has(normalized),
-      freeGenderMatchesLeft: 0,
-    };
-  } finally {
-    client.release();
-  }
-}
-
-async function consumeGenderFilterCredit(meta) {
-  // Free tier removed: no decrements; gender filters require VIP.
-  if (!meta) return 0;
-  if (meta.seeking === "Anyone" || meta.isVIP) return meta?.freeGenderMatchesLeft ?? 0;
-  meta.freeGenderMatchesLeft = 0;
-  return 0;
-}
-
 app.use(express.json({ limit: "1mb" }));
 
 // Apply rate limiting to all /api routes
@@ -268,43 +193,7 @@ try {
   console.warn("[Celebrity] Could not mount celebrity routes:", e?.message);
 }
 
-// ─── Onboarding endpoint (raw INSERT) ────────────────────────────────────────
-app.post("/api/users/onboard", strictLimiter, async (req, res) => {
-  const { username, age, verified_gender } = req.body ?? {};
-  if (!username || typeof username !== "string") {
-    return res.status(400).json({ detail: "Username is required." });
-  }
-  const safeUsername = username.trim().slice(0, 24);
-  if (!safeUsername) return res.status(400).json({ detail: "Username is required." });
-
-  const safeAge = typeof age === "number" && age >= 13 && age <= 120 ? Math.floor(age) : null;
-  const ALLOWED_GENDERS = ["Male", "Female", "Other"];
-  const rawGender = typeof verified_gender === "string" ? verified_gender.trim() : null;
-  const safeGender = rawGender && ALLOWED_GENDERS.includes(rawGender) ? rawGender : null;
-
-  if (!dbAvailable) {
-    return res.status(503).json({ detail: "Database unavailable.", needsOnboarding: true });
-  }
-
-  let client;
-  try {
-    client = await pool.connect();
-    const newId = crypto.randomUUID();
-    const { rows } = await client.query(
-      `INSERT INTO users (id, username, age, verified_gender) VALUES ($1, $2, $3, $4) RETURNING id`,
-      [newId, safeUsername, safeAge, safeGender]
-    );
-    console.log(`[DB] Onboarded user id=${rows[0].id} username=${safeUsername}`);
-    return res.json({ id: rows[0].id });
-  } catch (err) {
-    console.error("[DB] Onboard insert failed:", err.message, err.detail ?? "");
-    return res.status(500).json({ detail: "Failed to create user profile.", error: err.message });
-  } finally {
-    client?.release();
-  }
-});
-
-// ─── Login validation endpoint (raw SELECT) ─────────────────────────────────
+// ─── Anonymous player validation endpoint ────────────────────────────────────
 app.get("/api/users/me", async (req, res) => {
   const id = typeof req.query.id === "string" ? req.query.id.trim() : "";
   if (!id) return res.status(400).json({ detail: "User ID is required." });
@@ -316,7 +205,7 @@ app.get("/api/users/me", async (req, res) => {
   const client = await pool.connect();
   try {
     const { rows } = await client.query(
-      `SELECT id, username, age, verified_gender, elo, is_vip, free_matches_left FROM users WHERE id = $1`,
+      `SELECT id, elo, is_vip FROM users WHERE id = $1`,
       [id]
     );
     if (rows.length === 0) {
@@ -325,12 +214,8 @@ app.get("/api/users/me", async (req, res) => {
     const user = rows[0];
     return res.json({
       id: user.id,
-      username: user.username,
-      age: user.age,
-      verifiedGender: user.verified_gender,
       elo: user.elo,
       isVIP: user.is_vip,
-      freeGenderMatchesLeft: user.free_matches_left,
     });
   } catch (err) {
     console.error("[DB] User lookup failed:", err.message);
@@ -338,36 +223,6 @@ app.get("/api/users/me", async (req, res) => {
   } finally {
     client.release();
   }
-});
-
-app.get("/api/premium/status", apiLimiter, async (req, res) => {
-  const username = typeof req.query.username === "string" ? req.query.username : "";
-  const userId = typeof req.query.userId === "string" ? req.query.userId.trim() : "";
-
-  if (!username || !userId) {
-    return res.status(400).json({ detail: "username and userId are required." });
-  }
-
-  // Verify the userId belongs to the username to prevent user enumeration
-  if (dbAvailable) {
-    const client = await pool.connect();
-    try {
-      const { rows } = await client.query(
-        `SELECT id FROM users WHERE id = $1 AND username = $2 LIMIT 1`,
-        [userId, username.trim().slice(0, 24)]
-      );
-      if (rows.length === 0) {
-        return res.status(403).json({ detail: "Access denied." });
-      }
-    } catch (err) {
-      warnDbFallback(err);
-      // Allow through if DB is down — degraded mode
-    } finally {
-      client.release();
-    }
-  }
-
-  res.json({ username, ...(await getPremiumStatus(username)) });
 });
 
 app.get("/api/geo", (req, res) => {
@@ -393,22 +248,6 @@ app.get("/api/geo", (req, res) => {
   const country = countryCode ? (countryName ? `${flag} ${countryName}` : flag) : null;
   res.json({ ip: ip || null, countryCode: countryCode || null, country, source });
 });
-
-function normalizeGender(value) {
-  return value === "Male" || value === "Female" || value === "Other" ? value : "Other";
-}
-
-function normalizeSeeking(value) {
-  return value === "Male" || value === "Female" || value === "Anyone" ? value : "Anyone";
-}
-
-function wantsMatch(seeking, otherGender) {
-  return seeking === "Anyone" || seeking === otherGender;
-}
-
-function profilesCanMatch(a, b) {
-  return wantsMatch(a.seeking, b.gender) && wantsMatch(b.seeking, a.gender);
-}
 
 async function finalizeMatchScores(matchId, match, player1Score, player2Score, winnerId) {
   const fallbackElo = () => {
@@ -494,15 +333,12 @@ function getMatchBySocket(socketId) {
 }
 
 // ─── Sync user on socket connection (raw UPDATE/SELECT) ─────────────────────
-async function ensureUser(socketId, username, userId) {
-  const normalizedUsername = username || "anonymous";
+async function ensureUser(socketId, userId) {
   const memoryFallback = () => ({
     id: userId || `memory_user_${socketId}`,
     socketId,
-    username: normalizedUsername,
     elo: DEFAULT_ELO,
-    isVIP: memoryVipUsers.has(normalizedUsername),
-    freeGenderMatchesLeft: getMemoryFreeGenderMatches(normalizedUsername),
+    isVIP: false,
   });
 
   if (!dbAvailable) return memoryFallback();
@@ -516,37 +352,18 @@ async function ensureUser(socketId, username, userId) {
         [socketId, userId]
       );
       if (rows.length > 0) {
-        const user = mapUserRow(rows[0]);
-        if (memoryVipUsers.has(normalizedUsername) || user.isVIP) {
-          if (!user.isVIP) {
-            const vipRes = await client.query(
-              `UPDATE users SET is_vip = true WHERE id = $1 RETURNING *`,
-              [user.id]
-            );
-            return mapUserRow(vipRes.rows[0]);
-          }
-          return user;
-        }
-        return user;
+        return mapUserRow(rows[0]);
       }
     }
 
-    // Fallback: upsert by socket_id for users who haven't onboarded
+    // Create an anonymous row for a browser that has no persistent ID yet.
     const { rows } = await client.query(
-      `INSERT INTO users (id, socket_id, username) VALUES ($1, $2, $3)
-       ON CONFLICT (socket_id) DO UPDATE SET username = EXCLUDED.username
+      `INSERT INTO users (id, socket_id) VALUES ($1, $2)
+       ON CONFLICT (socket_id) DO UPDATE SET socket_id = EXCLUDED.socket_id
        RETURNING *`,
-      [crypto.randomUUID(), socketId, normalizedUsername]
+      [crypto.randomUUID(), socketId]
     );
-    const user = mapUserRow(rows[0]);
-    if (memoryVipUsers.has(normalizedUsername) || await getVipStatus(normalizedUsername)) {
-      const vipRes = await client.query(
-        `UPDATE users SET is_vip = true WHERE id = $1 RETURNING *`,
-        [user.id]
-      );
-      return mapUserRow(vipRes.rows[0]);
-    }
-    return user;
+    return mapUserRow(rows[0]);
   } catch (err) {
     warnDbFallback(err);
     return memoryFallback();
@@ -604,21 +421,13 @@ async function startMatch(socket, partner) {
     resultSent: false,
   });
 
-  const p1FreeLeft = await consumeGenderFilterCredit(meta1);
-  const p2FreeLeft = await consumeGenderFilterCredit(meta2);
-  socket.emit("usage_update", { isVIP: meta1.isVIP === true, freeGenderMatchesLeft: p1FreeLeft });
-  partnerSocket.emit("usage_update", { isVIP: meta2.isVIP === true, freeGenderMatchesLeft: p2FreeLeft });
-
-  // Real-time counter sync for the React dashboard
-  socket.emit("counter_updated", { free_matches_left: p1FreeLeft });
-  partnerSocket.emit("counter_updated", { free_matches_left: p2FreeLeft });
+  socket.emit("usage_update", { isVIP: meta1.isVIP === true });
+  partnerSocket.emit("usage_update", { isVIP: meta2.isVIP === true });
 
   // Emit match_started to both players with stranger's details
   socket.emit("match_started", {
     matchId: match.id,
     partnerPeerId: meta2.peerId,
-    partnerUsername: meta2.username || "anonymous",
-    partnerGender: meta2.gender,
     partnerCountry: meta2.country ?? null,
     role: "receiver",
     emoji,
@@ -627,8 +436,6 @@ async function startMatch(socket, partner) {
   partnerSocket.emit("match_started", {
     matchId: match.id,
     partnerPeerId: meta1.peerId,
-    partnerUsername: meta1.username || "anonymous",
-    partnerGender: meta1.gender,
     partnerCountry: meta1.country ?? null,
     role: "caller",
     emoji,
@@ -677,7 +484,7 @@ function enqueueSocket(socket, peerId, skippedSocketId = null) {
     const blockedBySkip =
       candidate.socketId === skippedSocketId || candidate.skippedSocketId === socket.id;
 
-    if (!blockedBySkip && profilesCanMatch(currentMeta, candidateMeta)) {
+    if (!blockedBySkip) {
       waitingQueue.splice(i, 1);
       startMatch(socket, candidate).then((ok) => {
         if (!ok) enqueueSocket(socket, peerId, skippedSocketId);
@@ -695,45 +502,14 @@ function enqueueSocket(socket, peerId, skippedSocketId = null) {
 io.on("connection", (socket) => {
   console.log(`[+] Connected: ${socket.id}`);
 
-  socket.on("join_queue", async ({ peerId, country, username, gender, seeking, profile, userId }) => {
+  socket.on("join_queue", async ({ peerId, country, userId }) => {
     console.log(`[Q] ${socket.id} joining queue peerId=${peerId}`);
-    const profileUsername = typeof profile?.username === "string" ? profile.username : username;
-    const profileGender = normalizeGender(profile?.gender ?? gender);
-    const profileSeeking = normalizeSeeking(profile?.seeking ?? seeking);
 
-    // Sync user in DB (raw UPDATE if userId provided, else upsert by socket_id)
-    const user = await ensureUser(socket.id, profileUsername, userId || profile?.userId);
-    let isVIP = user.isVIP === true;
-    let freeGenderMatchesLeft = user.freeGenderMatchesLeft ?? getMemoryFreeGenderMatches(user.username);
+    const user = await ensureUser(socket.id, userId);
+    const isVIP = user.isVIP === true;
 
-    // ─── Refresh VIP status from DB when applying gender filter ──
-    if (profileSeeking !== "Anyone" && dbAvailable && user.id && !String(user.id).startsWith("memory_user_")) {
-      const balanceClient = await pool.connect();
-      try {
-        const { rows } = await balanceClient.query(
-          `SELECT free_matches_left, is_vip FROM users WHERE id = $1`,
-          [user.id]
-        );
-        if (rows.length > 0) {
-          isVIP = rows[0].is_vip === true;
-          freeGenderMatchesLeft = rows[0].free_matches_left;
-        }
-      } catch (err) {
-        warnDbFallback(err);
-      } finally {
-        balanceClient.release();
-      }
-    }
-
-    // Sync client with authoritative identifiers and counters
     socket.emit("user_id", { userId: user.id });
-    socket.emit("usage_update", { isVIP, freeGenderMatchesLeft });
-
-    if (profileSeeking !== "Anyone" && !isVIP) {
-      socket.emit("trigger_paywall", { free_matches_left: 0, isVIP: false });
-      socket.emit("paywall_required", { freeGenderMatchesLeft: 0, isVIP: false });
-      return;
-    }
+    socket.emit("usage_update", { isVIP });
 
     const headers = socket.handshake?.headers || {};
     let codeHeader = headers["cf-ipcountry"] || headers["x-vercel-ip-country"] || headers["x-country-code"];
@@ -755,13 +531,9 @@ io.on("connection", (socket) => {
     socketMeta.set(socket.id, {
       peerId,
       userId: user.id,
-      username: profileUsername || user.username || "anonymous",
-      gender: profileGender,
-      seeking: profileSeeking,
       country: detectedCountry ?? country ?? null,
       elo: user.elo ?? DEFAULT_ELO,
       isVIP,
-      freeGenderMatchesLeft,
     });
 
     enqueueSocket(socket, peerId);

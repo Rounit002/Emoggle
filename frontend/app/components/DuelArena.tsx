@@ -8,7 +8,6 @@ import ChatBox from "./ChatBox";
 import { useMatchmaking } from "../hooks/useMatchmaking";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
 import { useUserProfile } from "../context/UserProfileContext";
-import type { MatchSeeking } from "../context/UserProfileContext";
 
 const ROUND_SECONDS = 10;
 
@@ -21,7 +20,6 @@ type AppPhase =
 
 interface DuelArenaProps {
   onBack: () => void;
-  initialSeeking?: MatchSeeking;
 }
 
 interface RankSnapshot {
@@ -109,7 +107,7 @@ function resultCopy(myScore: number | null, rivalScore: number | null, winner?: 
   };
 }
 
-export default function DuelArena({ onBack, initialSeeking = "Anyone" }: DuelArenaProps) {
+export default function DuelArena({ onBack }: DuelArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const bestScoreRef = useRef(0);
   const scoreSamplesRef = useRef<number[]>([]);
@@ -185,18 +183,11 @@ export default function DuelArena({ onBack, initialSeeking = "Anyone" }: DuelAre
     rivalTyping,
     sendTyping,
     partnerCountry,
-    partnerUsername,
-    partnerGender,
   } = useMatchmaking(
     localStream,
     myCountry,
     profile,
-    initialSeeking,
-    saveProfile,
-    undefined,
-    (freeLeft) => {
-      if (profile) saveProfile({ ...profile, freeGenderMatchesLeft: freeLeft });
-    }
+    saveProfile
   );
 
   const publishLiveScore = useCallback(
@@ -424,7 +415,7 @@ export default function DuelArena({ onBack, initialSeeking = "Anyone" }: DuelAre
             <VideoPanel
               ref={webcamRef}
               label="YOU"
-              playerName={profile?.username ?? "YOU"}
+              playerName="YOU"
               country={myCountry}
               rankLabel={myRankLabel}
               isLocal={true}
@@ -455,8 +446,8 @@ export default function DuelArena({ onBack, initialSeeking = "Anyone" }: DuelAre
           <div className="relative flex-1 min-h-0">
             <VideoPanel
               label="STRANGER"
-              playerName={partnerUsername ?? "RIVAL"}
-              country={partnerGender ? `${partnerGender}${partnerCountry ? ` | ${partnerCountry}` : ""}` : partnerCountry}
+              playerName="RIVAL"
+              country={partnerCountry}
               rankLabel={partnerRankLabel}
               isLocal={false}
               remoteStream={remoteDisplayStream}

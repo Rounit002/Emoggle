@@ -1,0 +1,4 @@
+[36m[browser][39m [33mW0719 15:50:10.803000 2136208 face_landmarker_graph.cc:180] Sets FaceBlendshapesGraph acceleration to xnnpack by default.[39m [2m(http://localhost:3000/mediapipe/wasm/vision_wasm_internal.js:8351:22)[22m
+[36m[browser][39m [33mW0719 15:50:12.851000 2136208 gl_context.cc:1118] OpenGL error checking is disabled[39m [2m(http://localhost:3000/mediapipe/wasm/vision_wasm_internal.js:8351:22)[22m
+[36m[browser][39m [33mW0719 15:54:39.747000 2136208 face_landmarker_graph.cc:180] Sets FaceBlendshapesGraph acceleration to xnnpack by default.[39m [2m(http://localhost:3000/mediapipe/wasm/vision_wasm_internal.js:8351:22)[22m
+[36m[browser][39m [33mW0719 15:54:40.064000 2136208 gl_context.cc:1118] OpenGL error checking is disabled[39m [2m(http://localhost:3000/mediapipe/wasm/vision_wasm_internal.js:8351:22)[22m

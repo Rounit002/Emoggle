@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy - Emoggle",
+  title: "Privacy Policy",
   description: "How Emoggle collects, uses, and protects your data.",
+  alternates: { canonical: "/privacy" },
+  openGraph: { url: "/privacy" },
 };
 
 export default function PrivacyPage() {
@@ -16,7 +18,10 @@ export default function PrivacyPage() {
 
       <h2>Information We Collect</h2>
       <ul>
-        <li>Account information such as email and display name.</li>
+        <li>
+          We do not ask for your name, date of birth, age, or gender, and we do
+          not perform gender verification.
+        </li>
         <li>Usage data such as interactions, device type, and approximate region.</li>
       </ul>
 
@@ -41,7 +46,7 @@ export default function PrivacyPage() {
 
       <h2>Your Choices</h2>
       <ul>
-        <li>Access or update your profile in the app.</li>
+        <li>Clear locally stored app data through your browser settings.</li>
         <li>Request support or data inquiries via our Contact page.</li>
       </ul>
 

@@ -2,14 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import MyProfileCard from "./MyProfileCard";
 import { useUserProfile } from "../context/UserProfileContext";
-import type { MatchSeeking } from "../context/UserProfileContext";
-import Link from "next/link";
 // Auth removed — rely on local profile only
 
 interface ModeSelectProps {
-  onSelect: (mode: "camera" | "solo" | "celebrity", seeking?: MatchSeeking) => void;
+  onSelect: (mode: "camera" | "solo" | "celebrity") => void;
 }
 
 const SIGNALING_URL =
@@ -18,8 +15,6 @@ const SIGNALING_URL =
 export default function ModeSelect({ onSelect }: ModeSelectProps) {
   const [showModes, setShowModes] = useState(false);
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
-  const [showPreferenceModal, setShowPreferenceModal] = useState(false);
-  const [preferenceError, setPreferenceError] = useState("");
   const [showComingSoon, setShowComingSoon] = useState(false);
   const { profile, saveProfile } = useUserProfile();
   // ── Device VIP persistence (local)
@@ -94,18 +89,10 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     setHasLocalVipReceipt(!!rec);
   }, []);
 
-  const handlePreference = (selectedSeeking: MatchSeeking) => {
-    setPreferenceError("");
-    setShowPreferenceModal(false);
-    onSelect("camera", selectedSeeking);
-  };
-
   return (
     <div className="relative w-screen min-h-screen bg-[#0b0c14] flex flex-col items-center overflow-x-hidden">
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[320px] bg-violet-700/10 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute bottom-0 left-1/4 w-64 h-64 bg-indigo-900/20 rounded-full blur-[80px] pointer-events-none" />
-      <MyProfileCard profile={profile} className="absolute right-4 top-4 z-20 hidden sm:block" />
-
       <div className="w-full max-w-sm sm:max-w-md lg:max-w-lg px-5 sm:px-8 py-8 sm:py-12 lg:py-16 flex flex-col items-center gap-4 sm:gap-5 z-10">
 
         {/* Title */}
@@ -117,6 +104,9 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
         >
           <h1 className="text-[3rem] sm:text-[4.5rem] lg:text-[6rem] font-black tracking-[-0.03em] text-white uppercase leading-none">
             Emoggle
+            <span className="mt-3 block text-xs font-black tracking-[0.22em] text-violet-300 sm:text-sm">
+              The emoji face-matching game
+            </span>
           </h1>
         </motion.div>
 
@@ -247,9 +237,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 transition={{ delay: 0.05, duration: 0.38 }}
                 whileHover={{ scale: 1.02, y: -2 }}
                 whileTap={{ scale: 0.97 }}
-                onClick={() => {
-                  setShowPreferenceModal(true);
-                }}
+                onClick={() => onSelect("camera")}
                 className="group relative w-full flex items-center gap-4 sm:gap-5 p-4 sm:p-5 rounded-2xl bg-zinc-900 border border-zinc-700 hover:border-yellow-400/60 text-left transition-colors overflow-hidden"
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/8 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -377,71 +365,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
           Fair play · Expression only · No ID verification
         </motion.p>
       </div>
-      <AnimatePresence>
-        {showPreferenceModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 backdrop-blur-md"
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 18, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.98 }}
-              className="w-full max-w-md rounded-2xl border border-yellow-300/25 bg-zinc-950 p-5 text-white shadow-[0_0_60px_rgba(250,204,21,0.16)]"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-yellow-300">Match Preference</p>
-                  <h2 className="mt-2 text-2xl font-black tracking-tight">Who do you want to match?</h2>
-                </div>
-                <button
-                  onClick={() => setShowPreferenceModal(false)}
-                  className="rounded-full border border-white/15 bg-black/50 px-3 py-1 text-xs font-black text-zinc-300 hover:text-white"
-                >
-                  Close
-                </button>
-              </div>
-
-              <div className="mt-5 grid gap-3">
-                {(["Male", "Female", "Anyone"] as MatchSeeking[]).map((option) => {
-                  return (
-                    <button
-                      key={option}
-                      onClick={() => handlePreference(option)}
-                      className={`rounded-2xl border px-5 py-4 text-left transition-colors ${
-                        option === "Anyone"
-                          ? "border-cyan-300/35 bg-cyan-950/30 hover:border-cyan-300"
-                          : "border-emerald-300/30 bg-emerald-950/25 hover:border-emerald-300"
-                      }`}
-                    >
-                      <span className="block text-lg font-black uppercase tracking-[0.12em]">{option}</span>
-                      <span className="mt-1 block text-xs font-bold uppercase tracking-[0.12em] text-zinc-400">
-                        Always free
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {preferenceError && (
-                <p className="mt-4 rounded-xl border border-red-400/40 bg-red-950/70 px-3 py-2 text-sm font-bold text-red-100">
-                  {preferenceError}
-                </p>
-              )}
-
-              {/* Legal copy */}
-              <p className="mt-4 text-[11px] leading-relaxed text-zinc-400">
-                By continuing, you agree to our {" "}
-                <Link href="/terms" className="underline underline-offset-2">Terms</Link> and {" "}
-                <Link href="/privacy" className="underline underline-offset-2">Privacy Policy</Link>.
-              </p>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <AnimatePresence>
         {showComingSoon && (
           <motion.div

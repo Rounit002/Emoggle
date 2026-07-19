@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Refunds & Cancellations - Emoggle",
+  title: "Refunds & Cancellations",
   description: "Policy for refunds, cancellations, and customer support.",
+  alternates: { canonical: "/refund" },
+  openGraph: { url: "/refund" },
 };
 
 export default function RefundPage() {
@@ -20,8 +22,8 @@ export default function RefundPage() {
       <h2>How to Request Support</h2>
       <p>
         Please reach out via our <a href="/contact">Contact</a> page with your
-        username, approximate date/time of purchase, and any screenshots or
-        order references you have. We aim to respond within a reasonable time.
+        approximate date/time of purchase, any screenshots, and any order
+        references you have. We aim to respond within a reasonable time.
       </p>
 
       <h2>Processing Time</h2>

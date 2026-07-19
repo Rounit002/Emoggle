@@ -2,67 +2,11 @@
 
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 
-export type UserGender = "Male" | "Female";
-export type MatchSeeking = "Male" | "Female" | "Anyone";
-
 export interface UserProfile {
-  username: string;
-  gender: UserGender;
-  dateOfBirth: string;
-  age: number;
-  verifiedGender: "Male" | "Female";
-  isVerified: boolean;
   isVIP?: boolean;
-  freeGenderMatchesLeft?: number;
   elo?: number;
   userId?: string;
   deviceId?: string;
-}
-
-function getOrCreateDeviceId(): string {
-  try {
-    const existing = window.localStorage.getItem(DEVICE_ID_KEY);
-    let id: string | null = existing;
-    if (!id) {
-      // Best-effort stable ID for this browser install
-      const newId: string = (typeof crypto !== "undefined" && (crypto as any).randomUUID)
-        ? (crypto as any).randomUUID()
-        : `${Math.random().toString(36).slice(2)}-${Date.now()}`;
-      id = newId;
-      window.localStorage.setItem(DEVICE_ID_KEY, newId);
-    }
-    return id;
-  } catch {
-    // Fallback ephemeral
-    return `${Math.random().toString(36).slice(2)}-${Date.now()}`;
-  }
-}
-
-function getVipReceipt(): { deviceId?: string; ts?: number; provider?: string } | null {
-  try {
-    const raw = window.localStorage.getItem(VIP_RECEIPT_KEY);
-    if (!raw) return null;
-    if (raw.startsWith("v1:")) {
-      const b64 = raw.slice(3);
-      try {
-        const json = atob(b64);
-        return JSON.parse(json);
-      } catch {
-        return null;
-      }
-    }
-    // Backward compatibility: plain JSON
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-interface UserProfileContextValue {
-  profile: UserProfile | null;
-  hasLoadedProfile: boolean;
-  saveProfile: (profile: UserProfile) => void;
-  clearProfile: () => void;
 }
 
 const STORAGE_KEY = "emoggle:user-profile";
@@ -70,121 +14,157 @@ const DEVICE_ID_KEY = "emoggle:device-id";
 const VIP_RECEIPT_KEY = "emoggle:vip-receipt";
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
-const UserProfileContext = createContext<UserProfileContextValue | null>(null);
+
+function getOrCreateDeviceId(): string {
+  try {
+    const existing = window.localStorage.getItem(DEVICE_ID_KEY);
+    if (existing) return existing;
+
+    const newId =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Math.random().toString(36).slice(2)}-${Date.now()}`;
+    window.localStorage.setItem(DEVICE_ID_KEY, newId);
+    return newId;
+  } catch {
+    return `${Math.random().toString(36).slice(2)}-${Date.now()}`;
+  }
+}
+
+function getVipReceipt(): { deviceId?: string } | null {
+  try {
+    const raw = window.localStorage.getItem(VIP_RECEIPT_KEY);
+    if (!raw) return null;
+    if (raw.startsWith("v1:")) {
+      return JSON.parse(atob(raw.slice(3)));
+    }
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
 
 function parseProfile(value: string | null): UserProfile | null {
   if (!value) return null;
   try {
-    const parsed = JSON.parse(value) as Partial<UserProfile>;
-    if (
-      typeof parsed.username === "string" &&
-      parsed.username.trim() &&
-      (parsed.gender === "Male" || parsed.gender === "Female") &&
-      typeof parsed.dateOfBirth === "string" &&
-      typeof parsed.age === "number" &&
-      Number.isFinite(parsed.age) &&
-      (parsed.verifiedGender === "Male" || parsed.verifiedGender === "Female") &&
-      parsed.isVerified === true
-    ) {
-      return {
-        username: parsed.username.trim().slice(0, 24),
-        gender: parsed.gender,
-        dateOfBirth: parsed.dateOfBirth,
-        age: parsed.age,
-        verifiedGender: parsed.verifiedGender,
-        isVerified: true,
-        isVIP: parsed.isVIP === true,
-        freeGenderMatchesLeft:
-          typeof parsed.freeGenderMatchesLeft === "number" && Number.isFinite(parsed.freeGenderMatchesLeft)
-            ? parsed.freeGenderMatchesLeft
-            : 0,
-        userId: typeof parsed.userId === "string" ? parsed.userId : undefined,
-        deviceId: typeof (parsed as any).deviceId === "string" ? (parsed as any).deviceId : getOrCreateDeviceId(),
-      };
-    }
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return {
+      isVIP: parsed.isVIP === true,
+      elo:
+        typeof parsed.elo === "number" && Number.isFinite(parsed.elo)
+          ? parsed.elo
+          : undefined,
+      userId: typeof parsed.userId === "string" ? parsed.userId : undefined,
+      deviceId:
+        typeof parsed.deviceId === "string"
+          ? parsed.deviceId
+          : getOrCreateDeviceId(),
+    };
   } catch {
     return null;
   }
-  return null;
 }
+
+interface UserProfileContextValue {
+  profile: UserProfile | null;
+  saveProfile: (profile: UserProfile) => void;
+  clearProfile: () => void;
+}
+
+const UserProfileContext = createContext<UserProfileContextValue | null>(null);
 
 export function UserProfileProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [hasLoadedProfile, setHasLoadedProfile] = useState(false);
 
   useEffect(() => {
     const loaded = parseProfile(window.localStorage.getItem(STORAGE_KEY));
     const deviceId = getOrCreateDeviceId();
     const receipt = getVipReceipt();
-    const hasLocalVip = !!receipt && receipt.deviceId === deviceId;
-    setProfile(loaded ? { ...loaded, isVIP: loaded.isVIP || hasLocalVip } : null);
-    setHasLoadedProfile(true);
+    const sanitized: UserProfile = {
+      ...(loaded ?? {}),
+      deviceId,
+      isVIP:
+        loaded?.isVIP === true ||
+        (!!receipt && receipt.deviceId === deviceId),
+    };
 
-    // Login validation: if a userId exists, verify it against the DB
-    if (loaded?.userId) {
-      fetch(`${SIGNALING_URL}/api/users/me?id=${encodeURIComponent(loaded.userId)}`, { cache: "no-store" })
-        .then((res) => {
-          if (!res.ok) {
-            // UUID invalid or not found — clear userId so onboarding re-triggers
-            if (res.status === 404) {
-              const cleaned = { ...loaded, userId: undefined };
-              window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
-              setProfile(cleaned);
-            }
-            return null;
+    // Rewriting the stored object also removes legacy name, birth-date, age,
+    // gender, and verification fields from this browser.
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    setProfile(sanitized);
+
+    if (!sanitized.userId) return;
+
+    fetch(
+      `${SIGNALING_URL}/api/users/me?id=${encodeURIComponent(sanitized.userId)}`,
+      { cache: "no-store" },
+    )
+      .then((res) => {
+        if (!res.ok) {
+          if (res.status === 404) {
+            const cleaned = { ...sanitized, userId: undefined };
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
+            setProfile(cleaned);
           }
-          return res.json();
-        })
-        .then((data) => {
-          if (!data) return;
-          // Hydrate profile with authoritative DB values
-          const deviceId2 = getOrCreateDeviceId();
-          const receipt2 = getVipReceipt();
-          const hasLocalVip2 = !!receipt2 && receipt2.deviceId === deviceId2;
-          const synced: UserProfile = {
-            ...loaded,
-            elo: data.elo ?? loaded.elo,
-            // Never downgrade local VIP when a local receipt for this device exists
-            isVIP: loaded.isVIP === true || hasLocalVip2 || data.isVIP === true,
-            freeGenderMatchesLeft:
-              typeof data.freeGenderMatchesLeft === "number"
-                ? data.freeGenderMatchesLeft
-                : (typeof loaded.freeGenderMatchesLeft === "number" ? loaded.freeGenderMatchesLeft : 0),
-            userId: data.id,
-          };
-          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(synced));
-          setProfile(synced);
-        })
-        .catch(() => { /* backend may be offline */ });
-    }
+          return null;
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (!data) return;
+        const currentDeviceId = getOrCreateDeviceId();
+        const currentReceipt = getVipReceipt();
+        const synced: UserProfile = {
+          ...sanitized,
+          elo:
+            typeof data.elo === "number" && Number.isFinite(data.elo)
+              ? data.elo
+              : sanitized.elo,
+          isVIP:
+            sanitized.isVIP === true ||
+            data.isVIP === true ||
+            currentReceipt?.deviceId === currentDeviceId,
+          userId: typeof data.id === "string" ? data.id : sanitized.userId,
+          deviceId: currentDeviceId,
+        };
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(synced));
+        setProfile(synced);
+      })
+      .catch(() => {
+        // The app remains usable when the signaling server is offline.
+      });
   }, []);
 
   const value = useMemo<UserProfileContextValue>(
     () => ({
       profile,
-      hasLoadedProfile,
       saveProfile: (nextProfile) => {
-        const normalized = {
+        const normalized: UserProfile = {
           ...nextProfile,
-          username: nextProfile.username.trim().slice(0, 24),
           deviceId: getOrCreateDeviceId(),
-        } as UserProfile;
+        };
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
         setProfile(normalized);
       },
       clearProfile: () => {
         window.localStorage.removeItem(STORAGE_KEY);
-        setProfile(null);
+        setProfile({ deviceId: getOrCreateDeviceId() });
       },
     }),
-    [hasLoadedProfile, profile]
+    [profile],
   );
 
-  return <UserProfileContext.Provider value={value}>{children}</UserProfileContext.Provider>;
+  return (
+    <UserProfileContext.Provider value={value}>
+      {children}
+    </UserProfileContext.Provider>
+  );
 }
 
 export function useUserProfile() {
   const context = useContext(UserProfileContext);
-  if (!context) throw new Error("useUserProfile must be used inside UserProfileProvider");
+  if (!context) {
+    throw new Error("useUserProfile must be used inside UserProfileProvider");
+  }
   return context;
 }

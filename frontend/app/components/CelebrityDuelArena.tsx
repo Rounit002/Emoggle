@@ -8,7 +8,6 @@ import ChatBox from "./ChatBox";
 import { useMatchmaking } from "../hooks/useMatchmaking";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
 import { useUserProfile } from "../context/UserProfileContext";
-import type { MatchSeeking } from "../context/UserProfileContext";
 
 const ROUND_SECONDS = 10;
 const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
@@ -17,7 +16,6 @@ type AppPhase = "lobby" | "dueling" | "countdown" | "playing" | "results";
 
 interface CelebrityDuelArenaProps {
   onBack: () => void;
-  initialSeeking?: MatchSeeking;
 }
 
 interface CelebrityFace {
@@ -94,7 +92,7 @@ function resultCopy(myScore: number | null, rivalScore: number | null, winner?: 
   };
 }
 
-export default function CelebrityDuelArena({ onBack, initialSeeking = "Anyone" }: CelebrityDuelArenaProps) {
+export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const bestScoreRef = useRef(0);
   const scoreSamplesRef = useRef<number[]>([]);
@@ -134,9 +132,7 @@ export default function CelebrityDuelArena({ onBack, initialSeeking = "Anyone" }
     status,
     remoteStream,
     partnerPeerId,
-    partnerUsername,
     partnerCountry,
-    partnerGender,
     partnerScore,
     messages: chat,
     rivalTyping: typingIndicator,
@@ -152,7 +148,6 @@ export default function CelebrityDuelArena({ onBack, initialSeeking = "Anyone" }
     localStream,
     null,
     profile,
-    initialSeeking || "Anyone",
     saveProfile
   );
 
@@ -363,7 +358,7 @@ export default function CelebrityDuelArena({ onBack, initialSeeking = "Anyone" }
                 <VideoPanel
                   ref={webcamRef}
                   label="YOU"
-                  playerName={profile?.username ?? "You"}
+                  playerName="You"
                   country={myCountry}
                   isLocal={true}
                   localStream={localStream}
@@ -409,8 +404,8 @@ export default function CelebrityDuelArena({ onBack, initialSeeking = "Anyone" }
               <div className="flex-1">
                 <VideoPanel
                   label="RIVAL"
-                  playerName={partnerUsername ?? "Opponent"}
-                  country={partnerGender ? `${partnerGender}${partnerCountry ? ` | ${partnerCountry}` : ""}` : partnerCountry}
+                  playerName="Opponent"
+                  country={partnerCountry}
                   isLocal={false}
                   remoteStream={remoteStream}
                   frozenFrame={null}

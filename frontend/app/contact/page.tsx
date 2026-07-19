@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Contact Us - Emoggle",
+  title: "Contact Us",
   description: "How to get in touch for support and inquiries.",
+  alternates: { canonical: "/contact" },
+  openGraph: { url: "/contact" },
 };
 
 export default function ContactPage() {
@@ -11,8 +13,8 @@ export default function ContactPage() {
       <h1>Contact Us</h1>
       <p>
         Need help with your purchase or account? Please contact us with the
-        details below. Include your username and any relevant order references
-        to help us assist you faster.
+        details below. Include any relevant order references to help us assist
+        you faster.
       </p>
 
       <h2>Support</h2>

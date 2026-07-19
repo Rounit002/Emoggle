@@ -1,0 +1,21 @@
+# Emoggle
+
+> Emoggle is a free browser-based emoji face-matching game with live webcam duels and a solo practice mode.
+
+Emoggle shows players an emoji and uses in-browser face-landmark analysis to score how closely their facial expression matches it. In multiplayer mode, two randomly matched players receive the same prompt and compare scores. In Solo Emoji Scan, one player can practice without waiting for a partner. A webcam, JavaScript, and a modern browser are required. No app download is needed.
+
+Canonical site: https://emoggle.vercel.app/
+
+## Product information
+
+- [Homepage](https://emoggle.vercel.app/): Play Emoggle and compare solo and multiplayer modes.
+- [How Emoggle works](https://emoggle.vercel.app/how-it-works): Steps, expression scoring, browser requirements, and privacy details.
+- [About Emoggle](https://emoggle.vercel.app/about): Neutral product overview and key facts.
+- [Frequently asked questions](https://emoggle.vercel.app/faq): Factual answers about cost, webcam access, solo mode, multiplayer, and face data.
+
+## Policies
+
+- [Privacy policy](https://emoggle.vercel.app/privacy): Data-handling information.
+- [Terms and conditions](https://emoggle.vercel.app/terms): Rules for using Emoggle.
+- [Contact](https://emoggle.vercel.app/contact): Support and business inquiries.
+

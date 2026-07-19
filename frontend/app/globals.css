@@ -18,3 +18,43 @@ body {
   font-family: Arial, Helvetica, sans-serif;
   overflow-x: hidden;
 }
+
+.info-content {
+  color: #d4d4d8;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.info-content > * + * {
+  margin-top: 3rem;
+}
+
+.info-content h2 {
+  color: #fff;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
+
+.info-content p,
+.info-content li {
+  max-width: 75ch;
+}
+
+.info-content ul,
+.info-content ol {
+  display: grid;
+  gap: 0.75rem;
+  list-style-position: outside;
+  margin-left: 1.25rem;
+}
+
+.info-content ul {
+  list-style-type: disc;
+}
+
+.info-content ol {
+  list-style-type: decimal;
+}
