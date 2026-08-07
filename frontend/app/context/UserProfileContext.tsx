@@ -11,7 +11,7 @@ export interface UserProfile {
 
 const STORAGE_KEY = "emoggle:user-profile";
 const DEVICE_ID_KEY = "emoggle:device-id";
-const VIP_RECEIPT_KEY = "emoggle:vip-receipt";
+const LEGACY_VIP_RECEIPT_KEY = "emoggle:vip-receipt";
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 
@@ -31,25 +31,13 @@ function getOrCreateDeviceId(): string {
   }
 }
 
-function getVipReceipt(): { deviceId?: string } | null {
-  try {
-    const raw = window.localStorage.getItem(VIP_RECEIPT_KEY);
-    if (!raw) return null;
-    if (raw.startsWith("v1:")) {
-      return JSON.parse(atob(raw.slice(3)));
-    }
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 function parseProfile(value: string | null): UserProfile | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
     return {
-      isVIP: parsed.isVIP === true,
+      // VIP is intentionally not restored from browser-controlled profile data.
+      isVIP: false,
       elo:
         typeof parsed.elo === "number" && Number.isFinite(parsed.elo)
           ? parsed.elo
@@ -78,20 +66,18 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const loaded = parseProfile(window.localStorage.getItem(STORAGE_KEY));
+    window.localStorage.removeItem(LEGACY_VIP_RECEIPT_KEY);
     const deviceId = getOrCreateDeviceId();
-    const receipt = getVipReceipt();
     const sanitized: UserProfile = {
       ...(loaded ?? {}),
       deviceId,
-      isVIP:
-        loaded?.isVIP === true ||
-        (!!receipt && receipt.deviceId === deviceId),
+      isVIP: false,
     };
 
     // Rewriting the stored object also removes legacy name, birth-date, age,
     // gender, and verification fields from this browser.
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
-    setProfile(sanitized);
+    queueMicrotask(() => setProfile(sanitized));
 
     if (!sanitized.userId) return;
 
@@ -113,17 +99,13 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
       .then((data) => {
         if (!data) return;
         const currentDeviceId = getOrCreateDeviceId();
-        const currentReceipt = getVipReceipt();
         const synced: UserProfile = {
           ...sanitized,
           elo:
             typeof data.elo === "number" && Number.isFinite(data.elo)
               ? data.elo
               : sanitized.elo,
-          isVIP:
-            sanitized.isVIP === true ||
-            data.isVIP === true ||
-            currentReceipt?.deviceId === currentDeviceId,
+          isVIP: data.isVIP === true,
           userId: typeof data.id === "string" ? data.id : sanitized.userId,
           deviceId: currentDeviceId,
         };
@@ -141,6 +123,8 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
       saveProfile: (nextProfile) => {
         const normalized: UserProfile = {
           ...nextProfile,
+          // RevenueCat owns client-side VIP access; callers cannot persist it.
+          isVIP: profile?.isVIP === true,
           deviceId: getOrCreateDeviceId(),
         };
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));

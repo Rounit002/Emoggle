@@ -159,12 +159,12 @@ function LandmarkDot({
           <div className="absolute left-1/2 -translate-x-1/2" style={{ bottom: "-8px", width: "1px", height: "5px", background: "rgba(74,222,128,0.8)" }} />
           <div className="absolute top-1/2 -translate-y-1/2" style={{ left: "-8px", height: "1px", width: "5px", background: "rgba(74,222,128,0.8)" }} />
           <div className="absolute top-1/2 -translate-y-1/2" style={{ right: "-8px", height: "1px", width: "5px", background: "rgba(74,222,128,0.8)" }} />
-          {/* Core dot */}
+          {/* Core dot — slow, calm pulse, well under the 3 Hz safety threshold. */}
           <motion.div
             className="w-2 h-2 rounded-full bg-green-400"
             style={{ boxShadow: "0 0 6px 2px rgba(74,222,128,0.6)" }}
-            animate={{ opacity: [1, 0.5, 1] }}
-            transition={{ repeat: Infinity, duration: 1.8, ease: "easeInOut" }}
+            animate={{ opacity: [1, 0.7, 1] }}
+            transition={{ repeat: Infinity, duration: 2.4, ease: "easeInOut" }}
           />
         </motion.div>
       )}

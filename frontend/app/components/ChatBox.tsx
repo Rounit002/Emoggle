@@ -100,13 +100,8 @@ export default function ChatBox({ messages, onSend, onSkip, onStop, disabled = f
               exit={{ opacity: 0, y: 4 }}
               className="flex justify-start"
             >
-              <div className="flex items-center gap-1 bg-zinc-800 text-zinc-400 text-xs px-3 py-1.5 rounded-2xl rounded-bl-sm">
-                <span className="inline-flex gap-0.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:0ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:150ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-bounce [animation-delay:300ms]" />
-                </span>
-                <span>typing</span>
+              <div className="flex items-center gap-2 bg-zinc-800 text-zinc-400 text-xs px-3 py-1.5 rounded-2xl rounded-bl-sm">
+                <span className="font-mono uppercase tracking-[0.2em]">typing</span>
               </div>
             </motion.div>
           )}

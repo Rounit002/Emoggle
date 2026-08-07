@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { Logo, ThemeToggle, cn } from "../ui";
 
 export default function InfoPageShell({
   eyebrow,
@@ -13,61 +14,48 @@ export default function InfoPageShell({
   children: ReactNode;
 }) {
   return (
-    <main className="min-h-screen bg-[#0b0c14] px-5 py-8 text-white sm:py-12">
-      <div className="mx-auto max-w-4xl">
+    <main className="min-h-screen bg-[var(--off-white)] text-[var(--charcoal)]">
+      <div className="mx-auto max-w-4xl px-5 py-8 sm:px-8 sm:py-12">
         <nav
           aria-label="Primary navigation"
-          className="flex flex-wrap items-center justify-between gap-4"
+          className="flex flex-wrap items-center justify-between gap-4 border-b-[3px] border-[var(--charcoal)] pb-5"
         >
           <Link
             href="/"
-            className="text-xl font-black uppercase tracking-tight focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-300"
+            className="rounded focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--charcoal)]"
           >
-            Emoggle
+            <Logo size="sm" />
           </Link>
-          <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-zinc-400">
-            <Link className="hover:text-white" href="/how-it-works">
-              How it works
-            </Link>
-            <Link className="hover:text-white" href="/about">
-              About
-            </Link>
-            <Link className="hover:text-white" href="/faq">
-              FAQ
-            </Link>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-bold text-[var(--charcoal)]">
+            <Link className="hover:underline" href="/how-it-works">How it works</Link>
+            <Link className="hover:underline" href="/about">About</Link>
+            <Link className="hover:underline" href="/faq">FAQ</Link>
+            <Link className="hover:underline" href="/history">History</Link>
+            <ThemeToggle size="sm" />
           </div>
         </nav>
 
-        <header className="border-b border-white/10 py-16 sm:py-24">
-          <p className="text-sm font-black uppercase tracking-[0.22em] text-violet-300">
+        <header className="py-12 sm:py-16">
+          <span className="inline-block rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)]">
             {eyebrow}
-          </p>
-          <h1 className="mt-4 text-4xl font-black tracking-tight sm:text-6xl">
+          </span>
+          <h1 className="mt-5 font-display text-4xl font-bold tracking-tight text-[var(--charcoal)] sm:text-6xl">
             {title}
           </h1>
-          <p className="mt-6 max-w-3xl text-lg leading-8 text-zinc-300">
+          <p className="mt-5 max-w-3xl text-lg leading-8 text-[var(--on-surface-variant)]">
             {intro}
           </p>
         </header>
 
-        <div className="info-content py-12 sm:py-16">{children}</div>
+        <div className="info-content pb-16">{children}</div>
 
-        <footer className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-white/10 py-8 text-sm text-zinc-400">
-          <Link className="font-black text-white" href="/">
-            Play Emoggle
-          </Link>
-          <Link className="hover:text-white" href="/privacy">
-            Privacy
-          </Link>
-          <Link className="hover:text-white" href="/terms">
-            Terms
-          </Link>
-          <Link className="hover:text-white" href="/contact">
-            Contact
-          </Link>
+        <footer className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t-[3px] border-[var(--charcoal)] py-6 text-sm font-bold text-[var(--charcoal)]">
+          <Link className="hover:underline" href="/">Play Emoggle</Link>
+          <Link className="hover:underline" href="/privacy">Privacy</Link>
+          <Link className="hover:underline" href="/terms">Terms</Link>
+          <Link className="hover:underline" href="/contact">Contact</Link>
         </footer>
       </div>
     </main>
   );
 }
-

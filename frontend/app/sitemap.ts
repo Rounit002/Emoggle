@@ -15,9 +15,11 @@ const routes = [
 export default function sitemap(): MetadataRoute.Sitemap {
   return routes.map(({ path, priority, changeFrequency }) => ({
     url: `${siteConfig.url}${path}`,
-    lastModified: new Date("2026-07-18"),
+    lastModified: new Date(siteConfig.contentLastModified),
     changeFrequency,
     priority,
+    ...(path === ""
+      ? { images: [`${siteConfig.url}/opengraph-image`] }
+      : {}),
   }));
 }
-

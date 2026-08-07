@@ -7,6 +7,7 @@ import ModeSelect from "./ModeSelect";
 import SoloFaceJudge from "./SoloFaceJudge";
 import { MediaPipeFaceProvider } from "../context/MediaPipeFaceContext";
 import { UserProfileProvider } from "../context/UserProfileContext";
+import { RevenueCatProvider } from "../context/RevenueCatContext";
 
 type View = "home" | "arena" | "solo" | "celebrity";
 
@@ -14,7 +15,9 @@ export default function HomeExperience() {
   return (
     <MediaPipeFaceProvider>
       <UserProfileProvider>
-        <HomeContent />
+        <RevenueCatProvider>
+          <HomeContent />
+        </RevenueCatProvider>
       </UserProfileProvider>
     </MediaPipeFaceProvider>
   );

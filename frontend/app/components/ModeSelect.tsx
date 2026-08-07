@@ -1,9 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useUserProfile } from "../context/UserProfileContext";
-// Auth removed — rely on local profile only
+import { motion } from "framer-motion";
+import { useRevenueCat } from "../context/RevenueCatContext";
+import {
+  Button,
+  Logo,
+  Pill,
+  ThemeToggle,
+  Camera,
+  Mic,
+  Target,
+  Crown,
+  Globe,
+  Sparkle,
+  cn,
+} from "../ui";
 
 interface ModeSelectProps {
   onSelect: (mode: "camera" | "solo" | "celebrity") => void;
@@ -12,51 +24,75 @@ interface ModeSelectProps {
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 
+type ModeId = "camera" | "solo" | "celebrity";
+
+interface ModeCard {
+  id: ModeId;
+  number: string;
+  /** Background fill tone for the card */
+  fill: "yellow" | "purple" | "pink";
+  /** Glyph emoji in the card circle */
+  glyph: string;
+  /** Slight rotation for the scattered-on-a-table look */
+  tilt: "tilt-l-1" | "tilt-l-2" | "tilt-0" | "tilt-r-1" | "tilt-r-2";
+  title: string;
+  description: string;
+  badge: string;
+}
+
+const MODES: ModeCard[] = [
+  {
+    id: "camera",
+    number: "1",
+    fill: "purple",
+    glyph: "😎",
+    tilt: "tilt-l-1",
+    title: "Match a stranger",
+    description:
+      "Hit play and instantly connect with another player ready for some squishy face action.",
+    badge: "Live",
+  },
+  {
+    id: "solo",
+    number: "2",
+    fill: "yellow",
+    glyph: "🤪",
+    tilt: "tilt-r-1",
+    title: "Mimic the emoji",
+    description:
+      "An emoji pops up. You have 3 seconds to make the exact same face into your camera.",
+    badge: "Solo",
+  },
+  {
+    id: "celebrity",
+    number: "3",
+    fill: "pink",
+    glyph: "🏆",
+    tilt: "tilt-l-2",
+    title: "Win points",
+    description:
+      "Our highly inaccurate AI judges who did it better. Rack up points and climb the leaderboard.",
+    badge: "VIP",
+  },
+];
+
+const fillClasses: Record<ModeCard["fill"], string> = {
+  yellow: "bg-[var(--yellow)]",
+  purple: "bg-[var(--purple)] text-[var(--off-white)]",
+  pink: "bg-[var(--pink)]",
+};
+
 export default function ModeSelect({ onSelect }: ModeSelectProps) {
-  const [showModes, setShowModes] = useState(false);
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
-  const [showComingSoon, setShowComingSoon] = useState(false);
-  const { profile, saveProfile } = useUserProfile();
-  // ── Device VIP persistence (local)
-  const DEVICE_ID_KEY = "emoggle:device-id";
-  const VIP_RECEIPT_KEY = "emoggle:vip-receipt";
-  const [isDeviceVIP, setIsDeviceVIP] = useState(false);
-  const [hasLocalVipReceipt, setHasLocalVipReceipt] = useState(false);
-
-  function getOrCreateDeviceId(): string {
-    try {
-      const existing = window.localStorage.getItem(DEVICE_ID_KEY);
-      let id: string | null = existing;
-      if (!existing) {
-        const rnd = (typeof crypto !== "undefined" && (crypto as any).randomUUID)
-          ? (crypto as any).randomUUID()
-          : `${Math.random().toString(36).slice(2)}-${Date.now()}`;
-        id = rnd;
-        window.localStorage.setItem(DEVICE_ID_KEY, id as string);
-      }
-      return id as string;
-    } catch {
-      return `${Math.random().toString(36).slice(2)}-${Date.now()}`;
-    }
-  }
-
-  function getVipReceipt(): { deviceId?: string; ts?: number; provider?: string } | null {
-    try {
-      const raw = window.localStorage.getItem(VIP_RECEIPT_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function restoreVipFromReceipt() {
-    const rec = getVipReceipt();
-    const deviceId = getOrCreateDeviceId();
-    if (rec && rec.deviceId === deviceId) {
-      setIsDeviceVIP(true);
-      if (profile) saveProfile({ ...profile, isVIP: true });
-    }
-  }
+  const {
+    isAvailable: isRevenueCatAvailable,
+    isLoading: isRevenueCatLoading,
+    isPurchasing,
+    isVIP,
+    showPaywall,
+    refreshCustomerInfo,
+    error: revenueCatError,
+  } = useRevenueCat();
 
   useEffect(() => {
     let cancelled = false;
@@ -69,7 +105,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
           setOnlineCount(data.count);
         }
       } catch {
-        /* ignore — server may be offline */
+        /* server may be offline */
       }
     };
     fetchCount();
@@ -80,324 +116,410 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     };
   }, []);
 
-  // Read VIP receipt on mount
-  useEffect(() => {
-    const rec = getVipReceipt();
-    const deviceId = getOrCreateDeviceId();
-    const match = !!rec && rec.deviceId === deviceId;
-    setIsDeviceVIP(match);
-    setHasLocalVipReceipt(!!rec);
-  }, []);
+  const handleSelect = (mode: ModeCard) => {
+    if (mode.id === "celebrity") {
+      if (isVIP || !isRevenueCatAvailable) {
+        onSelect(mode.id);
+        return;
+      }
+      if (isRevenueCatLoading) return;
+      void showPaywall().then((unlocked) => {
+        if (unlocked) onSelect(mode.id);
+      });
+      return;
+    }
+    onSelect(mode.id);
+  };
 
   return (
-    <div className="relative w-screen min-h-screen bg-[#0b0c14] flex flex-col items-center overflow-x-hidden">
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[320px] bg-violet-700/10 rounded-full blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-0 left-1/4 w-64 h-64 bg-indigo-900/20 rounded-full blur-[80px] pointer-events-none" />
-      <div className="w-full max-w-sm sm:max-w-md lg:max-w-lg px-5 sm:px-8 py-8 sm:py-12 lg:py-16 flex flex-col items-center gap-4 sm:gap-5 z-10">
+    <div className="relative min-h-screen w-full overflow-hidden bg-[var(--off-white)]">
+      {/* Floating decorative emojis — the spec calls for these. */}
+      <DecoEmojis />
 
-        {/* Title */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.55, ease: "easeOut" }}
-          className="text-center"
-        >
-          <h1 className="text-[3rem] sm:text-[4.5rem] lg:text-[6rem] font-black tracking-[-0.03em] text-white uppercase leading-none">
-            Emoggle
-            <span className="mt-3 block text-xs font-black tracking-[0.22em] text-violet-300 sm:text-sm">
-              The emoji face-matching game
-            </span>
-          </h1>
-        </motion.div>
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-[1200px] flex-col px-5 py-6 sm:px-8 sm:py-10">
+        {/* Top bar — chunky charcoal underline */}
+        <header className="border-b-[3px] border-[var(--charcoal)]">
+          <div className="flex items-center justify-between pb-4 sm:pb-5">
+            <Logo size="md" />
+            <nav className="flex items-center gap-4 text-sm font-bold text-[var(--charcoal)] sm:gap-6">
+              <a href="/how-it-works" className="hidden hover:underline sm:inline">
+                How to play
+              </a>
+              <a href="/history" className="hidden hover:underline sm:inline">
+                History
+              </a>
+              <a href="/faq" className="hidden hover:underline sm:inline">
+                Feedback
+              </a>
+              {onlineCount !== null && (
+                <Pill tone="purple">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--off-white)]" />
+                  {onlineCount} online
+                </Pill>
+              )}
+              <ThemeToggle size="sm" />
+            </nav>
+          </div>
+        </header>
 
-        {/* Privacy notice */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.15, duration: 0.5 }}
-          className="text-center text-xs sm:text-sm text-zinc-400 leading-snug max-w-[260px] sm:max-w-sm"
-        >
-          <span className="text-yellow-400 mr-1">⚠</span>
-          Emoggle does not sell, store, or use your face to train AI models.
-        </motion.div>
-
-        {/* Online badge */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.88 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.25, duration: 0.4 }}
-          className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-zinc-900 border border-zinc-700"
-        >
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          {onlineCount !== null ? (
-            <span className="text-xs font-bold text-zinc-200 uppercase tracking-widest">
-              ~{onlineCount < 10 ? onlineCount : Math.round(onlineCount / 5) * 5} Online Now
-            </span>
-          ) : (
-            <span className="text-xs font-bold text-zinc-200 uppercase tracking-widest">Online Now</span>
-          )}
-        </motion.div>
-
-        {/* Device VIP badge + restore */}
-        <div className="mt-2 flex items-center gap-2">
-          {(isDeviceVIP || profile?.isVIP) && (
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-yellow-300">
-              VIP active on this device
-            </span>
-          )}
-          {!profile?.isVIP && hasLocalVipReceipt && (
-            <button
-              onClick={restoreVipFromReceipt}
-              className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300 hover:text-cyan-200 border border-cyan-300/30 rounded-full px-2 py-0.5"
+        {/* Hero — left column on desktop with the text/CTA,
+            right column with a live face-off preview that fills the screen.
+            On mobile it stacks to a single column. */}
+        <section className="relative grid w-full grid-cols-1 items-center gap-10 pb-12 pt-10 lg:grid-cols-[1fr_minmax(420px,1.1fr)] lg:gap-12 lg:pt-14">
+          {/* Left: text + CTA */}
+          <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0, rotate: -3 }}
+              animate={{ scale: 1, opacity: 1, rotate: -3 }}
+              transition={{ type: "spring", stiffness: 280, damping: 18 }}
+              className="relative flex h-32 w-32 items-center justify-center rounded-[2rem] border-[4px] border-[var(--charcoal)] bg-[var(--yellow)] shadow-[8px_8px_0_0_var(--charcoal)] sm:h-40 sm:w-40 lg:h-48 lg:w-48"
+              aria-hidden
             >
-              Restore VIP on this device
-            </button>
-          )}
-          {(isDeviceVIP || hasLocalVipReceipt) && (
-            <button
-              onClick={() => {
-                try { window.localStorage.removeItem(VIP_RECEIPT_KEY); } catch {}
-                setIsDeviceVIP(false);
-                setHasLocalVipReceipt(false);
-              }}
-              className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 hover:text-zinc-200 border border-zinc-700/60 rounded-full px-2 py-0.5"
+              <span className="-rotate-3 text-7xl leading-none sm:text-8xl">🤪</span>
+            </motion.div>
+
+            <motion.h1
+              initial={{ y: 16, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.45, delay: 0.08, ease: "easeOut" }}
+              className="mt-6 font-display text-[clamp(2.75rem,6vw,4.5rem)] font-bold leading-[1.05] tracking-tight text-[var(--charcoal)] sm:mt-8 lg:mt-10"
             >
-              Clear device VIP
-            </button>
+              Match faces.
+              <br />
+              <span
+                className="mt-2 inline-block rotate-[-2deg] rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--purple)] px-4 py-1 text-[var(--off-white)] shadow-[6px_6px_0_0_var(--charcoal)] sm:mt-3 sm:px-5 sm:py-2"
+              >
+                Make friends.
+              </span>
+            </motion.h1>
+
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.4, delay: 0.18 }}
+              className="mt-5 max-w-md text-[15px] leading-relaxed text-[var(--on-surface-variant)] sm:mt-6 sm:text-base lg:max-w-lg"
+            >
+              The chaotic, high-energy party game where you mimic emojis to win.
+              Jump in, match with strangers, and see who makes the best squishy face.
+            </motion.p>
+
+            <motion.div
+              initial={{ y: 10, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.4, delay: 0.26 }}
+              className="mt-6 flex flex-col items-center gap-3 sm:mt-8 lg:items-start"
+            >
+              <Button
+                size="lg"
+                onClick={() => handleSelect(MODES[0])}
+                iconLeft={<Camera size={18} />}
+              >
+                Play now
+              </Button>
+              <p className="text-xs text-[var(--on-surface-variant)]">
+                Webcam + a straight face you won&apos;t keep
+              </p>
+            </motion.div>
+          </div>
+
+          {/* Right: live face-off preview — fills the available space.
+              This is the same treatment the in-game duel uses, sized for the
+              landing. */}
+          <HeroPreview />
+        </section>
+
+        {/* How to play — three scattered, rotated, sticker-shadowed cards */}
+        <section className="relative mx-auto w-full max-w-[1100px] pb-20 sm:pb-24">
+          <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <h2 className="font-display text-3xl font-bold tracking-tight text-[var(--charcoal)] sm:text-4xl">
+              <span className="inline-block border-b-[4px] border-[var(--charcoal)] pb-1">
+                How to play
+              </span>
+            </h2>
+            {isVIP ? (
+              <Pill tone="yellow">VIP active</Pill>
+            ) : isRevenueCatAvailable ? (
+              <button
+                onClick={() => void showPaywall()}
+                disabled={isPurchasing}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--charcoal)] underline-offset-4 hover:underline disabled:opacity-50"
+              >
+                <Crown size={14} />
+                {isPurchasing ? "Opening checkout…" : "Unlock VIP"}
+              </button>
+            ) : null}
+          </div>
+
+          <ul className="mt-10 grid grid-cols-1 items-start gap-10 px-2 sm:grid-cols-3 sm:gap-6 sm:px-0 sm:pt-8">
+            {MODES.map((mode, i) => (
+              <li
+                key={mode.id}
+                className={cn(
+                  "flex justify-center",
+                  i === 1 && "sm:translate-y-6",
+                )}
+              >
+                <button
+                  onClick={() => handleSelect(mode)}
+                  disabled={mode.id === "celebrity" && isRevenueCatAvailable && isRevenueCatLoading}
+                  className={cn(
+                    "group relative flex w-full max-w-[320px] flex-col items-start gap-4",
+                    "rounded-3xl border-[4px] border-[var(--charcoal)] p-5 text-left",
+                    "shadow-[6px_6px_0_0_var(--charcoal)]",
+                    "transition-transform duration-100",
+                    "active:translate-y-1 active:shadow-[2px_2px_0_0_var(--charcoal)]",
+                    mode.tilt,
+                    fillClasses[mode.fill],
+                    "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--charcoal)]",
+                    mode.id === "celebrity" && isRevenueCatAvailable && isRevenueCatLoading && "opacity-60",
+                  )}
+                >
+                  <div className="flex w-full items-start justify-between">
+                    <span
+                      className="flex h-14 w-14 items-center justify-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white)]"
+                    >
+                      <span className="text-3xl leading-none">{mode.glyph}</span>
+                    </span>
+                    <span className="font-display text-3xl font-bold leading-none text-[var(--ink-soft)]">
+                      {mode.number}
+                    </span>
+                  </div>
+
+                  <div className="flex-1">
+                    <h3 className="font-display text-lg font-bold tracking-tight text-[var(--charcoal)]">
+                      {mode.title}
+                    </h3>
+                    <p className="mt-1.5 text-sm leading-relaxed text-[var(--ink-muted)]">
+                      {mode.description}
+                    </p>
+                  </div>
+
+                  <div className="flex w-full items-center justify-between text-xs font-bold text-[var(--ink-muted)]">
+                    <span className="uppercase tracking-[0.18em]">{mode.badge}</span>
+                    <span className="opacity-0 transition-opacity group-hover:opacity-100">
+                      {i < 2 ? "Play →" : "Unlock →"}
+                    </span>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          {revenueCatError && (
+            <p className="mt-4 text-center text-xs text-[var(--pink-deep)]">
+              {revenueCatError}
+            </p>
           )}
+
+          {isRevenueCatAvailable && (
+            <div className="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-[var(--on-surface-variant)]">
+              <button
+                onClick={() => void refreshCustomerInfo()}
+                disabled={isRevenueCatLoading}
+                className="inline-flex items-center gap-1.5 hover:text-[var(--charcoal)] hover:underline disabled:opacity-50"
+              >
+                <Globe size={14} />
+                {isRevenueCatLoading ? "Checking…" : "Refresh access"}
+              </button>
+              <span className="inline-flex items-center gap-1.5">
+                <Sparkle size={14} />
+                Fair play · No face data sold
+              </span>
+            </div>
+          )}
+        </section>
+
+        {/* Bottom — thick charcoal rule, simple nav */}
+        <footer className="mt-auto border-t-[3px] border-[var(--charcoal)]">
+          <div className="flex flex-col items-center justify-between gap-3 pt-4 sm:flex-row">
+            <Logo size="sm" />
+            <span className="text-xs font-bold text-[var(--on-surface-variant)]">
+              © {new Date().getFullYear()} Emoggle. Stay squishy.
+            </span>
+            <nav className="flex items-center gap-4 text-xs font-bold text-[var(--on-surface-variant)]">
+              <a href="/privacy" className="hover:text-[var(--charcoal)] hover:underline">
+                Privacy
+              </a>
+              <a href="/terms" className="hover:text-[var(--charcoal)] hover:underline">
+                Terms
+              </a>
+              <a href="/contact" className="hover:text-[var(--charcoal)] hover:underline">
+                Support
+              </a>
+            </nav>
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Floating decorative emojis, the spec calls for these.
+ * They're purely decorative (aria-hidden), with no interaction, no animation.
+ * Positioned absolutely around the page corners and edges.
+ */
+function DecoEmojis() {
+  const items: Array<{ emoji: string; style: React.CSSProperties }> = [
+    { emoji: "😜", style: { top: "8%", left: "5%" } },
+    { emoji: "😝", style: { top: "12%", right: "7%" } },
+    { emoji: "🤪", style: { top: "40%", left: "3%" } },
+    { emoji: "😛", style: { top: "55%", right: "4%" } },
+    { emoji: "🥳", style: { bottom: "20%", left: "6%" } },
+    { emoji: "🤩", style: { bottom: "16%", right: "8%" } },
+  ];
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
+      {items.map((item, i) => (
+        <span
+          key={i}
+          className="absolute select-none text-3xl opacity-50 sm:text-4xl"
+          style={{
+            ...item.style,
+            transform: `rotate(${(i % 2 === 0 ? -1 : 1) * (4 + i * 2)}deg)`,
+          }}
+        >
+          {item.emoji}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * HeroPreview — a stylized face-off that fills the right column on desktop.
+ *
+ * It uses the same chunky-frame + sticker-shadow + score-bar language as the
+ * in-game duel, sized for the landing. Two tilt-opposed frames (purple on
+ * the left, pink on the right) flank a charcoal seam with a yellow target
+ * emoji floating in the middle. Below each frame is a tinted score bar.
+ *
+ * This is the visual promise of the product: "this is what you'll see when
+ * you play." On mobile it stacks the same way it does in-game.
+ */
+function HeroPreview() {
+  return (
+    <div className="relative mx-auto flex w-full max-w-[640px] flex-col gap-3 lg:max-w-none">
+      {/* Top label — the game-state header */}
+      <div className="flex items-center justify-between gap-2">
+        <Pill tone="purple">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--off-white)]" />
+          Round 03
+        </Pill>
+        <Pill tone="yellow">
+          <span className="font-mono tabular">10s</span>
+        </Pill>
+      </div>
+
+      {/* The face-off */}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-stretch gap-2 sm:gap-3">
+        {/* Player A — purple */}
+        <PreviewColumn seat="a" label="Violet" score="8.4" src="/preview-faces/violet.webp" alt="A young woman winking with her tongue out, mimicking a playful emoji expression." />
+
+        {/* Seam with the target emoji */}
+        <div className="relative flex w-16 items-center justify-center sm:w-20 lg:w-24">
+          <div className="absolute inset-y-2 left-1/2 w-1 -translate-x-1/2 bg-[var(--charcoal)]" aria-hidden />
+          <div className="relative z-10 flex flex-col items-center gap-1.5">
+            <span className="eyebrow text-[9px]">Target</span>
+            <div
+              className="flex h-16 w-16 items-center justify-center rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] shadow-[4px_4px_0_0_var(--charcoal)] sm:h-20 sm:w-20 lg:h-24 lg:w-24"
+              aria-hidden
+            >
+              <span className="-rotate-3 text-4xl sm:text-5xl lg:text-6xl">😜</span>
+            </div>
+            <span className="font-mono tabular text-[11px] font-bold text-[var(--charcoal)]">10s</span>
+          </div>
         </div>
 
-        {/* Main action card */}
-        <AnimatePresence mode="wait">
-          {!showModes ? (
-            <motion.div
-              key="arena-card"
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20, scale: 0.96 }}
-              transition={{ delay: 0.35, duration: 0.5, ease: "easeOut" }}
-              className="w-full rounded-2xl border border-zinc-800 bg-zinc-900/70 backdrop-blur-sm px-6 py-8 sm:py-10 flex flex-col items-center gap-4 text-center"
-            >
-              {/* Swords icon */}
-              <div className="relative w-16 h-16 flex items-center justify-center">
-                <span className="text-5xl">⚔️</span>
-              </div>
-
-              <div>
-                <h2 className="text-xl sm:text-2xl font-black uppercase tracking-[0.06em] text-white">
-                  Enter the Arena
-                </h2>
-                <button
-                  onClick={() => setShowModes(true)}
-                  className="mt-2 text-sm font-bold text-violet-400 hover:text-violet-300 uppercase tracking-[0.12em] transition-colors"
-                >
-                  Choose your mode →
-                </button>
-              </div>
-
-              <p className="text-[11px] text-zinc-500 leading-relaxed max-w-[220px]">
-                By entering the arena you agree to fair play and emoji expression rules.
-              </p>
-
-              <motion.button
-                whileHover={{ scale: 1.03, y: -2 }}
-                whileTap={{ scale: 0.96 }}
-                onClick={() => setShowModes(true)}
-                className="w-full mt-1 py-3 sm:py-4 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-black uppercase tracking-[0.12em] text-sm transition-colors shadow-lg shadow-violet-900/40"
-              >
-                Enter the Arena
-              </motion.button>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="mode-cards"
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              transition={{ duration: 0.42, ease: "easeOut" }}
-              className="w-full flex flex-col gap-3 sm:gap-4"
-            >
-              <div className="flex items-center justify-between mb-1">
-                <button
-                  onClick={() => setShowModes(false)}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 hover:text-white transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                  </svg>
-                  Back
-                </button>
-                <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">Pick your mode</span>
-              </div>
-
-              {/* Live Duel card */}
-              <motion.button
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.05, duration: 0.38 }}
-                whileHover={{ scale: 1.02, y: -2 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => onSelect("camera")}
-                className="group relative w-full flex items-center gap-4 sm:gap-5 p-4 sm:p-5 rounded-2xl bg-zinc-900 border border-zinc-700 hover:border-yellow-400/60 text-left transition-colors overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/8 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="flex-none w-14 h-14 rounded-xl bg-yellow-500/15 border border-yellow-400/30 flex items-center justify-center group-hover:bg-yellow-500/25 transition-colors">
-                  <svg className="w-7 h-7 text-yellow-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-2.796A.75.75 0 0121 8.374v7.252a.75.75 0 01-1.03.696L15.75 13.5M3.375 7.5h10.5A1.875 1.875 0 0115.75 9.375v5.25A1.875 1.875 0 0113.875 16.5H3.375A1.875 1.875 0 011.5 14.625v-5.25A1.875 1.875 0 013.375 7.5z" />
-                  </svg>
-                </div>
-                <div className="flex-1 z-10">
-                  <p className="text-base font-black text-white tracking-tight">Live Face Duel</p>
-                  <p className="text-zinc-400 text-xs mt-0.5 leading-snug">Match the emoji vs a random stranger. Mic + cam.</p>
-                  <div className="flex items-center gap-1.5 mt-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-                    <span className="text-[10px] font-bold text-yellow-300 uppercase tracking-widest">Live Match</span>
-                  </div>
-                </div>
-                <svg className="w-4 h-4 text-zinc-600 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </motion.button>
-
-              {/* Solo card */}
-              <motion.button
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.12, duration: 0.38 }}
-                whileHover={{ scale: 1.02, y: -2 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => {
-                  onSelect("solo");
-                }}
-                className="group relative w-full flex items-center gap-4 sm:gap-5 p-4 sm:p-5 rounded-2xl bg-zinc-900 border border-zinc-700 hover:border-cyan-400/60 text-left transition-colors overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/8 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="flex-none w-14 h-14 rounded-xl bg-cyan-500/15 border border-cyan-400/30 flex items-center justify-center text-2xl group-hover:bg-cyan-500/25 transition-colors">
-                  🤳
-                </div>
-                <div className="flex-1 z-10">
-                  <p className="text-base font-black text-white tracking-tight">Solo Emoji Scan</p>
-                  <p className="text-zinc-400 text-xs mt-0.5 leading-snug">Practice the emoji face and get an instant score.</p>
-                  <div className="flex items-center gap-1.5 mt-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                    <span className="text-[10px] font-bold text-cyan-300 uppercase tracking-widest">Solo Scan</span>
-                  </div>
-                </div>
-                <svg className="w-4 h-4 text-zinc-600 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </motion.button>
-
-              <motion.button
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.18, duration: 0.38 }}
-                whileHover={{ scale: 1.02, y: -2 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => {
-                  onSelect("celebrity");
-                }}
-                className="group relative w-full flex items-center gap-4 sm:gap-5 p-4 sm:p-5 rounded-2xl bg-zinc-900 border border-zinc-700 hover:border-pink-400/60 text-left transition-colors overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-pink-500/8 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                <div className="flex-none w-14 h-14 rounded-xl bg-pink-500/15 border border-pink-400/30 flex items-center justify-center text-2xl group-hover:bg-pink-500/25 transition-colors">
-                  🎭
-                </div>
-                <div className="flex-1 z-10">
-                  <p className="text-base font-black text-white tracking-tight">Celebrity Face Mimic</p>
-                  <p className="text-zinc-400 text-xs mt-0.5 leading-snug">Match famous faces vs a random stranger.</p>
-                  <div className="flex items-center gap-1.5 mt-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-pink-400 animate-pulse" />
-                    <span className="text-[10px] font-bold text-pink-300 uppercase tracking-widest">New Mode</span>
-                  </div>
-                </div>
-                <svg className="w-4 h-4 text-zinc-600 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </motion.button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Bottom feature links (always visible on landing) */}
-        <AnimatePresence>
-          {!showModes && (
-            <motion.div
-              key="bottom-links"
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              transition={{ delay: 0.55, duration: 0.45 }}
-              className="w-full flex flex-col gap-3 mt-1 sm:grid sm:grid-cols-2"
-            >
-              <div className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 cursor-default">
-                <div className="w-10 h-10 rounded-xl bg-yellow-500/15 flex items-center justify-center text-lg flex-none">🏆</div>
-                <div className="flex-1">
-                  <p className="text-xs font-black uppercase tracking-[0.1em] text-zinc-200">Leaderboard</p>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">See top players and rankings.</p>
-                </div>
-                <svg className="w-4 h-4 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-
-              <div className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl bg-indigo-950/50 border border-indigo-800/40 cursor-default">
-                <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center text-lg flex-none">💬</div>
-                <div className="flex-1">
-                  <p className="text-xs font-black uppercase tracking-[0.1em] text-zinc-200">Join Discord</p>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">Chat, events &amp; updates.</p>
-                </div>
-                <svg className="w-4 h-4 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Footer */}
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.7, duration: 0.5 }}
-          className="text-[10px] text-zinc-600 uppercase tracking-widest text-center mt-2 pb-6"
-        >
-          Fair play · Expression only · No ID verification
-        </motion.p>
+        {/* Player B — pink */}
+        <PreviewColumn seat="b" label="Pink" score="7.1" src="/preview-faces/pink.webp" alt="A young man winking with his tongue out, mimicking a playful emoji expression." />
       </div>
-      <AnimatePresence>
-        {showComingSoon && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 backdrop-blur-md"
-          >
-            <motion.div
-              initial={{ opacity: 0, y: 18, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.98 }}
-              className="w-full max-w-md rounded-2xl border border-pink-300/25 bg-zinc-950 p-5 text-white shadow-[0_0_60px_rgba(244,114,182,0.16)]"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.24em] text-pink-300">Coming Soon</p>
-                  <h2 className="mt-2 text-2xl font-black tracking-tight">Celebrity Face Mimic</h2>
-                  <p className="mt-2 text-sm text-zinc-400">This mode is under development. Stay tuned!</p>
-                </div>
-                <button
-                  onClick={() => setShowComingSoon(false)}
-                  className="rounded-full border border-white/15 bg-black/50 px-3 py-1 text-xs font-black text-zinc-300 hover:text-white"
-                >
-                  Close
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    </div>
+  );
+}
 
-      {/* Auth modal removed */}
+function PreviewColumn({
+  seat,
+  label,
+  score,
+  src,
+  alt,
+}: {
+  seat: "a" | "b";
+  label: string;
+  score: string;
+  src: string;
+  alt: string;
+}) {
+  const isA = seat === "a";
+  const borderColor = isA ? "border-[var(--purple-deep)]" : "border-[var(--pink-deep)]";
+  const seatColor = isA ? "var(--purple)" : "var(--pink)";
+  const seatText = isA ? "text-[var(--purple-deep)]" : "text-[var(--pink-deep)]";
+  const tilt = isA ? "tilt-l-1" : "tilt-r-1";
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* Camera frame — aspect-ratio sized, fills the column.
+          The image is the AI-generated portrait, sitting flush inside the
+          frame with a soft inner ring so the seat-color tag in the corner
+          reads cleanly on top. */}
+      <div
+        className={cn(
+          "relative aspect-[4/5] overflow-hidden rounded-2xl border-[4px] bg-[var(--off-white-2)]",
+          borderColor,
+          "shadow-[6px_6px_0_0_var(--charcoal)]",
+          tilt,
+        )}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt={alt}
+          width={720}
+          height={900}
+          loading="eager"
+          decoding="async"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        {/* Bottom darken so the score-tag area below the frame stays clean
+            and the face has a clear focal point. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-12"
+          style={{
+            background:
+              "linear-gradient(to top, rgba(0,0,0,0.18), rgba(0,0,0,0))",
+          }}
+        />
+        <span
+          className={cn(
+            "absolute left-2 top-2 flex items-center gap-1 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] shadow-[2px_2px_0_0_var(--charcoal)] sm:left-3 sm:top-3 sm:gap-1.5 sm:px-2 sm:text-[10px]",
+            seatText,
+          )}
+        >
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: seatColor }} />
+          {label}
+        </span>
+      </div>
+
+      {/* Score bar — same treatment as the in-game footer */}
+      <div className="flex flex-col gap-1.5 rounded-xl border-[2px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-2.5 py-1.5 shadow-[2px_2px_0_0_var(--charcoal)]">
+        <div className="flex items-center justify-between font-mono text-[9px] font-bold uppercase tracking-[0.14em] sm:text-[10px]">
+          <span className={seatText}>{label}</span>
+          <span className="text-[var(--charcoal)]">
+            {score}<span className="text-[var(--on-surface-variant)]">/10</span>
+          </span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)]">
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${(Number(score) / 10) * 100}%`,
+              background: seatColor,
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }

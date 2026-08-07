@@ -1,11 +1,13 @@
 export const siteConfig = {
   name: "Emoggle",
+  alternateNames: ["Emogul", "Omogul", "Emogle", "Emoogle"],
   url:
     process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ??
     "https://emoggle.vercel.app",
   title: "Emoggle: Emoji Face-Matching Webcam Game",
   description:
     "Match emoji expressions in live webcam duels with strangers or play solo. Emoggle is a free browser face-expression game—no download needed.",
+  contentLastModified: "2026-07-19",
 };
 
 export const frequentlyAskedQuestions = [
@@ -13,6 +15,11 @@ export const frequentlyAskedQuestions = [
     question: "What is Emoggle?",
     answer:
       "Emoggle is a browser-based emoji face-matching game. It shows players an emoji and scores how closely their facial expression matches it.",
+  },
+  {
+    question: "I searched for Emogul or Omogul. Is this Emoggle?",
+    answer:
+      "Yes. Emoggle is the official name of this emoji face-matching game. Emogul, Omogul, Emogle, and Emoogle are common search spellings for Emoggle.",
   },
   {
     question: "Is Emoggle free?",
@@ -40,4 +47,3 @@ export const frequentlyAskedQuestions = [
       "Expression scoring runs in the browser. Live video is sent directly between matched players using a peer-to-peer connection; Emoggle does not use face images to train AI models.",
   },
 ] as const;
-

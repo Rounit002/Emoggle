@@ -48,6 +48,16 @@ export default function AboutPage() {
       </section>
 
       <section>
+        <h2>Official name and common search spellings</h2>
+        <p>
+          The official product name is <strong>Emoggle</strong>. If you arrived
+          here after searching for Emogul, Omogul, Emogle, or Emoogle, you are
+          in the right place: those are common spellings people use when
+          looking for the Emoggle emoji face-matching game.
+        </p>
+      </section>
+
+      <section>
         <h2>What makes it different</h2>
         <ul>
           <li>The emoji is the prompt and the player&apos;s face is the controller.</li>
@@ -59,4 +69,3 @@ export default function AboutPage() {
     </InfoPageShell>
   );
 }
-

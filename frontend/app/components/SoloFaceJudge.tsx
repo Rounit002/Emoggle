@@ -4,33 +4,40 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
+import {
+  Button,
+  IconButton,
+  Logo,
+  Pill,
+  ProgressBar,
+  Score,
+  ThemeToggle,
+  ArrowLeft,
+  Camera,
+  Refresh,
+  Sparkle,
+  cn,
+} from "../ui";
 
 const ROUND_SECONDS = 10;
 const EMOJI_PROMPTS = [
-  "\u{1F600}",
-  "\u{1F601}",
-  "\u{1F602}",
-  "\u{1F62E}",
-  "\u{1F632}",
-  "\u{1F609}",
-  "\u{1F61C}",
-  "\u{1F621}",
-  "\u{1F624}",
-  "\u{1F622}",
-  "\u{1F62D}",
-  "\u{1F60E}",
-  "\u{1F928}",
-  "\u{1F610}",
-  "\u{1F611}",
-  "\u{1F633}",
-  "\u{1F62C}",
-  "\u{1F60F}",
+  "😀","😁","😂","😮","😲","😉","😋","😛","😜","🤪",
+  "😎","🤩","🥳","🤔","😏","😬","😴","🤯","🥺","😡",
+  "🤡","👻","💀","🙄","😬","😱","🤤","😇","🤠","🤓",
 ];
+
+const STORAGE_KEY = "emoggle:solo-history";
 
 type SoloPhase = "ready" | "playing" | "results";
 
 interface SoloFaceJudgeProps {
   onBack: () => void;
+}
+
+interface HistoryEntry {
+  emoji: string;
+  score: number;
+  ts: number;
 }
 
 function pickEmoji(previous?: string) {
@@ -49,12 +56,39 @@ function formatScore(score: number | null) {
 
 function soloResult(score: number | null) {
   if (score === null) {
-    return { label: "No Face Card", tone: "text-yellow-300", sub: "Could not lock a face score this round." };
+    return { label: "No face card", tone: "var(--yellow-deep)" as const, sub: "Could not lock a face score this round." };
   }
-  if (score >= 8.5) return { label: "Ate That", tone: "text-emerald-300", sub: "That emoji impression had main-character accuracy." };
-  if (score >= 7) return { label: "Face Card Valid", tone: "text-emerald-300", sub: "Solid match. The face was facing." };
-  if (score >= 5) return { label: "Kinda Cooked", tone: "text-yellow-300", sub: "Close enough to count, but there is room to mog harder." };
-  return { label: "Try Again Bestie", tone: "text-red-300", sub: "The emoji did not feel seen this time." };
+  if (score >= 8.5)
+    return { label: "Ate that", tone: "var(--purple-deep)" as const, sub: "Main-character accuracy." };
+  if (score >= 7)
+    return { label: "Face card valid", tone: "var(--purple-deep)" as const, sub: "Solid match. The face was facing." };
+  if (score >= 5)
+    return { label: "Kinda cooked", tone: "var(--yellow-deep)" as const, sub: "Close enough. Room to mog harder." };
+  return { label: "Try again bestie", tone: "var(--pink-deep)" as const, sub: "The emoji did not feel seen this time." };
+}
+
+function loadHistory(): HistoryEntry[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((e) => e && typeof e.emoji === "string" && typeof e.score === "number" && typeof e.ts === "number")
+      .slice(0, 50);
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(entries: HistoryEntry[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, 50)));
+  } catch {
+    /* ignore */
+  }
 }
 
 export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
@@ -65,15 +99,14 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
   const [roundSeconds, setRoundSeconds] = useState(ROUND_SECONDS);
   const [bestScore, setBestScore] = useState<number | null>(null);
   const [finalScore, setFinalScore] = useState<number | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, []);
 
   const noopScore = useCallback(() => {}, []);
-  const expression = useExpressionScorer(
-    webcamRef,
-    emojiPrompt,
-    phase === "playing",
-    noopScore
-  );
-
+  const expression = useExpressionScorer(webcamRef, emojiPrompt, phase === "playing", noopScore);
   const liveScore = toTenPoint(expression.score);
 
   useEffect(() => {
@@ -84,7 +117,6 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
 
   useEffect(() => {
     if (phase !== "playing") return;
-
     const timer = window.setInterval(() => {
       setRoundSeconds((seconds) => {
         if (seconds <= 1) {
@@ -94,15 +126,19 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
             ? Number((samples.reduce((sum, sample) => sum + sample, 0) / samples.length).toFixed(1))
             : 0;
           setFinalScore(score);
+          setHistory((current) => {
+            const next = [{ emoji: emojiPrompt, score, ts: Date.now() }, ...current].slice(0, 50);
+            saveHistory(next);
+            return next;
+          });
           setPhase("results");
           return 0;
         }
         return seconds - 1;
       });
     }, 1000);
-
     return () => window.clearInterval(timer);
-  }, [phase]);
+  }, [phase, emojiPrompt]);
 
   const statusText = useMemo(() => {
     if (phase !== "playing") return "Solo scan";
@@ -113,6 +149,7 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
   }, [expression.status, phase]);
 
   const result = soloResult(finalScore);
+  const personalBest = history.length > 0 ? Math.max(...history.map((e) => e.score)) : null;
 
   const startRound = () => {
     samplesRef.current = [];
@@ -132,208 +169,247 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
   };
 
   return (
-    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-black">
-      <header className="z-10 flex flex-none items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-950 px-4 py-3 sm:px-6">
+    <div className="relative flex min-h-screen w-screen flex-col bg-[var(--off-white)] text-[var(--charcoal)]">
+      <header className="z-30 flex flex-none items-center justify-between gap-2 border-b-[3px] border-[var(--charcoal)] bg-[var(--off-white)] px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <button
             onClick={onBack}
-            className="flex flex-none items-center gap-1.5 text-xs font-semibold text-zinc-400 transition-colors hover:text-white"
+            className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[var(--charcoal)] transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--charcoal)]"
+            aria-label="Back to home"
           >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-            Back
+            <ArrowLeft size={16} />
+            <span className="hidden sm:inline">Back</span>
           </button>
-          <span className="truncate text-base sm:text-lg font-black tracking-tight text-white">Emoggle</span>
-          <span className="flex-none rounded-full bg-cyan-500 px-2 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-xs font-semibold text-white">Solo</span>
+          <span className="hidden h-5 w-px bg-[var(--ink-soft)] sm:inline-block" />
+          <Logo size="sm" />
+          <Pill tone="yellow">Solo</Pill>
         </div>
-        <span className={`flex-none text-xs sm:text-sm font-bold truncate max-w-[140px] sm:max-w-none ${expression.status === "ready" ? "text-emerald-300" : "text-yellow-300"}`}>
-          {statusText}
-        </span>
+        <div className="flex items-center gap-3 text-xs sm:text-sm">
+          <span
+            className={cn(
+              "font-bold",
+              expression.status === "ready" ? "text-[var(--purple-deep)]" : "text-[var(--yellow-deep)]",
+            )}
+          >
+            {statusText}
+          </span>
+          {personalBest !== null && (
+            <span className="font-mono tabular text-[var(--on-surface-variant)]">
+              Best {formatScore(personalBest)}/10
+            </span>
+          )}
+          <ThemeToggle size="sm" />
+        </div>
       </header>
 
-      <main className="relative grid min-h-0 flex-1 grid-cols-1 gap-2 sm:gap-3 p-2 sm:p-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)]">
-        <div className="relative min-h-[38vh] sm:min-h-[42vh] lg:min-h-0">
-          <VideoPanel
-            ref={webcamRef}
-            label="YOU"
-            isLocal={true}
-            frozenFrame={null}
-            liveScore={phase === "results" ? finalScore : liveScore}
-            score={finalScore}
-            verdict={null}
-            roast={null}
-            isRevealing={false}
-            isPlaying={phase === "playing" || phase === "results"}
-            isJudging={false}
-            scoreAlign="left"
-            scanBox={expression.faceBox}
-            faceLandmarks={expression.faceLandmarks}
-          />
+      <main className="relative grid min-h-0 flex-1 grid-cols-1 grid-rows-[1fr_auto] gap-3 p-3 sm:grid-cols-[1fr_360px] sm:grid-rows-1 sm:gap-4 sm:p-4 lg:grid-cols-[1fr_400px] lg:gap-6 lg:p-6">
+        {/* Camera frame — yellow sticker-shadowed card, slight tilt */}
+        <div className="relative min-h-[44vh] sm:min-h-0">
+          <div
+            className={cn(
+              "relative h-full overflow-hidden rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)]",
+              "shadow-[10px_10px_0_0_var(--charcoal)]",
+              "tilt-l-1",
+            )}
+          >
+            <VideoPanel
+              ref={webcamRef}
+              label="YOU"
+              playerName="You"
+              rankLabel="SOLO · PRACTICE"
+              isLocal={true}
+              frozenFrame={null}
+              liveScore={phase === "results" ? finalScore : liveScore}
+              score={finalScore}
+              verdict={null}
+              roast={null}
+              isRevealing={false}
+              isPlaying={phase === "playing" || phase === "results"}
+              isJudging={false}
+              scoreAlign="left"
+              scanBox={expression.faceBox}
+              faceLandmarks={expression.faceLandmarks}
+            />
+          </div>
         </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 12, scale: 0.96 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          className="flex min-h-[220px] sm:min-h-[260px] flex-col overflow-hidden rounded-2xl border border-cyan-400/30 bg-zinc-950 shadow-2xl shadow-cyan-950/30"
-        >
-          <div className="flex flex-none items-center justify-between border-b border-zinc-800 px-4 py-3">
-            <span className="text-xs font-black uppercase tracking-[0.25em] text-cyan-300">Emoji Target</span>
-            {phase === "playing" && (
-              <div className="flex items-center gap-2 text-cyan-100">
-                <span className="text-xs font-black uppercase tracking-[0.2em]">Timer</span>
-                <span className="text-2xl font-black tabular-nums">{roundSeconds}s</span>
-              </div>
+        {/* Side panel — target emoji + score + actions */}
+        <aside className="flex min-h-[280px] flex-col gap-3 sm:min-h-0">
+          {/* Target card — yellow sticker */}
+          <div
+            className={cn(
+              "flex flex-1 flex-col gap-4 rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-5",
+              "shadow-[8px_8px_0_0_var(--charcoal)]",
             )}
-          </div>
-
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-5 px-5 py-6 text-center">
-            <AnimatedEmojiTarget emoji={emojiPrompt} active={phase === "playing"} />
-
-            <div className="flex flex-col items-center gap-2">
-              <span className={phase === "playing" ? "text-sm font-black uppercase tracking-[0.22em] text-cyan-200" : "text-sm font-black uppercase tracking-[0.22em] text-zinc-400"}>
-                {phase === "playing" ? "Match this face" : "Ready when you are"}
-              </span>
-              <div className="flex items-end gap-1">
-                <span className="text-4xl sm:text-5xl font-black tabular-nums text-white">{formatScore(phase === "results" ? finalScore : liveScore)}</span>
-                <span className="mb-1 text-lg sm:text-xl font-bold text-zinc-500">/10</span>
-              </div>
+          >
+            <div className="flex items-center justify-between">
+              <span className="eyebrow">Target</span>
+              {phase === "playing" && (
+                <Pill tone={roundSeconds <= 3 ? "pink" : "yellow"}>
+                  <span className="font-mono tabular">{roundSeconds.toString().padStart(2, "0")}s</span>
+                </Pill>
+              )}
             </div>
 
-            {phase === "playing" && bestScore !== null && (
-              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-400">
-                Best {formatScore(bestScore)}/10
-              </span>
-            )}
+            <div className="flex items-center justify-center">
+              <EmojiCard emoji={emojiPrompt} active={phase === "playing"} />
+            </div>
 
-            {phase !== "playing" && (
-              <div className="flex flex-wrap justify-center gap-3">
-                <button
-                  onClick={startRound}
-                  className="rounded-full bg-cyan-500 px-7 py-3 text-sm font-black uppercase tracking-widest text-black shadow-lg shadow-cyan-900/30 transition-colors hover:bg-cyan-400"
-                >
-                  {phase === "results" ? "Try Again" : "Start Scan"}
-                </button>
-                <button
-                  onClick={nextEmoji}
-                  className="rounded-full border border-zinc-600 bg-zinc-900/90 px-5 py-3 text-sm font-bold text-white transition-colors hover:bg-zinc-800"
-                >
-                  New Emoji
-                </button>
-              </div>
+            <div className="mt-auto flex flex-col items-center gap-1 text-center">
+              <span className="eyebrow">Your score</span>
+              <Score
+                value={phase === "results" ? finalScore : liveScore}
+                size="lg"
+                tone={phase === "results" ? (finalScore && finalScore >= 7 ? "purple" : finalScore && finalScore >= 5 ? "neutral" : "pink") : "neutral"}
+                animated
+              />
+              {phase === "playing" && bestScore !== null && (
+                <span className="mt-1 font-mono tabular text-xs text-[var(--on-surface-variant)]">
+                  Best {formatScore(bestScore)}/10
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          {phase !== "playing" && (
+            <div className="flex flex-col gap-2">
+              <Button block size="lg" onClick={startRound} iconLeft={<Camera size={18} />}>
+                {phase === "results" ? "Try again" : "Start scan"}
+              </Button>
+              <Button block variant="secondary" onClick={nextEmoji} iconLeft={<Refresh size={16} />}>
+                New emoji
+              </Button>
+            </div>
+          )}
+        </aside>
+      </main>
+
+      {/* History — scattered, sticker-shadowed chips */}
+      <footer className="z-30 border-t-[3px] border-[var(--charcoal)] bg-[var(--off-white)] px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-5xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <span className="eyebrow">Recent</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {history.length === 0 ? (
+              <span className="text-xs text-[var(--on-surface-variant)]">
+                No attempts yet. Your last 50 scores are stored on this device.
+              </span>
+            ) : (
+              history.slice(0, 6).map((entry) => (
+                <HistoryChip key={entry.ts} entry={entry} />
+              ))
             )}
           </div>
-        </motion.div>
-      </main>
+        </div>
+      </footer>
 
       <AnimatePresence>
         {phase === "results" && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ scale: 0.78, opacity: 0, y: 18 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              transition={{ type: "spring", stiffness: 260, damping: 18 }}
-              className="flex flex-col items-center gap-4 px-8 text-center"
-            >
-              <span className={`text-[clamp(2.5rem,9vw,7rem)] font-black uppercase leading-none tracking-tight drop-shadow-2xl ${result.tone}`}>
-                {result.label}
-              </span>
-              <div className="flex items-end gap-1">
-                <span className="text-4xl sm:text-6xl font-black tabular-nums text-white">{formatScore(finalScore)}</span>
-                <span className="mb-1 sm:mb-2 text-xl sm:text-2xl font-bold text-zinc-400">/10</span>
-              </div>
-              <p className="max-w-md text-sm sm:text-base font-semibold text-zinc-200 px-4">{result.sub}</p>
-            </motion.div>
-          </motion.div>
+          <ResultCard result={result} score={finalScore} onContinue={nextEmoji} onRetry={startRound} />
         )}
       </AnimatePresence>
     </div>
   );
 }
 
-function AnimatedEmojiTarget({ emoji, active }: { emoji: string; active: boolean }) {
+function EmojiCard({ emoji, active }: { emoji: string; active: boolean }) {
   return (
     <motion.div
-      className="relative flex h-48 w-48 items-center justify-center overflow-hidden rounded-[2rem] border border-cyan-400/30 bg-cyan-400/10 shadow-[inset_0_0_44px_rgba(34,211,238,0.1),0_0_38px_rgba(34,211,238,0.12)] sm:h-60 sm:w-60"
-      animate={
-        active
-          ? {
-              scale: [1, 1.025, 1],
-              boxShadow: [
-                "inset 0 0 44px rgba(34,211,238,0.10), 0 0 30px rgba(34,211,238,0.12)",
-                "inset 0 0 58px rgba(34,211,238,0.18), 0 0 56px rgba(34,211,238,0.22)",
-                "inset 0 0 44px rgba(34,211,238,0.10), 0 0 30px rgba(34,211,238,0.12)",
-              ],
-            }
-          : { scale: 1 }
-      }
-      transition={{ repeat: active ? Infinity : 0, duration: 1.25, ease: "easeInOut" }}
-    >
-      <motion.div
-        className="absolute inset-4 rounded-[1.5rem] border border-cyan-200/15"
-        animate={active ? { scale: [0.96, 1.04, 0.96], opacity: [0.35, 0.8, 0.35] } : { scale: 1, opacity: 0.35 }}
-        transition={{ repeat: active ? Infinity : 0, duration: 1.4, ease: "easeInOut" }}
-      />
-      <motion.div
-        className="absolute inset-9 rounded-full border border-cyan-300/20"
-        animate={active ? { rotate: 360, opacity: [0.2, 0.55, 0.2] } : { rotate: 0, opacity: 0.25 }}
-        transition={{ repeat: active ? Infinity : 0, duration: 3.8, ease: "linear" }}
-      />
-      {active && (
-        <motion.div
-          className="absolute -left-1/3 top-0 h-full w-1/3 skew-x-[-18deg] bg-cyan-200/10"
-          animate={{ x: ["0%", "430%"] }}
-          transition={{ repeat: Infinity, duration: 1.8, ease: "easeInOut" }}
-        />
+      layout
+      className={cn(
+        // Target emoji scales up on desktop so it doesn't look like a
+        // postage stamp next to a 1000+ px wide camera frame.
+        "flex aspect-square w-full max-w-[260px] items-center justify-center rounded-2xl border-[4px] border-[var(--charcoal)] bg-[var(--yellow)] sm:max-w-[300px] lg:max-w-[360px]",
+        "shadow-[6px_6px_0_0_var(--charcoal)]",
+        "tilt-r-1",
       )}
-
+      aria-label={`Target emoji: ${emoji}`}
+    >
       <AnimatePresence mode="wait">
         <motion.span
           key={emoji}
-          className="relative z-10 select-none text-8xl leading-none drop-shadow-[0_18px_26px_rgba(0,0,0,0.45)] sm:text-9xl"
-          initial={{ opacity: 0, y: 18, rotate: -10, scale: 0.68 }}
-          animate={
-            active
-              ? {
-                  opacity: 1,
-                  y: [0, -9, 0, 5, 0],
-                  rotate: [-3, 4, -2, 3, -3],
-                  scaleX: [1, 1.08, 0.96, 1.04, 1],
-                  scaleY: [1, 0.94, 1.08, 0.98, 1],
-                  filter: [
-                    "saturate(1)",
-                    "saturate(1.22)",
-                    "saturate(1)",
-                  ],
-                }
-              : { opacity: 1, y: 0, rotate: 0, scale: 1, scaleX: 1, scaleY: 1, filter: "saturate(1)" }
-          }
-          exit={{ opacity: 0, y: -18, rotate: 10, scale: 0.72 }}
-          transition={
-            active
-              ? { repeat: Infinity, duration: 1.15, ease: "easeInOut" }
-              : { type: "spring", stiffness: 360, damping: 20 }
-          }
+          initial={{ scale: 0.7, opacity: 0, rotate: -8 }}
+          animate={{ scale: 1, opacity: 1, rotate: -3 }}
+          exit={{ scale: 0.7, opacity: 0, rotate: 8 }}
+          transition={{ type: "spring", stiffness: 320, damping: 22 }}
+          className="-rotate-3 text-7xl leading-none sm:text-8xl lg:text-9xl"
         >
           {emoji}
         </motion.span>
       </AnimatePresence>
+    </motion.div>
+  );
+}
 
-      <div className="absolute bottom-4 flex items-end gap-1.5">
-        {[0, 1, 2, 3, 4].map((bar) => (
-          <motion.span
-            key={bar}
-            className="h-2 w-1 rounded-full bg-cyan-300/70"
-            animate={active ? { height: [7, 18 + (bar % 3) * 5, 7], opacity: [0.35, 0.9, 0.35] } : { height: 7, opacity: 0.35 }}
-            transition={{ repeat: active ? Infinity : 0, duration: 0.75, delay: bar * 0.08, ease: "easeInOut" }}
-          />
-        ))}
-      </div>
+function HistoryChip({ entry }: { entry: HistoryEntry }) {
+  const tone =
+    entry.score >= 8 ? "purple" : entry.score >= 5 ? "yellow" : "pink";
+  const chipClass =
+    tone === "purple"
+      ? "bg-[var(--purple)] text-[var(--off-white)] border-[var(--charcoal)]"
+      : tone === "yellow"
+        ? "bg-[var(--yellow)] text-[var(--charcoal)] border-[var(--charcoal)]"
+        : "bg-[var(--pink)] text-[var(--charcoal)] border-[var(--charcoal)]";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border-[2px] px-2.5 py-1 text-xs font-bold",
+        "shadow-[2px_2px_0_0_var(--charcoal)]",
+        chipClass,
+      )}
+    >
+      <span aria-hidden>{entry.emoji}</span>
+      <span className="font-mono tabular">{entry.score.toFixed(1)}</span>
+    </span>
+  );
+}
+
+function ResultCard({
+  result,
+  score,
+  onContinue,
+  onRetry,
+}: {
+  result: ReturnType<typeof soloResult>;
+  score: number | null;
+  onContinue: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="absolute inset-0 z-40 flex items-center justify-center bg-[var(--ink-overlay)] p-4"
+    >
+      <motion.div
+        initial={{ y: 18, opacity: 0, scale: 0.95, rotate: -1.5 }}
+        animate={{ y: 0, opacity: 1, scale: 1, rotate: 0 }}
+        transition={{ type: "spring", stiffness: 320, damping: 22, delay: 0.05 }}
+        className="flex w-full max-w-md flex-col items-center gap-4 rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-7 text-center shadow-[10px_10px_0_0_var(--charcoal)] sm:p-9"
+      >
+        <span className="eyebrow">Round result</span>
+        <h2
+          className="font-display text-[clamp(2.25rem,6vw,3.5rem)] font-bold leading-[1.05] tracking-tight"
+          style={{ color: result.tone }}
+        >
+          {result.label}
+        </h2>
+        <div className="flex items-end gap-2">
+          <span className="font-display text-6xl font-bold leading-none tabular tracking-tight text-[var(--charcoal)]">
+            {formatScore(score)}
+          </span>
+          <span className="mb-2 text-xl text-[var(--on-surface-variant)]">/10</span>
+        </div>
+        <p className="max-w-md text-sm leading-relaxed text-[var(--on-surface-variant)]">
+          {result.sub}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+          <Button onClick={onRetry} iconLeft={<Refresh size={16} />}>Try again</Button>
+          <Button variant="secondary" onClick={onContinue} iconLeft={<Sparkle size={16} />}>New emoji</Button>
+        </div>
+      </motion.div>
     </motion.div>
   );
 }

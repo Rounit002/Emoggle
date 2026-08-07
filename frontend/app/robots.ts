@@ -10,10 +10,15 @@ export default function robots(): MetadataRoute.Robots {
       },
       {
         userAgent: [
+          "Googlebot",
+          "Google-Extended",
+          "bingbot",
           "OAI-SearchBot",
           "ChatGPT-User",
+          "GPTBot",
           "PerplexityBot",
           "Perplexity-User",
+          "ClaudeBot",
           "Claude-SearchBot",
           "Claude-User",
         ],
@@ -24,4 +29,3 @@ export default function robots(): MetadataRoute.Robots {
     host: siteConfig.url,
   };
 }
-
