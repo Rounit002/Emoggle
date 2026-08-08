@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import HomeExperience from "./components/HomeExperience";
 import { ScrollReveal } from "./components/home/EmojiMotion";
+import { Headline } from "./components/home/HeadlineMotion";
 import { frequentlyAskedQuestions, siteConfig } from "./lib/site";
 import { Logo, ThemeToggle } from "./ui";
 
@@ -74,7 +75,10 @@ export default function Home() {
             id="how-emoggle-works"
             className="mt-4 max-w-3xl font-display text-3xl font-bold tracking-tight text-[var(--charcoal)] sm:text-5xl"
           >
-            A face-expression game built around one shared emoji
+            <Headline
+              text="A face-expression game built around one shared emoji"
+              trigger="scroll"
+            />
           </h2>
           <p className="mt-5 max-w-3xl text-base leading-7 text-[var(--on-surface-variant)] sm:text-lg">
             Emoggle is a casual webcam game where an emoji appears on screen
@@ -97,7 +101,7 @@ export default function Home() {
                 Multiplayer mode
               </span>
               <h3 className="mt-3 font-display text-2xl font-bold tracking-tight text-[var(--charcoal)]">
-                Live emoji face duel
+                <Headline text="Live emoji face duel" trigger="scroll" />
               </h3>
               <p className="mt-3 text-[15px] leading-relaxed text-[var(--on-surface-variant)]">
                 Get matched with another player, receive the same emoji prompt,
@@ -116,7 +120,7 @@ export default function Home() {
                 Solo mode
               </span>
               <h3 className="mt-3 font-display text-2xl font-bold tracking-tight text-[var(--charcoal)]">
-                Solo Emoji Scan
+                <Headline text="Solo Emoji Scan" trigger="scroll" />
               </h3>
               <p className="mt-3 text-[15px] leading-relaxed text-[var(--on-surface-variant)]">
                 Practice by yourself, copy the emoji face, and get an instant
@@ -147,7 +151,7 @@ export default function Home() {
                   {number}
                 </span>
                 <h3 className="mt-5 font-display text-lg font-bold tracking-tight text-[var(--charcoal)]">
-                  {title}
+                  <Headline text={title} trigger="scroll" />
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-[var(--on-surface-variant)]">
                   {description}
@@ -170,7 +174,7 @@ export default function Home() {
             id="frequently-asked-questions"
             className="mt-4 font-display text-3xl font-bold tracking-tight text-[var(--charcoal)] sm:text-5xl"
           >
-            Frequently asked questions
+            <Headline text="Frequently asked questions" trigger="scroll" />
           </h2>
           <div className="mt-9 divide-y-[2px] divide-[var(--ink-line)] rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] shadow-[6px_6px_0_0_var(--charcoal)]">
             {frequentlyAskedQuestions.slice(0, 4).map((item) => (

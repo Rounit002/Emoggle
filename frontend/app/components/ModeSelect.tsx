@@ -9,6 +9,11 @@ import {
   ScrollReveal,
 } from "./home/EmojiMotion";
 import {
+  Headline,
+  PulseDot,
+  TypewriterBlock,
+} from "./home/HeadlineMotion";
+import {
   Button,
   Logo,
   Pill,
@@ -158,7 +163,10 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
               </a>
               {onlineCount !== null && (
                 <Pill tone="purple">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--off-white)]" />
+                  {/* The dot breathes on a 2.5s cycle. The "N
+                      online" text next to it stays still — only
+                      the dot moves, per the spec. */}
+                  <PulseDot className="h-1.5 w-1.5 rounded-full bg-[var(--off-white)]" />
                   {onlineCount} online
                 </Pill>
               )}
@@ -198,20 +206,32 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
               </span>
             </motion.div>
 
-            <motion.h1
-              initial={{ y: 16, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ duration: 0.45, delay: 0.08, ease: "easeOut" }}
-              className="mt-6 font-display text-[clamp(2.75rem,6vw,4.5rem)] font-bold leading-[1.05] tracking-tight text-[var(--charcoal)] sm:mt-8 lg:mt-10"
-            >
-              Match faces.
+            <h1 className="mt-6 font-display text-[clamp(2.75rem,6vw,4.5rem)] font-bold leading-[1.05] tracking-tight text-[var(--charcoal)] sm:mt-8 lg:mt-10">
+              {/* "Match faces." — per-word reveal with a slightly
+                  larger stagger than the section headlines so the
+                  hero lands with more weight. Plays once on
+                  mount. */}
+              <Headline
+                text="Match faces."
+                trigger="mount"
+                stagger={0.1}
+              />
               <br />
-              <span
+              {/* "Make friends." — classic typewriter on the
+                  purple chip. The block still pops in (same
+                  spring as before, so the landing stays tactile),
+                  then the text types out character by character
+                  with a blinking caret. The 0.3s startDelay gives
+                  the pop room to land before the typing begins,
+                  and lines up roughly with the end of "Match
+                  faces." revealing. */}
+              <TypewriterBlock
+                text="Make friends."
+                startDelay={0.3}
+                typingSpeed={45}
                 className="mt-2 inline-block rotate-[-2deg] rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--purple)] px-4 py-1 text-[var(--off-white)] shadow-[6px_6px_0_0_var(--charcoal)] sm:mt-3 sm:px-5 sm:py-2"
-              >
-                Make friends.
-              </span>
-            </motion.h1>
+              />
+            </h1>
 
             <motion.p
               initial={{ opacity: 0 }}
@@ -252,8 +272,13 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
         <section className="relative mx-auto w-full max-w-[1100px] pb-20 sm:pb-24">
           <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-end sm:justify-between">
             <h2 className="font-display text-3xl font-bold tracking-tight text-[var(--charcoal)] sm:text-4xl">
+              {/* "How to play" — per-word reveal that fires the
+                  first time the user scrolls to it. The
+                  Headline renders inside the underline span, so
+                  the border-b sits beneath the words and tracks
+                  with them as they pop in. */}
               <span className="inline-block border-b-[4px] border-[var(--charcoal)] pb-1">
-                How to play
+                <Headline text="How to play" trigger="scroll" />
               </span>
             </h2>
             {isVIP ? (
@@ -320,7 +345,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
 
                   <div className="flex-1">
                     <h3 className="font-display text-lg font-bold tracking-tight text-[var(--charcoal)]">
-                      {mode.title}
+                      <Headline text={mode.title} trigger="scroll" />
                     </h3>
                     <p className="mt-1.5 text-sm leading-relaxed text-[var(--ink-muted)]">
                       {mode.description}
