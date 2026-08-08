@@ -158,11 +158,13 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     partnerLiveScore,
     matchResult,
     emojiPrompt,
+    emojiLocked,
     submitScore,
     submitLiveScore,
     skipUser,
     stopMatching,
     startMatching,
+    requestChangeEmoji,
     partnerCountry,
     localPeerId,
     partnerPeerId,
@@ -457,6 +459,8 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
           scoreA={mySeat === "a" ? (phase === "results" ? finalScore : liveScore) : (phase === "results" ? partnerScore : partnerLiveScore)}
           scoreB={mySeat === "a" ? (phase === "results" ? partnerScore : partnerLiveScore) : (phase === "results" ? finalScore : liveScore)}
           secondsLeft={phase === "playing" ? roundSeconds : null}
+          emojiLocked={emojiLocked}
+          onRequestChangeEmoji={requestChangeEmoji}
         />
 
         {/* Player B column */}
@@ -585,10 +589,23 @@ function DuelColumn({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      {/* Camera frame — chunky border, sticker shadow, slight tilt */}
+      {/* Camera frame — chunky border, sticker shadow, slight tilt.
+          The container has a fixed aspect ratio so the <video>
+          inside can never dictate the column size via its intrinsic
+          camera resolution. Without this, on mobile Safari/Chrome
+          the column expands to the camera's native dimensions
+          (typically 1280×720) the moment getUserMedia resolves,
+          shoving the rest of the layout offscreen. */}
       <div
         className={cn(
-          "relative min-h-0 flex-1 overflow-hidden rounded-3xl border-[4px] bg-[var(--off-white-2)]",
+          "relative overflow-hidden rounded-3xl border-[4px] bg-[var(--off-white-2)]",
+          // Mobile (stacked layout): tall column, so give the frame
+          // a 4:5 portrait aspect that fills the available row.
+          "aspect-[4/5] w-full",
+          // Tablet up: side-by-side layout, 16:9 fits the column
+          // without overflowing. The video inside uses object-cover
+          // so the stream is cropped, not distorted.
+          "sm:aspect-video",
           isA ? "border-[var(--purple-deep)]" : "border-[var(--pink-deep)]",
           "shadow-[8px_8px_0_0_var(--charcoal)]",
           tiltClass,
@@ -673,9 +690,65 @@ interface SeamColumnProps {
   scoreA: number | null;
   scoreB: number | null;
   secondsLeft: number | null;
+  /**
+   * True once the server has fired `emoji_locked` — the scan
+   * window is open and the target emoji is frozen. Drives the
+   * disabled state of the change-emoji control.
+   */
+  emojiLocked: boolean;
+  /**
+   * Ask the server to swap the target emoji. The server decides
+   * whether to actually do the swap; if the round is locked it's
+   * a silent no-op and the local cooldown will still expire.
+   */
+  onRequestChangeEmoji: () => void;
 }
 
-function SeamColumn({ state, emoji, scoreA, scoreB, secondsLeft }: SeamColumnProps) {
+/**
+ * Minimum delay between emoji changes (ms). Backs both the
+ * client-side cooldown and the effective minimum on the wire —
+ * mashing the button faster than this just queues one request per
+ * interval, no extra load on the server.
+ */
+const EMOJI_CHANGE_COOLDOWN_MS = 1500;
+
+function SeamColumn({
+  state,
+  emoji,
+  scoreA,
+  scoreB,
+  secondsLeft,
+  emojiLocked,
+  onRequestChangeEmoji,
+}: SeamColumnProps) {
+  // The button is only meaningful in the "playing" phase, which
+  // here is the brief pre-scan window where both players can see
+  // the target emoji but the round timer hasn't started yet. Once
+  // emojiLocked flips true (server-driven), the control is dimmed
+  // on both clients simultaneously.
+  const showChangeEmoji = state === "playing" && !emojiLocked && emoji !== null;
+  const [changeArmed, setChangeArmed] = useState(true);
+
+  // Reset the cooldown whenever the target emoji changes — either
+  // because the user just hit the button, or because the server
+  // pushed a new one. This keeps the button armed for the next
+  // possible swap.
+  useEffect(() => {
+    setChangeArmed(false);
+    if (!showChangeEmoji) return;
+    const t = window.setTimeout(() => setChangeArmed(true), EMOJI_CHANGE_COOLDOWN_MS);
+    return () => window.clearTimeout(t);
+  }, [emoji, showChangeEmoji]);
+
+  const handleChangeEmoji = () => {
+    if (!changeArmed || emojiLocked) return;
+    setChangeArmed(false);
+    onRequestChangeEmoji();
+    // Re-arm after the cooldown in case the server didn't echo
+    // back an emoji_changed (e.g. someone else already swapped).
+    window.setTimeout(() => setChangeArmed(true), EMOJI_CHANGE_COOLDOWN_MS);
+  };
+
   return (
     <div
       className="relative flex items-stretch justify-center"
@@ -693,6 +766,34 @@ function SeamColumn({ state, emoji, scoreA, scoreB, secondsLeft }: SeamColumnPro
           secondsLeft={secondsLeft}
           label={state === "playing" ? "Target" : undefined}
         />
+        {showChangeEmoji && (
+          <button
+            type="button"
+            onClick={handleChangeEmoji}
+            disabled={!changeArmed}
+            aria-label="Change target emoji"
+            title={
+              emojiLocked
+                ? "Locked — round in progress"
+                : changeArmed
+                  ? "Swap to a new target emoji"
+                  : "Cooldown — wait a moment"
+            }
+            className={cn(
+              "mt-2 inline-flex items-center justify-center gap-1.5 rounded-full",
+              "border-[2px] border-[var(--charcoal)] bg-[var(--off-white)]",
+              "px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--charcoal)]",
+              "shadow-[2px_2px_0_0_var(--charcoal)]",
+              "transition-transform duration-100",
+              "active:translate-y-[1px] active:shadow-[0_0_0_0_var(--charcoal)]",
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--charcoal)]",
+              "disabled:cursor-not-allowed disabled:opacity-50",
+            )}
+          >
+            <Refresh size={12} />
+            <span>{changeArmed ? "Change emoji" : "Wait…"}</span>
+          </button>
+        )}
       </div>
     </div>
   );

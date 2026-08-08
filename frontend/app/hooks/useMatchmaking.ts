@@ -66,12 +66,27 @@ export interface MatchmakingState {
   partnerLiveScore: number | null;
   matchResult: MatchResult | null;
   emojiPrompt: string | null;
+  /**
+   * True once the scan window has opened (server fired
+   * `emoji_locked`). The "change emoji" control must dim at the
+   * same moment on both screens — never trust the local clock for
+   * this, always wait for the server's broadcast.
+   */
+  emojiLocked: boolean;
   partnerCountry: string | null;
   submitScore: (score: number) => void;
   submitLiveScore: (score: number) => void;
   skipUser: () => void;
   stopMatching: () => void;
   startMatching: () => void;
+  /**
+   * Ask the server to roll a new target emoji for the current
+   * match. The server is the single source of truth: it picks the
+   * next emoji, updates the DB, and fans it out to the room via
+   * `emoji_changed` so both clients update in lockstep. Silently
+   * no-ops if the round is locked.
+   */
+  requestChangeEmoji: () => void;
   messages: ChatMessage[];
   sendChat: (text: string) => void;
   rivalTyping: boolean;
@@ -110,6 +125,7 @@ export function useMatchmaking(
   const [partnerLiveScore, setPartnerLiveScore] = useState<number | null>(null);
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   const [emojiPrompt, setEmojiPrompt] = useState<string | null>(null);
+  const [emojiLocked, setEmojiLocked] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [rivalTyping, setRivalTyping] = useState(false);
   const [partnerCountry, setPartnerCountry] = useState<string | null>(null);
@@ -153,6 +169,7 @@ export function useMatchmaking(
     setPartnerLiveScore(null);
     setMatchResult(null);
     setEmojiPrompt(null);
+    setEmojiLocked(false);
     setMessages([]);
     setRivalTyping(false);
     setPartnerCountry(null);
@@ -274,6 +291,10 @@ export function useMatchmaking(
           setRemoteStreamSynced(null);
           setPartnerPeerId(ppId);
           setEmojiPrompt(emoji ?? "\u{1F600}");
+          // Each new match starts with a fresh mutable emoji.
+          // The server flips this back to true when the scan
+          // window opens, via the emoji_locked broadcast.
+          setEmojiLocked(false);
           setCountdown(null);
           setPartnerScore(null);
           setPartnerLiveScore(null);
@@ -316,6 +337,24 @@ export function useMatchmaking(
 
       socket.on("partner_live_score", ({ score }: { score: number }) => {
         setPartnerLiveScore(score);
+      });
+
+      // Server-driven emoji swap. Both clients receive the same
+      // broadcast, so the target emoji can't drift between screens
+      // even briefly. The server is also responsible for picking
+      // the new emoji (so the "exclude the current one" rule lives
+      // next to the random picker, not in two competing clients).
+      socket.on("emoji_changed", ({ emoji: next }: { emoji: string }) => {
+        if (typeof next === "string" && next.length > 0) {
+          setEmojiPrompt(next);
+        }
+      });
+
+      // Fired by the server the instant the scan window opens.
+      // The "change emoji" control on both clients goes dim at
+      // exactly the same moment.
+      socket.on("emoji_locked", () => {
+        setEmojiLocked(true);
       });
 
       socket.on("match_skipped", () => {
@@ -398,6 +437,14 @@ export function useMatchmaking(
     socketRef.current?.emit("live_score", { score });
   }, []);
 
+  const requestChangeEmoji = useCallback(() => {
+    // The hook intentionally doesn't gate this on emojiLocked
+    // locally — the server is the only authority. If the user
+    // mashes the button after the lock the server just drops the
+    // event; both clients stay in sync.
+    socketRef.current?.emit("change_emoji");
+  }, []);
+
   const skipUser = useCallback(() => {
     resetMatchState();
     setStatus("waiting");
@@ -452,12 +499,14 @@ export function useMatchmaking(
     partnerLiveScore,
     matchResult,
     emojiPrompt,
+    emojiLocked,
     partnerCountry,
     submitScore,
     submitLiveScore,
     skipUser,
     stopMatching,
     startMatching,
+    requestChangeEmoji,
     messages,
     sendChat,
     rivalTyping,

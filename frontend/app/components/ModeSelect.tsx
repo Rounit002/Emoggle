@@ -414,7 +414,7 @@ function HeroPreview() {
       {/* The face-off */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-stretch gap-2 sm:gap-3">
         {/* Player A — purple */}
-        <PreviewColumn seat="a" label="Violet" score="8.4" src="/preview-faces/violet.webp" alt="A young woman winking with her tongue out, mimicking a playful emoji expression." />
+        <PreviewColumn seat="a" label="Violet" score="8.4" src="/preview-faces/violet.webp" alt="A young woman with a playful expression." />
 
         {/* Seam with the target emoji */}
         <div className="relative flex w-16 items-center justify-center sm:w-20 lg:w-24">

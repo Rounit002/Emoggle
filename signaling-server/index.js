@@ -98,6 +98,13 @@ function pickEmoji() {
   return EMOJI_PROMPTS[Math.floor(Math.random() * EMOJI_PROMPTS.length)];
 }
 
+function pickEmojiExcept(previous) {
+  if (!previous) return pickEmoji();
+  const choices = EMOJI_PROMPTS.filter((e) => e !== previous);
+  if (choices.length === 0) return previous;
+  return choices[Math.floor(Math.random() * choices.length)];
+}
+
 function warnDbFallback(err) {
   dbAvailable = false;
   if (dbWarningShown) return;
@@ -419,6 +426,14 @@ async function startMatch(socket, partner) {
     timerId: null,
     scores: {},
     resultSent: false,
+    // The emoji stays mutable until the round actually starts.
+    // Once the scan timer begins we set emojiLocked=true so the
+    // "change emoji" control goes dim on both clients at the same
+    // moment. currentEmoji is the source of truth used by the
+    // change_emoji handler to keep the swap deterministic on both
+    // screens.
+    currentEmoji: emoji,
+    emojiLocked: false,
   });
 
   socket.emit("usage_update", { isVIP: meta1.isVIP === true });
@@ -454,8 +469,14 @@ async function startMatch(socket, partner) {
     if (remaining <= 0) {
       clearInterval(timerId);
       const active = activeMatches.get(match.id);
-      if (active) active.timerId = null;
-      console.log(`[T] Match ${match.id} scan started`);
+      if (active) {
+        active.timerId = null;
+        // The scan window is open — the emoji is locked. Either
+        // client that tries to change it now gets a silent no-op.
+        active.emojiLocked = true;
+        io.to(roomId).emit("emoji_locked", { matchId: match.id });
+      }
+      console.log(`[T] Match ${match.id} scan started (emoji locked)`);
     }
   }, 1000);
 
@@ -591,6 +612,36 @@ io.on("connection", (socket) => {
     socket.to(existing.roomId).emit("partner_live_score", {
       score: Math.max(0, Math.min(10, score)),
     });
+  });
+
+  // Either player can swap the target emoji before the scan window
+  // opens. The server is the single source of truth: it picks the
+  // new emoji, updates the DB row, and fans it out to the room so
+  // both clients update at the same moment. If the round is locked
+  // (countdown already finished) the request is a no-op.
+  socket.on("change_emoji", () => {
+    const existing = getMatchBySocket(socket.id);
+    if (!existing) return;
+    const match = activeMatches.get(existing.matchId);
+    if (!match) return;
+    if (match.emojiLocked) return;
+
+    const newEmoji = pickEmojiExcept(match.currentEmoji);
+    match.currentEmoji = newEmoji;
+
+    if (dbAvailable) {
+      pool
+        .query(`UPDATE matches SET current_emoji = $1 WHERE id = $2`, [
+          newEmoji,
+          existing.matchId,
+        ])
+        .catch((err) => warnDbFallback(err));
+    }
+
+    // Broadcast to the whole room so both screens re-render the
+    // target emoji on the same tick. No echo to just the sender —
+    // the local React state has already optimistically updated.
+    io.to(existing.roomId).emit("emoji_changed", { emoji: newEmoji });
   });
 
   socket.on("submit_score", async ({ score }) => {

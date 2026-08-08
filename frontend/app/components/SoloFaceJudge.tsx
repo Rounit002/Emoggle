@@ -203,11 +203,22 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
       </header>
 
       <main className="relative grid min-h-0 flex-1 grid-cols-1 grid-rows-[1fr_auto] gap-3 p-3 sm:grid-cols-[1fr_360px] sm:grid-rows-1 sm:gap-4 sm:p-4 lg:grid-cols-[1fr_400px] lg:gap-6 lg:p-6">
-        {/* Camera frame — yellow sticker-shadowed card, slight tilt */}
+        {/* Camera frame — yellow sticker-shadowed card, slight tilt.
+            The container is pinned to a fixed aspect ratio so the
+            <video> element can never grow the column to match the
+            camera's intrinsic resolution (the classic iOS Safari
+            getUserMedia auto-expand bug). */}
         <div className="relative min-h-[44vh] sm:min-h-0">
           <div
             className={cn(
               "relative h-full overflow-hidden rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)]",
+              // Aspect ratio locks the column to a predictable
+              // shape on first paint, before getUserMedia resolves.
+              "aspect-[4/5] w-full",
+              // Side-by-side layout at sm+: a wider frame fits the
+                  // row. The video inside uses object-cover so the
+                  // feed is cropped to fill, never letterboxed.
+                  "sm:aspect-video",
               "shadow-[10px_10px_0_0_var(--charcoal)]",
               "tilt-l-1",
             )}

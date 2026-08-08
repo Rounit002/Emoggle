@@ -59,7 +59,7 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
       : "border border-zinc-700";
 
     return (
-      <div className={`relative w-full h-full rounded-2xl overflow-hidden bg-zinc-900 transition-shadow duration-700 ${panelBorder}`}>
+      <div className={`relative h-full w-full min-h-0 min-w-0 overflow-hidden rounded-2xl bg-zinc-900 transition-shadow duration-700 ${panelBorder}`}>
         <div className="pointer-events-none absolute inset-0 z-20 border border-white/10 shadow-[inset_0_0_80px_rgba(0,0,0,0.65)]" />
         <div className="pointer-events-none absolute inset-0 z-20 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:100%_4px] opacity-35 mix-blend-screen" />
 
@@ -238,7 +238,11 @@ function RemoteVideo({ stream }: { stream: MediaStream | null }) {
       ref={videoRef}
       autoPlay
       playsInline
-      className="w-full h-full object-cover"
+      // absolute + inset:0 takes the <video> out of the document
+      // flow entirely, so its intrinsic stream resolution can
+      // never push the parent column wider/taller. object-cover
+      // crops the feed to fill the box without distortion.
+      className="absolute inset-0 h-full w-full object-cover"
     />
   );
 }
@@ -298,7 +302,12 @@ const LocalVideo = forwardRef<HTMLVideoElement, { stream?: MediaStream }>(
         autoPlay
         playsInline
         muted
-        className="h-full w-full object-cover"
+        // absolute + inset:0 takes the <video> out of the document
+        // flow entirely, so its intrinsic camera resolution can
+        // never push the parent column wider/taller (the classic
+        // iOS Safari getUserMedia auto-expand bug). object-cover
+        // crops the stream to fill the box without distortion.
+        className="absolute inset-0 h-full w-full object-cover"
       />
     );
   }
