@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import VideoPanel from "./VideoPanel";
+import ChatBox from "./ChatBox";
 import { useMatchmaking } from "../hooks/useMatchmaking";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
 import { useUserProfile } from "../context/UserProfileContext";
@@ -168,6 +169,12 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     partnerCountry,
     localPeerId,
     partnerPeerId,
+    messages,
+    sendChat,
+    rivalTyping,
+    sendTyping,
+    reportPartner,
+    currentMatchId,
   } = useMatchmaking(localStream, myCountry, profile, saveProfile);
 
   const mySeat: Seat = useMemo(
@@ -377,6 +384,21 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     startMatching();
   }, [startMatching]);
 
+  /* Report flow — the ChatBox calls this when the user confirms
+     they want to flag the current partner. The hook does the
+     actual socket emit (`report_player`); we just attach a local
+     breadcrumb here so the dev console records it too. A real
+     moderation table is a follow-up. */
+  const handleReportPartner = useCallback(() => {
+    reportPartner();
+    if (typeof console !== "undefined") {
+      console.info("[Chat] partner report submitted", {
+        matchId: matchResult?.matchId ?? null,
+        ts: Date.now(),
+      });
+    }
+  }, [matchResult, reportPartner]);
+
   const toggleMic = useCallback(() => {
     if (!localStream) return;
     const next = !isMicMuted;
@@ -426,63 +448,96 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
         </div>
       </header>
 
-      {/* The face-off */}
+      {/* The face-off — vertical stack: cameras on top, chat
+          directly underneath. The chat is its own layout slot,
+          never overlaying the cameras or the seam. On all
+          breakpoints the chat is full-width, fixed-height, and
+          sits below the camera row. The camera area keeps its
+          current side-by-side (sm+) / stacked (mobile) grid
+          arrangement and a min-height so it never gets squeezed
+          below usable size — the page scrolls on small viewports
+          rather than letting the chat cannibalize camera space. */}
       <main
-        className="relative grid min-h-0 flex-1 grid-cols-1 grid-rows-[1fr_auto] gap-3 p-3 sm:grid-cols-[1fr_auto_1fr] sm:grid-rows-1 sm:gap-4 sm:p-4 lg:p-6"
+        className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:gap-4 sm:p-4 lg:gap-6 lg:p-6"
         aria-label="Duel arena"
       >
-        {/* Player A column */}
-        <DuelColumn
-          seat="a"
-          playerName="You"
-          country={mySeat === "a" ? myCountry : partnerCountry}
-          rankLabel={mySeat === "a" ? formatRank(myRank) : formatRank(partnerRank)}
-          score={mySeat === "a" ? myScore : rivalScore}
-          liveScore={mySeat === "a" ? liveScore : partnerLiveScore}
-          finalScore={mySeat === "a" ? finalScore : partnerScore}
-          phase={phase}
-          isLocal={mySeat === "a"}
-          localStream={localStream}
-          remoteStream={remoteDisplayStream}
-          webcamRef={mySeat === "a" ? webcamRef : undefined}
-          scanBox={mySeat === "a" ? expression.faceBox : null}
-          faceLandmarks={mySeat === "a" ? expression.faceLandmarks : null}
-          rivalLiveScore={mySeat === "a" ? partnerLiveScore : liveScore}
-          onToggleMic={toggleMic}
-          isMicMuted={isMicMuted}
-        />
+        {/* Cameras + seam — top of the arena, untouched. flex-1
+            so it grows to fill any leftover height, with a
+            min-height so it never collapses below usable size
+            when the chat is also present. */}
+        <div className="grid min-h-[420px] sm:min-h-[480px] lg:min-h-[520px] flex-1 grid-cols-1 grid-rows-[1fr_auto_1fr] gap-3 sm:grid-cols-[1fr_auto_1fr] sm:grid-rows-1 sm:gap-4">
+          {/* Player A column */}
+          <DuelColumn
+            seat="a"
+            playerName="You"
+            country={mySeat === "a" ? myCountry : partnerCountry}
+            rankLabel={mySeat === "a" ? formatRank(myRank) : formatRank(partnerRank)}
+            score={mySeat === "a" ? myScore : rivalScore}
+            liveScore={mySeat === "a" ? liveScore : partnerLiveScore}
+            finalScore={mySeat === "a" ? finalScore : partnerScore}
+            phase={phase}
+            isLocal={mySeat === "a"}
+            localStream={localStream}
+            remoteStream={remoteDisplayStream}
+            webcamRef={mySeat === "a" ? webcamRef : undefined}
+            scanBox={mySeat === "a" ? expression.faceBox : null}
+            faceLandmarks={mySeat === "a" ? expression.faceLandmarks : null}
+            rivalLiveScore={mySeat === "a" ? partnerLiveScore : liveScore}
+            onToggleMic={toggleMic}
+            isMicMuted={isMicMuted}
+          />
 
-        {/* The seam */}
-        <SeamColumn
-          state={seamState}
-          emoji={emojiPrompt}
-          scoreA={mySeat === "a" ? (phase === "results" ? finalScore : liveScore) : (phase === "results" ? partnerScore : partnerLiveScore)}
-          scoreB={mySeat === "a" ? (phase === "results" ? partnerScore : partnerLiveScore) : (phase === "results" ? finalScore : liveScore)}
-          secondsLeft={phase === "playing" ? roundSeconds : null}
-          emojiLocked={emojiLocked}
-          onRequestChangeEmoji={requestChangeEmoji}
-        />
+          {/* The seam */}
+          <SeamColumn
+            state={seamState}
+            emoji={emojiPrompt}
+            scoreA={mySeat === "a" ? (phase === "results" ? finalScore : liveScore) : (phase === "results" ? partnerScore : partnerLiveScore)}
+            scoreB={mySeat === "a" ? (phase === "results" ? partnerScore : partnerLiveScore) : (phase === "results" ? finalScore : liveScore)}
+            secondsLeft={phase === "playing" ? roundSeconds : null}
+            emojiLocked={emojiLocked}
+            onRequestChangeEmoji={requestChangeEmoji}
+          />
 
-        {/* Player B column */}
-        <DuelColumn
-          seat="b"
-          playerName={rivalSeat === "a" ? "You" : "Rival"}
-          country={rivalSeat === "a" ? myCountry : partnerCountry}
-          rankLabel={rivalSeat === "a" ? formatRank(myRank) : formatRank(partnerRank)}
-          score={rivalSeat === "a" ? myScore : rivalScore}
-          liveScore={rivalSeat === "a" ? liveScore : partnerLiveScore}
-          finalScore={rivalSeat === "a" ? finalScore : partnerScore}
-          phase={phase}
-          isLocal={rivalSeat === "a"}
-          localStream={localStream}
-          remoteStream={remoteDisplayStream}
-          webcamRef={rivalSeat === "a" ? webcamRef : undefined}
-          scanBox={rivalSeat === "a" ? expression.faceBox : null}
-          faceLandmarks={rivalSeat === "a" ? expression.faceLandmarks : null}
-          rivalLiveScore={rivalSeat === "a" ? partnerLiveScore : liveScore}
-          onToggleMic={toggleMic}
-          isMicMuted={isMicMuted}
-        />
+          {/* Player B column */}
+          <DuelColumn
+            seat="b"
+            playerName={rivalSeat === "a" ? "You" : "Rival"}
+            country={rivalSeat === "a" ? myCountry : partnerCountry}
+            rankLabel={rivalSeat === "a" ? formatRank(myRank) : formatRank(partnerRank)}
+            score={rivalSeat === "a" ? myScore : rivalScore}
+            liveScore={rivalSeat === "a" ? liveScore : partnerLiveScore}
+            finalScore={rivalSeat === "a" ? finalScore : partnerScore}
+            phase={phase}
+            isLocal={rivalSeat === "a"}
+            localStream={localStream}
+            remoteStream={remoteDisplayStream}
+            webcamRef={rivalSeat === "a" ? webcamRef : undefined}
+            scanBox={rivalSeat === "a" ? expression.faceBox : null}
+            faceLandmarks={rivalSeat === "a" ? expression.faceLandmarks : null}
+            rivalLiveScore={rivalSeat === "a" ? partnerLiveScore : liveScore}
+            onToggleMic={toggleMic}
+            isMicMuted={isMicMuted}
+          />
+        </div>
+
+        {/* Chat panel — always below the cameras, full width, on
+            every viewport. 300px is enough for the header +
+            ~4 visible message rows + input + ephemeral-hint
+            footer. Any overflow messages scroll inside the panel
+            itself, so the section never grows. */}
+        {inMatch && (
+          <div className="flex-none w-full h-[300px]">
+            <ChatBox
+              messages={messages}
+              onSend={sendChat}
+              onTyping={sendTyping}
+              rivalTyping={rivalTyping}
+              partnerLabel="Stranger"
+              matchId={currentMatchId}
+              onReport={handleReportPartner}
+            />
+          </div>
+        )}
       </main>
 
       {/* Lobby — the cream waiting state */}

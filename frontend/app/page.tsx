@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import HomeExperience from "./components/HomeExperience";
+import { ScrollReveal } from "./components/home/EmojiMotion";
 import { frequentlyAskedQuestions, siteConfig } from "./lib/site";
 import { Logo, ThemeToggle } from "./ui";
 
@@ -82,8 +83,14 @@ export default function Home() {
           </p>
 
           <div className="mt-12 grid gap-6 md:grid-cols-2">
-            <article
+            {/* ScrollReveal renders as <article> so the cards stay
+                semantic. A small stagger delay makes the two cards
+                ease in one after the other rather than snapping in
+                on the same tick. */}
+            <ScrollReveal
+              as="article"
               id="multiplayer"
+              delay={0}
               className="rounded-3xl border-[4px] border-[var(--purple-deep)] bg-[var(--off-white-2)] p-7 shadow-[6px_6px_0_0_var(--charcoal)] tilt-l-1"
             >
               <span className="inline-block rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--purple)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--off-white)] shadow-[2px_2px_0_0_var(--charcoal)]">
@@ -97,10 +104,12 @@ export default function Home() {
                 and compete for the closest facial-expression score in real
                 time.
               </p>
-            </article>
+            </ScrollReveal>
 
-            <article
+            <ScrollReveal
+              as="article"
               id="solo"
+              delay={0.08}
               className="rounded-3xl border-[4px] border-[var(--pink-deep)] bg-[var(--off-white-2)] p-7 shadow-[6px_6px_0_0_var(--charcoal)] tilt-r-1"
             >
               <span className="inline-block rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--pink)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)]">
@@ -113,7 +122,7 @@ export default function Home() {
                 Practice by yourself, copy the emoji face, and get an instant
                 score without waiting for a partner.
               </p>
-            </article>
+            </ScrollReveal>
           </div>
 
           <ol className="mt-14 grid gap-6 sm:grid-cols-3">
@@ -122,8 +131,14 @@ export default function Home() {
               ["2", "Copy the emoji", "Recreate the expression shown on screen."],
               ["3", "Get your score", "See how closely your face matched the prompt."],
             ].map(([number, title, description], i) => (
-              <li
+              /* ScrollReveal renders as <li> so the surrounding <ol>
+                 stays semantically valid. The 0.08s stagger gives
+                 the three steps a gentle cascade — they slide in
+                 one after another instead of all at once. */
+              <ScrollReveal
+                as="li"
                 key={number}
+                delay={i * 0.08}
                 className={`rounded-3xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-6 shadow-[6px_6px_0_0_var(--charcoal)] ${
                   i === 0 ? "tilt-l-1" : i === 1 ? "tilt-0" : "tilt-r-1"
                 }`}
@@ -137,7 +152,7 @@ export default function Home() {
                 <p className="mt-2 text-sm leading-6 text-[var(--on-surface-variant)]">
                   {description}
                 </p>
-              </li>
+              </ScrollReveal>
             ))}
           </ol>
         </div>

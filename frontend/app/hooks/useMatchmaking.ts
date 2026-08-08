@@ -74,6 +74,15 @@ export interface MatchmakingState {
    */
   emojiLocked: boolean;
   partnerCountry: string | null;
+  /**
+   * Identifier for the currently-active match. Set as soon as the
+   * server fires `match_started` and cleared when the match ends
+   * (skip, disconnect, completion). Distinct from `matchResult.id`
+   * because the result only exists once the round has been scored —
+   * callers that want to react to "we got paired with someone"
+   * need this instead.
+   */
+  currentMatchId: string | null;
   submitScore: (score: number) => void;
   submitLiveScore: (score: number) => void;
   skipUser: () => void;
@@ -91,6 +100,15 @@ export interface MatchmakingState {
   sendChat: (text: string) => void;
   rivalTyping: boolean;
   sendTyping: (isTyping: boolean) => void;
+  /**
+   * Flag the current partner for moderation. The server is the
+   * authoritative sink — it logs the session context (match id,
+   * reporter user id, partner user id, timestamp) and can later
+   * persist it to a moderation table. The view layer never holds
+   * identity info about the partner beyond what the server
+   * already trusts (userId, peerId).
+   */
+  reportPartner: () => void;
 }
 
 export function useMatchmaking(
@@ -129,6 +147,7 @@ export function useMatchmaking(
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [rivalTyping, setRivalTyping] = useState(false);
   const [partnerCountry, setPartnerCountry] = useState<string | null>(null);
+  const [currentMatchId, setCurrentMatchId] = useState<string | null>(null);
 
   const buildJoinPayload = useCallback(
     (peerId: string) => ({
@@ -173,6 +192,7 @@ export function useMatchmaking(
     setMessages([]);
     setRivalTyping(false);
     setPartnerCountry(null);
+    setCurrentMatchId(null);
   }, [clearStreamTimeout, setRemoteStreamSynced]);
 
   /* Re-join queue after a failed connection (silent recovery) */
@@ -274,11 +294,13 @@ export function useMatchmaking(
 
       const handleMatchStarted = (
         {
+          matchId,
           partnerPeerId: ppId,
           role,
           emoji,
           partnerCountry: pc,
         }: {
+          matchId?: string;
           partnerPeerId: string;
           role: string;
           emoji?: string;
@@ -301,6 +323,7 @@ export function useMatchmaking(
           setMatchResult(null);
           setMessages([]);
           setPartnerCountry(pc ?? null);
+          setCurrentMatchId(typeof matchId === "string" && matchId ? matchId : null);
           setStatus("matched");
           if (myCountryRef.current) {
             socket.emit("update_country", { country: myCountryRef.current });
@@ -478,6 +501,14 @@ export function useMatchmaking(
     socketRef.current?.emit("typing", { isTyping });
   }, []);
 
+  const reportPartner = useCallback(() => {
+    // Fire-and-forget: the server logs the report and is free to
+    // ignore it if the user is not currently in a match. We do
+    // not block on a response — the view just needs the call to
+    // land on the wire.
+    socketRef.current?.emit("report_player");
+  }, []);
+
   useEffect(() => {
     myCountryRef.current = myCountry;
     if (myCountry && socketRef.current?.connected) {
@@ -501,6 +532,7 @@ export function useMatchmaking(
     emojiPrompt,
     emojiLocked,
     partnerCountry,
+    currentMatchId,
     submitScore,
     submitLiveScore,
     skipUser,
@@ -511,5 +543,6 @@ export function useMatchmaking(
     sendChat,
     rivalTyping,
     sendTyping,
+    reportPartner,
   };
 }

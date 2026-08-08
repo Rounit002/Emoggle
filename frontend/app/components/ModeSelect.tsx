@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useRevenueCat } from "../context/RevenueCatContext";
 import {
+  BlinkingEmoji,
+  FloatingEmoji,
+  ScrollReveal,
+} from "./home/EmojiMotion";
+import {
   Button,
   Logo,
   Pill,
@@ -175,7 +180,22 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
               className="relative flex h-32 w-32 items-center justify-center rounded-[2rem] border-[4px] border-[var(--charcoal)] bg-[var(--yellow)] shadow-[8px_8px_0_0_var(--charcoal)] sm:h-40 sm:w-40 lg:h-48 lg:w-48"
               aria-hidden
             >
-              <span className="-rotate-3 text-7xl leading-none sm:text-8xl">🤪</span>
+              {/* The hero mascot gets the "wink" personality —
+                  slightly longer blink with a small squish and
+                  head tilt, on a 10-15s interval so it stays
+                  occasional and not constant. The outer span
+                  keeps the -rotate-3 sticker tilt; the inner
+                  BlinkingEmoji handles the wink animation. */}
+              <span className="-rotate-3 text-7xl leading-none sm:text-8xl">
+                <BlinkingEmoji
+                  personality="wink"
+                  intervalMin={10000}
+                  intervalMax={15000}
+                  blinkDuration={260}
+                >
+                  🤪
+                </BlinkingEmoji>
+              </span>
             </motion.div>
 
             <motion.h1
@@ -252,8 +272,15 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
 
           <ul className="mt-10 grid grid-cols-1 items-start gap-10 px-2 sm:grid-cols-3 sm:gap-6 sm:px-0 sm:pt-8">
             {MODES.map((mode, i) => (
-              <li
+              /* ScrollReveal renders as a <li> so the surrounding
+                 <ol>/<ul> stays semantically valid. The small
+                 delay per card creates a soft stagger so the
+                 three cards ease in one after another rather
+                 than all snapping in at the same tick. */
+              <ScrollReveal
+                as="li"
                 key={mode.id}
+                delay={i * 0.08}
                 className={cn(
                   "flex justify-center",
                   i === 1 && "sm:translate-y-6",
@@ -278,7 +305,13 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                     <span
                       className="flex h-14 w-14 items-center justify-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white)]"
                     >
-                      <span className="text-3xl leading-none">{mode.glyph}</span>
+                      {/* Card-icon emoji — plain blink on a
+                          randomized 3-7s interval. Each card gets
+                          its own schedule so the three icons
+                          never blink in unison. */}
+                      <BlinkingEmoji className="text-3xl leading-none">
+                        {mode.glyph}
+                      </BlinkingEmoji>
                     </span>
                     <span className="font-display text-3xl font-bold leading-none text-[var(--ink-soft)]">
                       {mode.number}
@@ -301,7 +334,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                     </span>
                   </div>
                 </button>
-              </li>
+              </ScrollReveal>
             ))}
           </ul>
 
@@ -355,18 +388,26 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
 }
 
 /**
- * Floating decorative emojis, the spec calls for these.
- * They're purely decorative (aria-hidden), with no interaction, no animation.
- * Positioned absolutely around the page corners and edges.
+ * Floating decorative emojis. Purely decorative (aria-hidden),
+ * positioned absolutely around the page corners and edges. Each
+ * one layers a slow vertical bob on top of an independent blink
+ * cycle, with a randomized phase so the six emojis never bob or
+ * blink in unison.
+ *
+ * Structure: the outer span owns the absolute positioning and the
+ * static rotation tilt (so the sticker-language is preserved). The
+ * inner FloatingEmoji handles the motion — it composes its own
+ * vertical translateY on top of whatever transform the outer
+ * span has, so the rotation and the bob coexist cleanly.
  */
 function DecoEmojis() {
-  const items: Array<{ emoji: string; style: React.CSSProperties }> = [
-    { emoji: "😜", style: { top: "8%", left: "5%" } },
-    { emoji: "😝", style: { top: "12%", right: "7%" } },
-    { emoji: "🤪", style: { top: "40%", left: "3%" } },
-    { emoji: "😛", style: { top: "55%", right: "4%" } },
-    { emoji: "🥳", style: { bottom: "20%", left: "6%" } },
-    { emoji: "🤩", style: { bottom: "16%", right: "8%" } },
+  const items: Array<{ emoji: string; style: React.CSSProperties; rotation: number }> = [
+    { emoji: "😜", style: { top: "8%", left: "5%" }, rotation: -4 },
+    { emoji: "😝", style: { top: "12%", right: "7%" }, rotation: 6 },
+    { emoji: "🤪", style: { top: "40%", left: "3%" }, rotation: -8 },
+    { emoji: "😛", style: { top: "55%", right: "4%" }, rotation: 5 },
+    { emoji: "🥳", style: { bottom: "20%", left: "6%" }, rotation: -10 },
+    { emoji: "🤩", style: { bottom: "16%", right: "8%" }, rotation: 7 },
   ];
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
@@ -376,10 +417,21 @@ function DecoEmojis() {
           className="absolute select-none text-3xl opacity-50 sm:text-4xl"
           style={{
             ...item.style,
-            transform: `rotate(${(i % 2 === 0 ? -1 : 1) * (4 + i * 2)}deg)`,
+            transform: `rotate(${item.rotation}deg)`,
           }}
         >
-          {item.emoji}
+          {/* Slight per-element variation in the bob distance and
+              duration so the six emojis feel hand-placed rather
+              than mechanical. BlinkingEmoji randomizes its own
+              interval on first render, so no two share a
+              schedule. */}
+          <FloatingEmoji
+            floatAmount={3 + (i % 3)}
+            floatDuration={4.5 + (i % 3) * 0.6}
+            blinkDuration={200}
+          >
+            {item.emoji}
+          </FloatingEmoji>
         </span>
       ))}
     </div>
@@ -425,7 +477,13 @@ function HeroPreview() {
               className="flex h-16 w-16 items-center justify-center rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] shadow-[4px_4px_0_0_var(--charcoal)] sm:h-20 sm:w-20 lg:h-24 lg:w-24"
               aria-hidden
             >
-              <span className="-rotate-3 text-4xl sm:text-5xl lg:text-6xl">😜</span>
+              {/* The target emoji in the live preview also blinks
+                  on the standard 3-7s cycle. The outer span keeps
+                  the static -rotate-3 tilt; the inner
+                  BlinkingEmoji does the vertical scale. */}
+              <span className="-rotate-3 text-4xl sm:text-5xl lg:text-6xl">
+                <BlinkingEmoji blinkDuration={200}>😜</BlinkingEmoji>
+              </span>
             </div>
             <span className="font-mono tabular text-[11px] font-bold text-[var(--charcoal)]">10s</span>
           </div>

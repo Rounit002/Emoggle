@@ -186,6 +186,38 @@ function countryLabelFromCode(code) {
   return name ? `${flag} ${name}` : flag;
 }
 
+/* ─── Chat hygiene ──────────────────────────────────────────────────────────
+ * Server-authoritative profanity scrub. Runs once on the inbound
+ * chat_message before the relay, so a tampered client cannot bypass
+ * it. The list is intentionally small — it's a v1 filter, not a
+ * comprehensive moderation pass. A real follow-up would swap this
+ * for a proper lexicon and add per-user strike tracking.
+ *
+ * We keep the first character of the word so the partner still gets
+ * a sense of the original ("f***" instead of "****") and we don't
+ * re-invent the obfuscation on every render. The pattern is
+ * word-boundary, case-insensitive. Deliberately doesn't try to
+ * decode leet-speak ("f1ck", "f.u.c.k") in v1 — that belongs in
+ * the same follow-up as the proper lexicon.
+ */
+const CHAT_BANNED_WORDS = [
+  "fuck", "shit", "bitch", "asshole", "bastard",
+  "cunt", "dick", "piss", "slut", "whore",
+  "nigger", "faggot",
+];
+function scrubChatText(raw) {
+  if (typeof raw !== "string" || raw.length === 0) return "";
+  const pattern = new RegExp(
+    `\\b(${CHAT_BANNED_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`,
+    "gi",
+  );
+  return raw.replace(pattern, (match) =>
+    match.length <= 2
+      ? "*".repeat(match.length)
+      : `${match[0]}${"*".repeat(match.length - 1)}`,
+  );
+}
+
 app.use(express.json({ limit: "1mb" }));
 
 // Apply rate limiting to all /api routes
@@ -602,8 +634,52 @@ io.on("connection", (socket) => {
 
   socket.on("chat_message", ({ text }) => {
     const existing = getMatchBySocket(socket.id);
-    if (!existing || !text) return;
-    socket.to(existing.roomId).emit("chat_message", { text, fromSelf: false });
+    if (!existing) return;
+    if (typeof text !== "string") return;
+    // Cap the payload — the client already clamps to MAX_LENGTH, but
+    // a tampered client can ship megabytes; bail before we echo it.
+    const trimmed = text.slice(0, 500);
+    if (!trimmed.trim()) return;
+    const cleanText = scrubChatText(trimmed);
+    // Only relay to the partner — the sender already added their
+    // own message to their own bubble optimistically (fromSelf:
+    // true), and a server echo would land a second bubble flagged
+    // as fromSelf:false. The sender keeps their original typing;
+    // the partner sees the server's scrubbed text. Asymmetric on
+    // purpose — the scrubber protects the recipient, not the
+    // sender.
+    socket.to(existing.roomId).emit("chat_message", { text: cleanText, fromSelf: false });
+  });
+
+  /* ─── Report / moderation hook ───────────────────────────────────────────
+   * Lightweight, no-op on persistence: we log enough context that
+   * a follow-up can either pipe this into a moderation table or
+   * push it to a third-party abuse service. We deliberately do not
+   * reveal the partner's identity to the reporter — they only get
+   * the same "Stranger" view they already have.
+   */
+  socket.on("report_player", () => {
+    const existing = getMatchBySocket(socket.id);
+    if (!existing) return;
+    const match = activeMatches.get(existing.matchId);
+    if (!match) return;
+    const partnerSocketId =
+      socket.id === match.player1SocketId
+        ? match.player2SocketId
+        : match.player1SocketId;
+    const reporterMeta = socketMeta.get(socket.id);
+    const partnerMeta = socketMeta.get(partnerSocketId);
+    const report = {
+      matchId: existing.matchId,
+      reporterUserId: reporterMeta?.userId ?? null,
+      reporterSocketId: socket.id,
+      partnerUserId: partnerMeta?.userId ?? null,
+      partnerSocketId,
+      ts: new Date().toISOString(),
+    };
+    // Single-line structured log so a future migration can grep,
+    // pipe to a SIEM, or simply write to a moderation table.
+    console.log(`[MOD] report_player ${JSON.stringify(report)}`);
   });
 
   socket.on("live_score", ({ score }) => {
