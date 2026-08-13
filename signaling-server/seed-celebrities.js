@@ -6,8 +6,14 @@
  *   node seed-celebrities.js
  */
 
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+const { DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD } = process.env;
+if (!process.env.DATABASE_URL && DB_HOST && DB_USER && DB_NAME) {
+  process.env.DATABASE_URL = `postgresql://${encodeURIComponent(DB_USER)}:${encodeURIComponent(DB_PASSWORD || '')}@${DB_HOST}:${DB_PORT || 5432}/${DB_NAME}`;
+}
+const { pool, initSchema } = require('./db');
 
 const sampleCelebrities = [
   // Memes
@@ -117,19 +123,19 @@ async function seed() {
   console.log('🎭 Starting celebrity faces seed...');
 
   try {
-    // Clear existing data (optional - comment out if you want to keep existing data)
-    // await prisma.celebrityFace.deleteMany();
-    // console.log('✓ Cleared existing celebrity faces');
-
+    await initSchema();
     // Insert sample celebrities
     let count = 0;
     for (const celeb of sampleCelebrities) {
       try {
-        await prisma.celebrityFace.create({
-          data: celeb,
-        });
-        count++;
-        console.log(`✓ Added: ${celeb.name} (${celeb.category})`);
+        const result = await pool.query(
+          `INSERT INTO celebrity_faces (name, category, image_url, difficulty)
+           SELECT $1, $2, $3, $4
+            WHERE NOT EXISTS (SELECT 1 FROM celebrity_faces WHERE name = $1)`,
+          [celeb.name, celeb.category, celeb.imageUrl, celeb.difficulty],
+        );
+        count += result.rowCount;
+        console.log(`${result.rowCount ? 'Added' : 'Skipped existing'}: ${celeb.name} (${celeb.category})`);
       } catch (err) {
         console.error(`✗ Failed to add ${celeb.name}:`, err.message);
       }
@@ -146,7 +152,7 @@ async function seed() {
     console.error('❌ Error seeding database:', error);
     throw error;
   } finally {
-    await prisma.$disconnect();
+    await pool.end();
   }
 }
 

@@ -1,4 +1,0 @@
-[Celebrity] Prisma unavailable: Cannot find module '@prisma/client'
-Require stack:
-- D:\FitCheckDuel\signaling-server\routes\celebrity.js
-- D:\FitCheckDuel\signaling-server\index.js

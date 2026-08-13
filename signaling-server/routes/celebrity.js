@@ -5,14 +5,22 @@
 
 const express = require('express');
 const router = express.Router();
+const { pool } = require('../db');
 
-// Import database connection from parent
-let prisma;
-try {
-  const { PrismaClient } = require('@prisma/client');
-  prisma = new PrismaClient();
-} catch (err) {
-  console.error('[Celebrity] Prisma unavailable:', err.message);
+const DIFFICULTIES = new Set(['easy', 'medium', 'hard']);
+const CATEGORIES = new Set(['meme', 'celebrity', 'character']);
+
+function readEnum(value, allowed) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !allowed.has(value)) return null;
+  return value;
+}
+
+function readPositiveInteger(value, fallback, max = Number.MAX_SAFE_INTEGER) {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= max ? parsed : null;
 }
 
 /**
@@ -24,50 +32,43 @@ try {
  */
 router.get('/random', async (req, res) => {
   try {
-    if (!prisma) {
-      return res.status(503).json({ error: 'Database unavailable' });
+    const difficulty = readEnum(req.query.difficulty, DIFFICULTIES);
+    const category = readEnum(req.query.category, CATEGORIES);
+    if (difficulty === null || category === null) {
+      return res.status(400).json({ error: 'Invalid difficulty or category' });
     }
-
-    const { difficulty, category } = req.query;
-    const where = {};
-    
-    if (difficulty) where.difficulty = difficulty;
-    if (category) where.category = category;
-
-    // Get total count
-    const count = await prisma.celebrityFace.count({ where });
-    
-    if (count === 0) {
-      return res.status(404).json({ error: 'No celebrity faces found' });
+    const values = [];
+    const filters = [];
+    if (difficulty) {
+      values.push(difficulty);
+      filters.push(`difficulty = $${values.length}`);
     }
-
-    // Get random offset
-    const skip = Math.floor(Math.random() * count);
-    
-    // Fetch one random face
-    const face = await prisma.celebrityFace.findFirst({
-      where,
-      skip,
-      orderBy: { usageCount: 'asc' } // Prefer less-used faces
-    });
+    if (category) {
+      values.push(category);
+      filters.push(`category = $${values.length}`);
+    }
+    const whereSql = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
+    const { rows } = await pool.query(
+      `SELECT id, name, category, image_url, difficulty, facial_landmarks
+         FROM celebrity_faces
+         ${whereSql}
+        ORDER BY usage_count ASC, RANDOM()
+        LIMIT 1`,
+      values,
+    );
+    const face = rows[0];
 
     if (!face) {
       return res.status(404).json({ error: 'Celebrity face not found' });
     }
 
-    // Increment usage counter
-    await prisma.celebrityFace.update({
-      where: { id: face.id },
-      data: { usageCount: { increment: 1 } }
-    });
-
     res.json({
       id: face.id,
       name: face.name,
       category: face.category,
-      imageUrl: face.imageUrl,
+      imageUrl: face.image_url,
       difficulty: face.difficulty,
-      facialLandmarks: face.facialLandmarks
+      facialLandmarks: face.facial_landmarks
     });
   } catch (error) {
     console.error('[Celebrity] Error fetching random face:', error);
@@ -85,35 +86,43 @@ router.get('/random', async (req, res) => {
  */
 router.get('/list', async (req, res) => {
   try {
-    if (!prisma) {
-      return res.status(503).json({ error: 'Database unavailable' });
+    const page = readPositiveInteger(req.query.page, 1, 100000);
+    const limit = readPositiveInteger(req.query.limit, 20, 100);
+    const category = readEnum(req.query.category, CATEGORIES);
+    if (page === null || limit === null || category === null) {
+      return res.status(400).json({ error: 'Invalid pagination or category' });
     }
-
-    const page = parseInt(req.query.page) || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
-    const { category } = req.query;
     
-    const where = {};
-    if (category) where.category = category;
-
-    const [faces, total] = await Promise.all([
-      prisma.celebrityFace.findMany({
-        where,
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: { usageCount: 'asc' }
-      }),
-      prisma.celebrityFace.count({ where })
+    const categoryFilter = category ? 'WHERE category = $1' : '';
+    const listValues = category
+      ? [category, limit, (page - 1) * limit]
+      : [limit, (page - 1) * limit];
+    const limitParameter = category ? '$2' : '$1';
+    const offsetParameter = category ? '$3' : '$2';
+    const [facesResult, totalResult] = await Promise.all([
+      pool.query(
+        `SELECT id, name, category, image_url, difficulty, usage_count
+           FROM celebrity_faces ${categoryFilter}
+          ORDER BY usage_count ASC, id ASC
+          LIMIT ${limitParameter} OFFSET ${offsetParameter}`,
+        listValues,
+      ),
+      pool.query(
+        `SELECT COUNT(*)::int AS count FROM celebrity_faces ${categoryFilter}`,
+        category ? [category] : [],
+      ),
     ]);
+    const faces = facesResult.rows;
+    const total = totalResult.rows[0].count;
 
     res.json({
       faces: faces.map(f => ({
         id: f.id,
         name: f.name,
         category: f.category,
-        imageUrl: f.imageUrl,
+        imageUrl: f.image_url,
         difficulty: f.difficulty,
-        usageCount: f.usageCount
+        usageCount: f.usage_count
       })),
       pagination: {
         page,
@@ -135,19 +144,20 @@ router.get('/list', async (req, res) => {
  */
 router.post('/landmarks', async (req, res) => {
   try {
-    if (!prisma) {
-      return res.status(503).json({ error: 'Database unavailable' });
+    if (!req.body || typeof req.body !== 'object') {
+      return res.status(400).json({ error: 'A JSON body is required' });
     }
 
-    const { faceId } = req.body;
-    
-    if (!faceId) {
-      return res.status(400).json({ error: 'faceId is required' });
+    const faceId = Number(req.body.faceId);
+    if (!Number.isSafeInteger(faceId) || faceId <= 0) {
+      return res.status(400).json({ error: 'faceId must be a positive integer' });
     }
 
-    const face = await prisma.celebrityFace.findUnique({
-      where: { id: parseInt(faceId) }
-    });
+    const { rows } = await pool.query(
+      `SELECT id, name, facial_landmarks FROM celebrity_faces WHERE id = $1`,
+      [faceId],
+    );
+    const face = rows[0];
 
     if (!face) {
       return res.status(404).json({ error: 'Celebrity face not found' });
@@ -156,7 +166,7 @@ router.post('/landmarks', async (req, res) => {
     res.json({
       id: face.id,
       name: face.name,
-      facialLandmarks: face.facialLandmarks || null
+      facialLandmarks: face.facial_landmarks || null
     });
   } catch (error) {
     console.error('[Celebrity] Error fetching landmarks:', error);
@@ -170,13 +180,17 @@ router.post('/landmarks', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
-    if (!prisma) {
-      return res.status(503).json({ error: 'Database unavailable' });
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'id must be a positive integer' });
     }
 
-    const face = await prisma.celebrityFace.findUnique({
-      where: { id: parseInt(req.params.id) }
-    });
+    const { rows } = await pool.query(
+      `SELECT id, name, category, image_url, difficulty, facial_landmarks, usage_count
+         FROM celebrity_faces WHERE id = $1`,
+      [id],
+    );
+    const face = rows[0];
 
     if (!face) {
       return res.status(404).json({ error: 'Celebrity face not found' });
@@ -186,10 +200,10 @@ router.get('/:id', async (req, res) => {
       id: face.id,
       name: face.name,
       category: face.category,
-      imageUrl: face.imageUrl,
+      imageUrl: face.image_url,
       difficulty: face.difficulty,
-      facialLandmarks: face.facialLandmarks,
-      usageCount: face.usageCount
+      facialLandmarks: face.facial_landmarks,
+      usageCount: face.usage_count
     });
   } catch (error) {
     console.error('[Celebrity] Error fetching face:', error);

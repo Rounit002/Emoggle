@@ -9,7 +9,6 @@ if (DB_HOST && DB_USER && DB_NAME) {
 
 // Startup env diagnostic
 console.log("[ENV] NODE_ENV:", process.env.NODE_ENV);
-console.log("[ENV] JWT_SECRET set:", !!process.env.JWT_SECRET, "| length:", process.env.JWT_SECRET?.length ?? 0);
 console.log("[ENV] DATABASE_URL set:", !!process.env.DATABASE_URL);
 console.log("[ENV] FRONTEND_URL:", process.env.FRONTEND_URL);
 
@@ -20,16 +19,42 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const rateLimit = require("express-rate-limit");
-let geoip;
-try {
-  geoip = require("geoip-lite");
-} catch {
-  geoip = { lookup: () => null };
-}
 const { pool, initSchema } = require("./db");
+const {
+  SESSION_COOKIE_NAME,
+  extractSessionResumeToken,
+  findSessionUser,
+  hashSessionToken,
+  verifyToken,
+  verifySocketToken,
+} = require("./middleware/verifyToken");
 
 const app = express();
-app.set("trust proxy", 1); // Trust Render's reverse proxy
+app.disable("x-powered-by");
+const configuredProxyHops = Number.parseInt(process.env.TRUST_PROXY_HOPS || "", 10);
+app.set(
+  "trust proxy",
+  Number.isInteger(configuredProxyHops) && configuredProxyHops >= 0
+    ? configuredProxyHops
+    : process.env.NODE_ENV === "production"
+      ? 1
+      : false,
+);
+
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+  // This API intentionally serves the separately hosted frontend; CORS still
+  // restricts which browser origins may read responses.
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+  }
+  next();
+});
 
 // ─── Rate Limiters ─────────────────────────────────────────────────────────
 // General API limiter: 60 requests per minute per IP
@@ -39,6 +64,14 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { detail: "Too many requests, please try again later." },
+});
+
+const sessionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { detail: "Too many session requests. Please try again later." },
 });
 
 const defaultOrigins = [
@@ -70,9 +103,11 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: allowedOrigins, methods: ["GET", "POST"], credentials: true },
   transports: ["websocket", "polling"],
+  maxHttpBufferSize: 64 * 1024,
+  perMessageDeflate: false,
   pingTimeout: 60000,
   pingInterval: 25000,
-  allowEIO3: true,
+  allowEIO3: false,
 });
 
 // ─── In-memory state (minimal; keyed by matchId for easy cleanup) ────────────
@@ -84,6 +119,10 @@ const ROUND_COUNTDOWN_SEC = 3;
 const MATCH_DURATION_SEC = 10;
 const DEFAULT_ELO = 1000;
 const ELO_K = 32;
+const RANKED_ELO_ENABLED = process.env.ENABLE_RANKED_ELO === "true";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_CONNECTIONS_PER_IP = Math.max(1, Number.parseInt(process.env.MAX_CONNECTIONS_PER_IP || "8", 10) || 8);
 let dbAvailable = true;
 let dbWarningShown = false;
 
@@ -105,11 +144,54 @@ function pickEmojiExcept(previous) {
   return choices[Math.floor(Math.random() * choices.length)];
 }
 
+function isDatabaseConnectivityError(err) {
+  const code = String(err?.code || "");
+  return (
+    code.startsWith("08") ||
+    ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "57P01", "57P02", "57P03"].includes(code)
+  );
+}
+
 function warnDbFallback(err) {
+  if (!isDatabaseConnectivityError(err)) {
+    console.error(`[DB] Query failed without disabling persistence: ${err.message}`);
+    return false;
+  }
   dbAvailable = false;
-  if (dbWarningShown) return;
-  dbWarningShown = true;
-  console.warn(`[DB] Unavailable, using in-memory matchmaking only: ${err.message}`);
+  if (!dbWarningShown) {
+    dbWarningShown = true;
+    console.warn(`[DB] Connectivity unavailable; persistent operations are paused: ${err.message}`);
+  }
+  return true;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function readBoundedString(value, maxLength, { allowEmpty = false } = {}) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if ((!allowEmpty && !normalized) || normalized.length > maxLength) return null;
+  return normalized;
+}
+
+function sessionCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+    path: "/",
+    maxAge: SESSION_TTL_MS,
+  };
+}
+
+function requireTrustedMutationOrigin(req, res, next) {
+  if (req.headers.authorization?.startsWith("Bearer ")) return next();
+  const origin = typeof req.headers.origin === "string" ? req.headers.origin : null;
+  if (origin && allowedOrigins.includes(origin)) return next();
+  if (!origin && process.env.NODE_ENV !== "production") return next();
+  return res.status(403).json({ detail: "Untrusted request origin." });
 }
 
 function mapUserRow(row) {
@@ -223,89 +305,211 @@ app.use(express.json({ limit: "1mb" }));
 // Apply rate limiting to all /api routes
 app.use("/api", apiLimiter);
 
-// Celebrity Face Mimic routes
+// ─── Anonymous authenticated sessions ───────────────────────────────────────
+app.post("/api/session", sessionLimiter, requireTrustedMutationOrigin, async (req, res) => {
+  if (!process.env.DATABASE_URL || !dbAvailable) {
+    return res.status(503).json({ detail: "Session service unavailable." });
+  }
+
+  // Cookies are origin-wide, so using one here collapses every open tab into
+  // the same anonymous user. A tab resumes only with the bearer token kept in
+  // its own sessionStorage; otherwise it receives a new anonymous session.
+  const existingToken = extractSessionResumeToken(req);
+  if (existingToken) {
+    try {
+      const existingUser = await findSessionUser(existingToken);
+      if (existingUser) {
+        res.cookie(SESSION_COOKIE_NAME, existingToken, sessionCookieOptions());
+        return res.json({
+          id: existingUser.id,
+          elo: existingUser.elo,
+          isVIP: existingUser.is_vip === true,
+          socketToken: existingToken,
+        });
+      }
+    } catch (err) {
+      warnDbFallback(err);
+      return res.status(503).json({ detail: "Session service unavailable." });
+    }
+  }
+
+  const userId = crypto.randomUUID();
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  const tokenHash = hashSessionToken(rawToken);
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `INSERT INTO users (id) VALUES ($1)
+       RETURNING id, elo, is_vip`,
+      [userId],
+    );
+    await client.query(
+      `INSERT INTO sessions (token, user_id, expires_at)
+       VALUES ($1, $2, NOW() + INTERVAL '7 days')`,
+      [tokenHash, userId],
+    );
+    await client.query("COMMIT");
+    res.cookie(SESSION_COOKIE_NAME, rawToken, sessionCookieOptions());
+    return res.status(201).json({
+      id: rows[0].id,
+      elo: rows[0].elo,
+      isVIP: rows[0].is_vip === true,
+      socketToken: rawToken,
+    });
+  } catch (err) {
+    await client?.query("ROLLBACK").catch(() => {});
+    warnDbFallback(err);
+    return res.status(503).json({ detail: "Could not create a session." });
+  } finally {
+    client?.release();
+  }
+});
+
+app.get("/api/users/me", verifyToken, (req, res) => {
+  return res.json({
+    id: req.user.id,
+    elo: req.user.elo,
+    isVIP: req.user.is_vip === true,
+  });
+});
+
+app.delete("/api/session", requireTrustedMutationOrigin, verifyToken, async (req, res) => {
+  try {
+    await pool.query(`DELETE FROM sessions WHERE token = $1`, [req.sessionTokenHash]);
+    res.clearCookie(SESSION_COOKIE_NAME, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      path: "/",
+    });
+    return res.status(204).end();
+  } catch (err) {
+    warnDbFallback(err);
+    return res.status(503).json({ detail: "Could not end the session." });
+  }
+});
+
+function requireVIP(req, res, next) {
+  if (req.user?.is_vip === true) return next();
+  return res.status(403).json({ detail: "An active VIP entitlement is required." });
+}
+
+// RevenueCat must send Authorization: Bearer <REVENUECAT_WEBHOOK_SECRET>.
+app.post("/api/webhooks/revenuecat", async (req, res) => {
+  const configuredSecret = process.env.REVENUECAT_WEBHOOK_SECRET || "";
+  const supplied = typeof req.headers.authorization === "string"
+    ? req.headers.authorization.replace(/^Bearer\s+/i, "")
+    : "";
+  const suppliedBuffer = Buffer.from(supplied, "utf8");
+  const configuredBuffer = Buffer.from(configuredSecret, "utf8");
+  const authorized =
+    configuredBuffer.length >= 32 &&
+    suppliedBuffer.length === configuredBuffer.length &&
+    crypto.timingSafeEqual(suppliedBuffer, configuredBuffer);
+  if (!authorized) return res.status(401).json({ detail: "Invalid webhook credentials." });
+
+  const event = isPlainObject(req.body?.event) ? req.body.event : null;
+  const userId = readBoundedString(event?.app_user_id, 64);
+  const eventAtMs = Number(event?.event_timestamp_ms);
+  if (!event || !userId || !UUID_PATTERN.test(userId) || !Number.isFinite(eventAtMs) || eventAtMs <= 0) {
+    return res.status(400).json({ detail: "Invalid RevenueCat event." });
+  }
+  const expiresAtMs = Number(event.expiration_at_ms || 0);
+  const isVIP = event.type !== "EXPIRATION" && Number.isFinite(expiresAtMs) && expiresAtMs > Date.now();
+  try {
+    const result = await pool.query(
+      `UPDATE users
+          SET is_vip = $1,
+              vip_expires_at = CASE WHEN $2 > 0 THEN TO_TIMESTAMP($2 / 1000.0) ELSE NULL END,
+              revenuecat_event_at = TO_TIMESTAMP($3 / 1000.0)
+        WHERE id = $4
+          AND (revenuecat_event_at IS NULL OR revenuecat_event_at <= TO_TIMESTAMP($3 / 1000.0))`,
+      [isVIP, expiresAtMs, eventAtMs, userId],
+    );
+    // A stale replay or unknown user is acknowledged so the provider does not
+    // retry indefinitely; the timestamp guard prevents it changing state.
+    return res.status(204).end();
+  } catch (err) {
+    warnDbFallback(err);
+    return res.status(503).json({ detail: "Entitlement update unavailable." });
+  }
+});
+
+// Proxy the private AI judge so its shared secret is never shipped to browsers.
+app.post("/api/judge", sessionLimiter, requireTrustedMutationOrigin, verifyToken, async (req, res) => {
+  const judgeUrl = (process.env.AI_JUDGE_URL || "").replace(/\/$/, "");
+  const judgeSecret = process.env.AI_JUDGE_SHARED_SECRET || "";
+  if (!judgeUrl || judgeSecret.length < 32) {
+    return res.status(503).json({ detail: "AI judge is not configured." });
+  }
+  if (!isPlainObject(req.body) || typeof req.body.image !== "string" || req.body.image.length > 900_000) {
+    return res.status(413).json({ detail: "Image payload is missing or too large." });
+  }
+  try {
+    const upstream = await fetch(`${judgeUrl}/judge`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-AI-Judge-Key": judgeSecret,
+      },
+      body: JSON.stringify({ image: req.body.image }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const body = await upstream.text();
+    res.status(upstream.status).type("application/json").send(body.slice(0, 64 * 1024));
+  } catch (err) {
+    console.error("[Judge] Upstream request failed:", err.message);
+    return res.status(502).json({ detail: "AI judge unavailable." });
+  }
+});
+
+// Celebrity data is a premium server resource.
 try {
   const celebrityRouter = require("./routes/celebrity");
-  app.use("/api/celebrity", celebrityRouter);
-  console.log("[Celebrity] Routes mounted at /api/celebrity");
+  app.use("/api/celebrity", verifyToken, requireVIP, celebrityRouter);
+  console.log("[Celebrity] Protected routes mounted at /api/celebrity");
 } catch (e) {
   console.warn("[Celebrity] Could not mount celebrity routes:", e?.message);
 }
 
-// ─── Anonymous player validation endpoint ────────────────────────────────────
-app.get("/api/users/me", async (req, res) => {
-  const id = typeof req.query.id === "string" ? req.query.id.trim() : "";
-  if (!id) return res.status(400).json({ detail: "User ID is required." });
-
-  if (!dbAvailable) {
-    return res.status(503).json({ detail: "Database unavailable.", needsOnboarding: true });
-  }
-
-  const client = await pool.connect();
-  try {
-    const { rows } = await client.query(
-      `SELECT id, elo, is_vip FROM users WHERE id = $1`,
-      [id]
-    );
-    if (rows.length === 0) {
-      return res.status(404).json({ detail: "User not found.", needsOnboarding: true });
-    }
-    const user = rows[0];
-    return res.json({
-      id: user.id,
-      elo: user.elo,
-      isVIP: user.is_vip,
-    });
-  } catch (err) {
-    console.error("[DB] User lookup failed:", err.message);
-    return res.status(500).json({ detail: "Database error." });
-  } finally {
-    client.release();
-  }
-});
-
 app.get("/api/geo", (req, res) => {
   const headers = req.headers || {};
-  let codeHeader = headers["cf-ipcountry"] || headers["x-vercel-ip-country"] || headers["x-country-code"];
+  const trustGeoHeaders = process.env.TRUST_GEO_HEADERS === "true";
+  let codeHeader = trustGeoHeaders
+    ? headers["cf-ipcountry"] || headers["x-vercel-ip-country"]
+    : null;
   if (Array.isArray(codeHeader)) codeHeader = codeHeader[0];
   let countryCode = typeof codeHeader === "string" && codeHeader.length === 2 ? String(codeHeader).toUpperCase() : null;
-  const xf = Array.isArray(headers["x-forwarded-for"]) ? headers["x-forwarded-for"][0] : headers["x-forwarded-for"];
-  const rawIp = typeof xf === "string" && xf.length ? xf.split(",")[0].trim() : (req.ip || req.socket?.remoteAddress || "");
-  const ip = cleanIp(rawIp);
-  let source = countryCode ? "header" : "geoip";
-  if (!countryCode && ip) {
-    try {
-      const g = geoip.lookup(ip);
-      if (g && g.country) countryCode = String(g.country).toUpperCase();
-    } catch {}
-  }
+  const source = countryCode ? "trusted-edge-header" : "unavailable";
   const flag = countryCode ? isoFlag(countryCode) : null;
   let countryName = null;
   try {
     if (countryCode) countryName = new Intl.DisplayNames(["en"], { type: "region" }).of(countryCode);
   } catch {}
   const country = countryCode ? (countryName ? `${flag} ${countryName}` : flag) : null;
-  res.json({ ip: ip || null, countryCode: countryCode || null, country, source });
+  res.setHeader("Cache-Control", "private, no-store");
+  res.json({ countryCode: countryCode || null, country, source });
 });
 
 async function finalizeMatchScores(matchId, match, player1Score, player2Score, winnerId) {
-  const fallbackElo = () => {
+  const unrankedResult = () => {
     const p1Meta = socketMeta.get(match.player1SocketId);
     const p2Meta = socketMeta.get(match.player2SocketId);
     const p1Elo = p1Meta?.elo ?? match.player1Elo ?? DEFAULT_ELO;
     const p2Elo = p2Meta?.elo ?? match.player2Elo ?? DEFAULT_ELO;
-    const elo = calculateMatchElo(p1Elo, p2Elo, player1Score, player2Score);
-    if (p1Meta) p1Meta.elo = elo.player1.newElo;
-    if (p2Meta) p2Meta.elo = elo.player2.newElo;
-    match.player1Elo = elo.player1.newElo;
-    match.player2Elo = elo.player2.newElo;
-    return elo;
+    return {
+      player1: { oldElo: p1Elo, newElo: p1Elo, delta: 0, tier: tierForElo(p1Elo) },
+      player2: { oldElo: p2Elo, newElo: p2Elo, delta: 0, tier: tierForElo(p2Elo) },
+    };
   };
 
-  if (!dbAvailable) return fallbackElo();
+  if (!dbAvailable) return unrankedResult();
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query("BEGIN");
 
     const p1Res = await client.query(`SELECT elo FROM users WHERE id = $1`, [match.player1Id]);
@@ -313,10 +517,14 @@ async function finalizeMatchScores(matchId, match, player1Score, player2Score, w
 
     const player1Elo = p1Res.rows[0]?.elo ?? DEFAULT_ELO;
     const player2Elo = p2Res.rows[0]?.elo ?? DEFAULT_ELO;
-    const elo = calculateMatchElo(player1Elo, player2Elo, player1Score, player2Score);
+    const elo = RANKED_ELO_ENABLED
+      ? calculateMatchElo(player1Elo, player2Elo, player1Score, player2Score)
+      : unrankedResult();
 
-    await client.query(`UPDATE users SET elo = $1 WHERE id = $2`, [elo.player1.newElo, match.player1Id]);
-    await client.query(`UPDATE users SET elo = $1 WHERE id = $2`, [elo.player2.newElo, match.player2Id]);
+    if (RANKED_ELO_ENABLED) {
+      await client.query(`UPDATE users SET elo = $1 WHERE id = $2`, [elo.player1.newElo, match.player1Id]);
+      await client.query(`UPDATE users SET elo = $1 WHERE id = $2`, [elo.player2.newElo, match.player2Id]);
+    }
     await client.query(
       `UPDATE matches SET status = $1, player1_score = $2, player2_score = $3, winner_id = $4, completed_at = $5 WHERE id = $6`,
       ["COMPLETED", player1Score, player2Score, winnerId, new Date(), matchId]
@@ -325,11 +533,11 @@ async function finalizeMatchScores(matchId, match, player1Score, player2Score, w
     await client.query("COMMIT");
     return elo;
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
+    await client?.query("ROLLBACK").catch(() => {});
     warnDbFallback(err);
-    return fallbackElo();
+    return unrankedResult();
   } finally {
-    client.release();
+    client?.release();
   }
 }
 
@@ -373,41 +581,23 @@ function getMatchBySocket(socketId) {
 
 // ─── Sync user on socket connection (raw UPDATE/SELECT) ─────────────────────
 async function ensureUser(socketId, userId) {
-  const memoryFallback = () => ({
-    id: userId || `memory_user_${socketId}`,
-    socketId,
-    elo: DEFAULT_ELO,
-    isVIP: false,
-  });
+  if (!dbAvailable) throw new Error("Database unavailable");
+  if (!UUID_PATTERN.test(userId || "")) throw new Error("Authenticated user ID is invalid");
 
-  if (!dbAvailable) return memoryFallback();
-
-  const client = await pool.connect();
+  let client;
   try {
-    // If the client passed a UUID from onboarding, sync their socket_id
-    if (userId) {
-      const { rows } = await client.query(
-        `UPDATE users SET socket_id = $1 WHERE id = $2 RETURNING *`,
-        [socketId, userId]
-      );
-      if (rows.length > 0) {
-        return mapUserRow(rows[0]);
-      }
-    }
-
-    // Create an anonymous row for a browser that has no persistent ID yet.
+    client = await pool.connect();
     const { rows } = await client.query(
-      `INSERT INTO users (id, socket_id) VALUES ($1, $2)
-       ON CONFLICT (socket_id) DO UPDATE SET socket_id = EXCLUDED.socket_id
-       RETURNING *`,
-      [crypto.randomUUID(), socketId]
+      `UPDATE users SET socket_id = $1 WHERE id = $2 RETURNING *`,
+      [socketId, userId],
     );
+    if (rows.length === 0) throw new Error("Authenticated user no longer exists");
     return mapUserRow(rows[0]);
   } catch (err) {
     warnDbFallback(err);
-    return memoryFallback();
+    throw err;
   } finally {
-    client.release();
+    client?.release();
   }
 }
 
@@ -436,9 +626,9 @@ async function startMatch(socket, partner) {
     match = { id: rows[0].id };
   } catch (err) {
     warnDbFallback(err);
-    match = {
-      id: `memory_match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    };
+    socket.emit("server_error", { detail: "Match persistence is unavailable." });
+    partnerSocket.emit("server_error", { detail: "Match persistence is unavailable." });
+    return false;
   } finally {
     client?.release();
   }
@@ -457,6 +647,9 @@ async function startMatch(socket, partner) {
     player2Elo: meta2.elo ?? DEFAULT_ELO,
     timerId: null,
     scores: {},
+    liveScores: {},
+    scanStartedAt: null,
+    scanEndsAt: null,
     resultSent: false,
     // The emoji stays mutable until the round actually starts.
     // Once the scan timer begins we set emojiLocked=true so the
@@ -506,13 +699,16 @@ async function startMatch(socket, partner) {
         // The scan window is open — the emoji is locked. Either
         // client that tries to change it now gets a silent no-op.
         active.emojiLocked = true;
+        active.scanStartedAt = Date.now();
+        active.scanEndsAt = active.scanStartedAt + MATCH_DURATION_SEC * 1000;
         io.to(roomId).emit("emoji_locked", { matchId: match.id });
       }
       console.log(`[T] Match ${match.id} scan started (emoji locked)`);
     }
   }, 1000);
 
-  activeMatches.get(match.id).timerId = timerId;
+  const activeMatch = activeMatches.get(match.id);
+  if (activeMatch) activeMatch.timerId = timerId;
   return true;
 }
 
@@ -540,7 +736,10 @@ function enqueueSocket(socket, peerId, skippedSocketId = null) {
     if (!blockedBySkip) {
       waitingQueue.splice(i, 1);
       startMatch(socket, candidate).then((ok) => {
-        if (!ok) enqueueSocket(socket, peerId, skippedSocketId);
+        if (!ok) {
+          removeFromQueue(socket.id);
+          removeFromQueue(candidate.socketId);
+        }
       });
       return;
     }
@@ -551,40 +750,118 @@ function enqueueSocket(socket, peerId, skippedSocketId = null) {
   console.log(`[W] ${socket.id} waiting...`);
 }
 
+const socketAttemptsByIp = new Map();
+const activeSocketsByIp = new Map();
+const activeSocketByUser = new Map();
+const SOCKET_EVENT_LIMITS = {
+  join_queue: [6, 60_000],
+  skip_user: [12, 60_000],
+  stop_matching: [12, 60_000],
+  chat_message: [20, 10_000],
+  typing: [20, 10_000],
+  report_player: [3, 60_000],
+  live_score: [120, 15_000],
+  submit_score: [3, 30_000],
+  change_emoji: [8, 30_000],
+};
+
+const socketAttemptCleanup = setInterval(() => {
+  const cutoff = Date.now() - 60_000;
+  for (const [ip, timestamps] of socketAttemptsByIp) {
+    const recent = timestamps.filter((timestamp) => timestamp >= cutoff);
+    if (recent.length === 0) socketAttemptsByIp.delete(ip);
+    else socketAttemptsByIp.set(ip, recent);
+  }
+}, 60_000);
+socketAttemptCleanup.unref();
+
+function socketClientIp(socket) {
+  const direct = cleanIp(socket.request?.socket?.remoteAddress || socket.handshake?.address || "unknown");
+  if (Number(app.get("trust proxy")) > 0) {
+    const forwarded = socket.handshake?.headers?.["x-forwarded-for"];
+    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    if (typeof first === "string" && first.length <= 256) return cleanIp(first.split(",")[0].trim()) || direct;
+  }
+  return direct || "unknown";
+}
+
+io.use((socket, next) => {
+  const ip = socketClientIp(socket);
+  const now = Date.now();
+  const attempts = (socketAttemptsByIp.get(ip) || []).filter((ts) => now - ts < 60_000);
+  if (attempts.length >= 30) return next(new Error("Too many connection attempts"));
+  attempts.push(now);
+  socketAttemptsByIp.set(ip, attempts);
+  return next();
+});
+io.use(verifySocketToken);
+
 // ─── Socket.io connection handler ────────────────────────────────────────────
 io.on("connection", (socket) => {
+  const clientIp = socketClientIp(socket);
+  const activeForIp = activeSocketsByIp.get(clientIp) || 0;
+  if (activeForIp >= MAX_CONNECTIONS_PER_IP) {
+    socket.emit("server_error", { detail: "Too many active connections." });
+    socket.disconnect(true);
+    return;
+  }
+  activeSocketsByIp.set(clientIp, activeForIp + 1);
+
+  const previousSocketId = activeSocketByUser.get(socket.user.id);
+  if (previousSocketId && previousSocketId !== socket.id) {
+    io.sockets.sockets.get(previousSocketId)?.disconnect(true);
+  }
+  activeSocketByUser.set(socket.user.id, socket.id);
+
+  const eventWindows = new Map();
+  socket.use(([event], next) => {
+    const rule = SOCKET_EVENT_LIMITS[event];
+    if (!rule) return next();
+    const [max, windowMs] = rule;
+    const now = Date.now();
+    const timestamps = (eventWindows.get(event) || []).filter((ts) => now - ts < windowMs);
+    if (timestamps.length >= max) return next(new Error(`Rate limit exceeded for ${event}`));
+    timestamps.push(now);
+    eventWindows.set(event, timestamps);
+    return next();
+  });
+
   console.log(`[+] Connected: ${socket.id}`);
 
-  socket.on("join_queue", async ({ peerId, country, userId }) => {
+  socket.on("join_queue", async (payload) => {
+    if (!isPlainObject(payload)) return socket.emit("server_error", { detail: "Invalid queue request." });
+    const peerId = readBoundedString(payload.peerId, 128);
+    if (!peerId) return socket.emit("server_error", { detail: "Invalid peer ID." });
+    if (getMatchBySocket(socket.id)) {
+      return socket.emit("server_error", { detail: "Already in an active match." });
+    }
     console.log(`[Q] ${socket.id} joining queue peerId=${peerId}`);
 
-    const user = await ensureUser(socket.id, userId);
+    let user;
+    try {
+      user = await ensureUser(socket.id, socket.user.id);
+    } catch {
+      socket.emit("server_error", { detail: "Could not initialize the authenticated user." });
+      return socket.disconnect(true);
+    }
     const isVIP = user.isVIP === true;
 
     socket.emit("user_id", { userId: user.id });
     socket.emit("usage_update", { isVIP });
 
     const headers = socket.handshake?.headers || {};
-    let codeHeader = headers["cf-ipcountry"] || headers["x-vercel-ip-country"] || headers["x-country-code"];
+    const trustGeoHeaders = process.env.TRUST_GEO_HEADERS === "true";
+    let codeHeader = trustGeoHeaders
+      ? headers["cf-ipcountry"] || headers["x-vercel-ip-country"]
+      : null;
     if (Array.isArray(codeHeader)) codeHeader = codeHeader[0];
     let detectedCode = typeof codeHeader === "string" && codeHeader.length === 2 ? String(codeHeader).toUpperCase() : null;
-    if (!detectedCode) {
-      const xf = Array.isArray(headers["x-forwarded-for"]) ? headers["x-forwarded-for"][0] : headers["x-forwarded-for"];
-      const rawIp = typeof xf === "string" && xf.length ? xf.split(",")[0].trim() : (socket.handshake?.address || socket.request?.connection?.remoteAddress || "");
-      const ip = cleanIp(rawIp);
-      if (ip) {
-        try {
-          const g = geoip.lookup(ip);
-          if (g && g.country) detectedCode = String(g.country).toUpperCase();
-        } catch {}
-      }
-    }
     const detectedCountry = detectedCode ? countryLabelFromCode(detectedCode) : null;
 
     socketMeta.set(socket.id, {
       peerId,
       userId: user.id,
-      country: detectedCountry ?? country ?? null,
+      country: detectedCountry,
       elo: user.elo ?? DEFAULT_ELO,
       isVIP,
     });
@@ -618,27 +895,21 @@ io.on("connection", (socket) => {
     console.log(`[S] ${socket.id} skipped match ${existing.matchId}`);
   });
 
-  socket.on("update_country", ({ country }) => {
-    if (!country) return;
-    const meta = socketMeta.get(socket.id);
-    if (meta) meta.country = country;
-    const existing = getMatchBySocket(socket.id);
-    if (existing) socket.to(existing.roomId).emit("partner_country", { country });
-  });
-
-  socket.on("typing", ({ isTyping }) => {
+  socket.on("typing", (payload) => {
+    if (!isPlainObject(payload) || typeof payload.isTyping !== "boolean") return;
     const existing = getMatchBySocket(socket.id);
     if (!existing) return;
-    socket.to(existing.roomId).emit("rival_typing", { isTyping: !!isTyping });
+    socket.to(existing.roomId).emit("rival_typing", { isTyping: payload.isTyping });
   });
 
-  socket.on("chat_message", ({ text }) => {
+  socket.on("chat_message", (payload) => {
+    if (!isPlainObject(payload)) return;
     const existing = getMatchBySocket(socket.id);
     if (!existing) return;
-    if (typeof text !== "string") return;
+    if (typeof payload.text !== "string") return;
     // Cap the payload — the client already clamps to MAX_LENGTH, but
     // a tampered client can ship megabytes; bail before we echo it.
-    const trimmed = text.slice(0, 500);
+    const trimmed = payload.text.slice(0, 500);
     if (!trimmed.trim()) return;
     const cleanText = scrubChatText(trimmed);
     // Only relay to the partner — the sender already added their
@@ -651,14 +922,9 @@ io.on("connection", (socket) => {
     socket.to(existing.roomId).emit("chat_message", { text: cleanText, fromSelf: false });
   });
 
-  /* ─── Report / moderation hook ───────────────────────────────────────────
-   * Lightweight, no-op on persistence: we log enough context that
-   * a follow-up can either pipe this into a moderation table or
-   * push it to a third-party abuse service. We deliberately do not
-   * reveal the partner's identity to the reporter — they only get
-   * the same "Stranger" view they already have.
-   */
-  socket.on("report_player", () => {
+  // Persist a minimal report without exposing the partner's identity.
+  socket.on("report_player", async (payload = {}) => {
+    if (!isPlainObject(payload)) return;
     const existing = getMatchBySocket(socket.id);
     if (!existing) return;
     const match = activeMatches.get(existing.matchId);
@@ -669,24 +935,35 @@ io.on("connection", (socket) => {
         : match.player1SocketId;
     const reporterMeta = socketMeta.get(socket.id);
     const partnerMeta = socketMeta.get(partnerSocketId);
-    const report = {
-      matchId: existing.matchId,
-      reporterUserId: reporterMeta?.userId ?? null,
-      reporterSocketId: socket.id,
-      partnerUserId: partnerMeta?.userId ?? null,
-      partnerSocketId,
-      ts: new Date().toISOString(),
-    };
-    // Single-line structured log so a future migration can grep,
-    // pipe to a SIEM, or simply write to a moderation table.
-    console.log(`[MOD] report_player ${JSON.stringify(report)}`);
+    const reason = readBoundedString(payload.reason, 64) || "unspecified";
+    try {
+      await pool.query(
+        `INSERT INTO moderation_reports
+           (match_id, reporter_user_id, reported_user_id, reason)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (match_id, reporter_user_id) DO NOTHING`,
+        [existing.matchId, reporterMeta?.userId, partnerMeta?.userId, reason],
+      );
+      console.log(`[MOD] report stored match=${existing.matchId} reporter=${reporterMeta?.userId}`);
+    } catch (err) {
+      warnDbFallback(err);
+      console.error(`[MOD] report persistence failed for match=${existing.matchId}`);
+    }
   });
 
-  socket.on("live_score", ({ score }) => {
+  socket.on("live_score", (payload) => {
+    if (!isPlainObject(payload)) return;
     const existing = getMatchBySocket(socket.id);
-    if (!existing || typeof score !== "number") return;
+    if (!existing || typeof payload.score !== "number" || !Number.isFinite(payload.score)) return;
+    const match = activeMatches.get(existing.matchId);
+    const now = Date.now();
+    if (!match?.scanStartedAt || !match.scanEndsAt || now < match.scanStartedAt || now > match.scanEndsAt + 1_500) return;
+    const normalizedScore = clampScore(payload.score);
+    const samples = match.liveScores[socket.id] || [];
+    if (samples.length < 150) samples.push(normalizedScore);
+    match.liveScores[socket.id] = samples;
     socket.to(existing.roomId).emit("partner_live_score", {
-      score: Math.max(0, Math.min(10, score)),
+      score: normalizedScore,
     });
   });
 
@@ -720,14 +997,26 @@ io.on("connection", (socket) => {
     io.to(existing.roomId).emit("emoji_changed", { emoji: newEmoji });
   });
 
-  socket.on("submit_score", async ({ score }) => {
+  socket.on("submit_score", async (payload) => {
+    if (!isPlainObject(payload)) return;
     const existing = getMatchBySocket(socket.id);
-    if (!existing || typeof score !== "number") return;
+    if (!existing || typeof payload.score !== "number" || !Number.isFinite(payload.score)) return;
 
     const match = activeMatches.get(existing.matchId);
     if (!match) return;
+    const now = Date.now();
+    if (!match.scanStartedAt || !match.scanEndsAt || now < match.scanEndsAt - 1_500 || now > match.scanEndsAt + 5_000) {
+      return socket.emit("server_error", { detail: "Score submitted outside the round window." });
+    }
+    if (Object.hasOwn(match.scores, socket.id)) return;
 
-    const normalizedScore = clampScore(score);
+    const samples = match.liveScores[socket.id] || [];
+    if (samples.length < 5) {
+      return socket.emit("server_error", { detail: "Not enough score samples were received." });
+    }
+    const sampleAverage = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+    const clientFinal = clampScore(payload.score);
+    const normalizedScore = clampScore(Number(((sampleAverage + clientFinal) / 2).toFixed(1)));
     match.scores[socket.id] = normalizedScore;
     socket.to(existing.roomId).emit("partner_score", { score: normalizedScore });
 
@@ -833,9 +1122,13 @@ io.on("connection", (socket) => {
     // Clear user's socket_id in DB so it can be reused
     const meta = socketMeta.get(socket.id);
     if (dbAvailable && meta?.userId) {
-      pool.query(`UPDATE users SET socket_id = NULL WHERE id = $1`, [meta.userId]).catch((err) => warnDbFallback(err));
+      pool.query(`UPDATE users SET socket_id = NULL WHERE id = $1 AND socket_id = $2`, [meta.userId, socket.id]).catch((err) => warnDbFallback(err));
     }
     socketMeta.delete(socket.id);
+    if (activeSocketByUser.get(socket.user.id) === socket.id) activeSocketByUser.delete(socket.user.id);
+    const remainingForIp = (activeSocketsByIp.get(clientIp) || 1) - 1;
+    if (remainingForIp <= 0) activeSocketsByIp.delete(clientIp);
+    else activeSocketsByIp.set(clientIp, remainingForIp);
 
     console.log(`[-] Disconnected: ${socket.id}`);
   });
@@ -844,6 +1137,10 @@ io.on("connection", (socket) => {
 // ─── HTTP routes ─────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => res.send("ok"));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+app.get("/ready", (_req, res) => {
+  if (!dbAvailable) return res.status(503).json({ status: "unavailable" });
+  return res.json({ status: "ready" });
+});
 
 app.get("/online", apiLimiter, (_req, res) => {
   res.json({ count: io.engine.clientsCount ?? 0 });
@@ -852,19 +1149,21 @@ app.get("/online", apiLimiter, (_req, res) => {
 // Graceful shutdown: drain the pg pool
 process.on("SIGTERM", async () => {
   console.log("[!] SIGTERM received, shutting down...");
-  await pool.end();
-  process.exit(0);
+  server.close(async () => {
+    await pool.end();
+    process.exit(0);
+  });
 });
 
 const PORT = process.env.PORT || 3001;
 
 // Initialize schema then start server (skip DB if env missing)
 if (!process.env.DATABASE_URL) {
-  console.warn("[DB] DATABASE_URL missing — running in memory-only mode");
+  console.warn("[DB] DATABASE_URL missing — authenticated matchmaking is unavailable");
   dbAvailable = false;
   dbWarningShown = true;
   server.listen(PORT, () =>
-    console.log(`[WARN] Signaling server running on :${PORT} — DB unavailable, using memory fallback`)
+    console.log(`[WARN] Signaling server running on :${PORT} — readiness checks will fail`)
   );
 } else {
   initSchema()
@@ -879,7 +1178,7 @@ if (!process.env.DATABASE_URL) {
       console.error("[FATAL] Could not initialize DB schema:", err.message);
       warnDbFallback(err);
       server.listen(PORT, () =>
-        console.log(`[WARN] Signaling server running on :${PORT} — DB unavailable, using memory fallback`)
+        console.log(`[WARN] Signaling server running on :${PORT} — authenticated matchmaking is unavailable`)
       );
     });
 }

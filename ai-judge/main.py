@@ -1,31 +1,61 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 import uvicorn
 import asyncio
 import os
 import base64
+import binascii
+import hmac
+import io
 import json
 import random
 import re
+import time
+from collections import defaultdict, deque
 from dotenv import load_dotenv
+from PIL import Image, UnidentifiedImageError
 
-load_dotenv(override=True)
+load_dotenv(override=False)
 
-app = FastAPI(title="Emoggle - AI Judge", version="0.3.0")
+IS_PRODUCTION = os.environ.get("ENVIRONMENT", "development").lower() == "production"
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+AI_JUDGE_SHARED_SECRET = os.environ.get("AI_JUDGE_SHARED_SECRET", "")
+MAX_REQUEST_BYTES = 1_000_000
+MAX_ENCODED_IMAGE_CHARS = 900_000
+MAX_DECODED_IMAGE_BYTES = 650_000
+MAX_IMAGE_PIXELS = 4_000_000
+REQUESTS_PER_MINUTE = 10
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+app = FastAPI(
+    title="Emoggle - AI Judge",
+    version="0.4.0",
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
 )
+
+if ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=ALLOWED_ORIGINS,
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type", "X-AI-Judge-Key"],
+    )
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
 JUDGE_MODE = os.environ.get("JUDGE_MODE", "random").lower()
 
 _gemini_model = None
+_judge_slots = asyncio.Semaphore(max(1, int(os.environ.get("MAX_CONCURRENT_JUDGES", "2"))))
+_request_times: dict[str, deque[float]] = defaultdict(deque)
 
 
 def get_gemini_model():
@@ -39,30 +69,69 @@ def get_gemini_model():
 
 
 class JudgeRequest(BaseModel):
-    image: str
+    image: str = Field(min_length=4, max_length=MAX_ENCODED_IMAGE_CHARS)
 
 
 class OutfitItem(BaseModel):
-    name: str
-    status: str
-    reason: str
+    name: str = Field(min_length=1, max_length=80)
+    status: str = Field(pattern="^(Drip|Drown)$")
+    reason: str = Field(min_length=1, max_length=160)
 
 
 class JudgeResponse(BaseModel):
-    score: float
-    verdict: str
-    roast: str
-    items: list[OutfitItem]
+    score: float = Field(ge=1.0, le=10.0)
+    verdict: str = Field(pattern="^(Drip|Drown)$")
+    roast: str = Field(min_length=1, max_length=280)
+    items: list[OutfitItem] = Field(min_length=1, max_length=4)
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    if request.url.path == "/judge":
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_REQUEST_BYTES:
+                    return JSONResponse(status_code=413, content={"detail": "Request too large"})
+            except ValueError:
+                return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length"})
+
+        supplied_key = request.headers.get("x-ai-judge-key", "")
+        if len(AI_JUDGE_SHARED_SECRET.encode("utf-8")) < 32 or not hmac.compare_digest(
+            supplied_key.encode("utf-8"), AI_JUDGE_SHARED_SECRET.encode("utf-8")
+        ):
+            return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+
+        client_key = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        timestamps = _request_times[client_key]
+        while timestamps and now - timestamps[0] >= 60:
+            timestamps.popleft()
+        if len(timestamps) >= REQUESTS_PER_MINUTE:
+            return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
+        timestamps.append(now)
+        if len(_request_times) > 10_000:
+            cutoff = now - 60
+            stale_keys = [
+                key for key, values in _request_times.items()
+                if not values or values[-1] < cutoff
+            ]
+            for key in stale_keys:
+                _request_times.pop(key, None)
+
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "mode": JUDGE_MODE,
-        "gemini": bool(GEMINI_API_KEY),
-        "model": GEMINI_MODEL,
-    }
+    return {"status": "ok"}
 
 
 GEMINI_PROMPT = """You are a sharp but fair AI fashion critic judging a real outfit from a photo or webcam frame.
@@ -101,19 +170,38 @@ Be consistent: the same image should receive nearly the same score every time. B
 
 
 def decode_image(image_b64: str) -> tuple[bytes, str]:
+    if len(image_b64) > MAX_ENCODED_IMAGE_CHARS:
+        raise HTTPException(status_code=413, detail="Image payload too large")
     cleaned = re.sub(r"^data:image/[^;]+;base64,", "", image_b64.strip())
     try:
         image_bytes = base64.b64decode(cleaned, validate=True)
-    except Exception as exc:
+    except (binascii.Error, ValueError) as exc:
         raise HTTPException(status_code=400, detail="Invalid base64 image payload") from exc
 
+    if not image_bytes or len(image_bytes) > MAX_DECODED_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Decoded image is too large")
+
     if image_bytes.startswith(b"\xff\xd8\xff"):
-        return image_bytes, "image/jpeg"
-    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-        return image_bytes, "image/png"
-    if image_bytes.startswith(b"RIFF") and image_bytes[8:12] == b"WEBP":
-        return image_bytes, "image/webp"
-    return image_bytes, "image/jpeg"
+        mime_type = "image/jpeg"
+    elif image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        mime_type = "image/png"
+    elif image_bytes.startswith(b"RIFF") and len(image_bytes) >= 12 and image_bytes[8:12] == b"WEBP":
+        mime_type = "image/webp"
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported image format")
+
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            width, height = image.size
+            if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+                raise HTTPException(status_code=413, detail="Image dimensions are too large")
+            image.verify()
+    except HTTPException:
+        raise
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid image data") from exc
+
+    return image_bytes, mime_type
 
 
 def clean_json(raw: str) -> dict:
@@ -139,6 +227,7 @@ async def judge_with_gemini(image_b64: str) -> JudgeResponse:
             generation_config={
                 "response_mime_type": "application/json",
                 "temperature": 0.15,
+                "max_output_tokens": 600,
             },
         )
         return response.text
@@ -213,20 +302,33 @@ async def judge(payload: JudgeRequest):
     decode_image(payload.image)
 
     if JUDGE_MODE != "ai":
-        await asyncio.sleep(random.uniform(3, 6))
         return judge_fallback()
 
     if not GEMINI_API_KEY:
-        await asyncio.sleep(random.uniform(3, 6))
-        return judge_fallback()
+        raise HTTPException(status_code=503, detail="AI judge is not configured")
 
     try:
-        return await judge_with_gemini(payload.image)
+        await asyncio.wait_for(_judge_slots.acquire(), timeout=1.0)
+    except TimeoutError as exc:
+        raise HTTPException(status_code=503, detail="AI judge is busy") from exc
+
+    try:
+        return await asyncio.wait_for(judge_with_gemini(payload.image), timeout=18.0)
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="AI judge timed out") from exc
     except Exception as exc:
-        print(f"[Gemini error] {exc}")
-        await asyncio.sleep(random.uniform(3, 6))
-        return judge_fallback()
+        print(f"[Gemini error] {type(exc).__name__}")
+        raise HTTPException(status_code=502, detail="AI judge failed") from exc
+    finally:
+        _judge_slots.release()
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "8000")),
+        reload=os.environ.get("DEBUG_RELOAD", "false").lower() == "true" and not IS_PRODUCTION,
+        proxy_headers=True,
+        forwarded_allow_ips=os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1"),
+    )
