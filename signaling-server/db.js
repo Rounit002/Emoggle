@@ -3,7 +3,7 @@ const { Pool } = require("pg");
 const isProduction = process.env.NODE_ENV === "production";
 const databaseSsl = isProduction
   ? {
-      rejectUnauthorized: true,
+      rejectUnauthorized: false,
       ...(process.env.DB_CA_CERT
         ? { ca: process.env.DB_CA_CERT.replace(/\\n/g, "\n") }
         : {}),
