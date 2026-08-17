@@ -28,6 +28,12 @@ const {
   verifyToken,
   verifySocketToken,
 } = require("./middleware/verifyToken");
+const {
+  buildMatchResultPayloads,
+  clampScore,
+  deadlineRoundScore,
+  submittedRoundScore,
+} = require("./matchScore");
 
 const app = express();
 app.disable("x-powered-by");
@@ -112,11 +118,16 @@ const io = new Server(server, {
 
 // ─── In-memory state (minimal; keyed by matchId for easy cleanup) ────────────
 const waitingQueue = []; // { socketId, peerId, userId, skippedSocketId }
-const socketMeta = new Map(); // socketId -> { peerId, userId, country }
+const socketMeta = new Map(); // socketId -> { peerId, userId, country, displayName }
 const activeMatches = new Map(); // matchId -> { roomId, player1SocketId, player2SocketId, timerId, scores }
 
 const ROUND_COUNTDOWN_SEC = 3;
 const MATCH_DURATION_SEC = 10;
+// Absolute grace period after the server-owned scan deadline. Results
+// normally finalize immediately after both submissions; this deadline
+// only prevents a missing/disconnected client submission from leaving
+// the other player waiting forever.
+const SCORE_SUBMISSION_GRACE_MS = 3_000;
 const DEFAULT_ELO = 1000;
 const ELO_K = 32;
 const RANKED_ELO_ENABLED = process.env.ENABLE_RANKED_ELO === "true";
@@ -174,6 +185,86 @@ function readBoundedString(value, maxLength, { allowEmpty = false } = {}) {
   const normalized = value.trim();
   if ((!allowEmpty && !normalized) || normalized.length > maxLength) return null;
   return normalized;
+}
+
+/**
+ * Validate a client-supplied display name. Same rules as the
+ * client-side `validateName` helper in `app/lib/storage.ts`:
+ *  - non-empty after trimming
+ *  - at most 20 characters
+ *  - no ASCII control characters
+ *
+ * The result is kept in socketMeta (in-memory) and is relayed
+ * to the partner in `match_started`. The server never writes the
+ * name to the database and discards it on disconnect.
+ */
+function readDisplayName(value) {
+  const raw = readBoundedString(value, 20);
+  if (!raw) return null;
+  if (/[\u0000-\u001F\u007F]/.test(raw)) return null;
+  return raw;
+}
+
+/**
+ * Validate a client-supplied country label. The client has
+ * already formatted this as "🇮🇳 India" (flag + display name)
+ * via Intl.DisplayNames, so we only bound the length and reject
+ * any embedded control characters. The same value is in
+ * `lib/country.ts` on the frontend.
+ */
+function readCountryLabel(value) {
+  const raw = readBoundedString(value, 64);
+  if (!raw) return null;
+  if (/[\u0000-\u001F\u007F]/.test(raw)) return null;
+  return raw;
+}
+
+/**
+ * Validate a client-supplied 2-letter ISO country code (e.g. "IN",
+ * "US"). This is the preferred wire format — small, unambiguous,
+ * and lets the receiving client render the flag via regional
+ * indicators regardless of how the sender formatted the display
+ * string. The label is kept for backwards compatibility with
+ * older clients and as a fallback when the code is missing.
+ */
+function readCountryCode(value) {
+  if (typeof value !== "string") return null;
+  const cc = value.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return null;
+  return cc;
+}
+
+/**
+ * Best-effort extraction of a 2-letter ISO code from a country
+ * display string the client might have sent. Handles both
+ * "🇮🇳 India" (regional indicators at the start) and plain
+ * "IN" (raw code). Returns null when the string is not
+ * recognisable.
+ */
+function extractCountryCode(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  // Raw 2-letter code: "IN", "US", "GB".
+  if (/^[A-Za-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
+  // Regional-indicator flag at the start: "🇮🇳 India".
+  // Each regional indicator (U+1F1E6..U+1F1FF) maps to A..Z.
+  const regionalIndicatorStart = 0x1f1e6;
+  const chars = Array.from(trimmed);
+  if (chars.length >= 2) {
+    const c1 = chars[0].codePointAt(0);
+    const c2 = chars[1].codePointAt(0);
+    if (
+      c1 >= regionalIndicatorStart &&
+      c1 <= regionalIndicatorStart + 25 &&
+      c2 >= regionalIndicatorStart &&
+      c2 <= regionalIndicatorStart + 25
+    ) {
+      return String.fromCharCode(c1 - regionalIndicatorStart + 65) +
+        String.fromCharCode(c2 - regionalIndicatorStart + 65);
+    }
+  }
+  return null;
 }
 
 function sessionCookieOptions() {
@@ -239,10 +330,6 @@ function calculateMatchElo(player1Elo, player2Elo, player1Score, player2Score) {
   };
 }
 
-function clampScore(score) {
-  return Math.max(0, Math.min(10, score));
-}
-
 function cleanIp(ip) {
   if (!ip) return null;
   let s = typeof ip === "string" ? ip : String(ip);
@@ -252,14 +339,14 @@ function cleanIp(ip) {
 }
 
 function isoFlag(code) {
-  const cc = typeof code === "string" ? code.toUpperCase() : "";
-  if (cc.length !== 2) return null;
+  const cc = typeof code === "string" ? code.trim().toUpperCase() : "";
+  if (!/^[A-Z]{2}$/.test(cc)) return null;
   return cc.replace(/./g, (c) => String.fromCodePoint(127462 + c.charCodeAt(0) - 65));
 }
 
 function countryLabelFromCode(code) {
-  const cc = typeof code === "string" ? code.toUpperCase() : "";
-  if (cc.length !== 2) return null;
+  const cc = typeof code === "string" ? code.trim().toUpperCase() : "";
+  if (!/^[A-Z]{2}$/.test(cc)) return null;
   const flag = isoFlag(cc);
   let name = null;
   try {
@@ -557,6 +644,10 @@ function clearMatchState(matchId) {
     clearInterval(match.timerId);
     match.timerId = null;
   }
+  if (match.finalizationTimerId) {
+    clearTimeout(match.finalizationTimerId);
+    match.finalizationTimerId = null;
+  }
 
   const sockets = [match.player1SocketId, match.player2SocketId];
 
@@ -568,6 +659,71 @@ function clearMatchState(matchId) {
 
   activeMatches.delete(matchId);
   return sockets;
+}
+
+/**
+ * Emit one immutable, player-relative result for a match. The first
+ * caller that observes both scores flips resultSent before awaiting
+ * persistence, so duplicate score packets and the deadline callback
+ * cannot finalize the same round twice.
+ */
+async function finalizeMatchResult(matchId, { fillMissing = false } = {}) {
+  const match = activeMatches.get(matchId);
+  if (!match || match.resultSent) return false;
+
+  if (fillMissing) {
+    for (const socketId of [match.player1SocketId, match.player2SocketId]) {
+      if (!Object.hasOwn(match.scores, socketId)) {
+        match.scores[socketId] = deadlineRoundScore(match.liveScores[socketId] || []);
+      }
+    }
+  }
+
+  const p1Score = match.scores[match.player1SocketId];
+  const p2Score = match.scores[match.player2SocketId];
+  if (typeof p1Score !== "number" || typeof p2Score !== "number") return false;
+
+  match.resultSent = true;
+  if (match.finalizationTimerId) {
+    clearTimeout(match.finalizationTimerId);
+    match.finalizationTimerId = null;
+  }
+
+  const p1 = io.sockets.sockets.get(match.player1SocketId);
+  const p2 = io.sockets.sockets.get(match.player2SocketId);
+  const winnerSocketId =
+    p1Score === p2Score
+      ? null
+      : p1Score > p2Score
+        ? match.player1SocketId
+        : match.player2SocketId;
+  const winnerId =
+    winnerSocketId === match.player1SocketId
+      ? match.player1Id
+      : winnerSocketId === match.player2SocketId
+        ? match.player2Id
+        : null;
+
+  const elo = await finalizeMatchScores(matchId, match, p1Score, p2Score, winnerId);
+  const resultPayloads = buildMatchResultPayloads({
+    matchId,
+    match,
+    player1Score: p1Score,
+    player2Score: p2Score,
+    elo,
+  });
+
+  p1?.emit("scores_ready", { myScore: p1Score, partnerScore: p2Score });
+  p2?.emit("scores_ready", { myScore: p2Score, partnerScore: p1Score });
+  p1?.emit("match_result", resultPayloads.player1);
+  p2?.emit("match_result", resultPayloads.player2);
+
+  // The result payload is now self-contained on each client. Release
+  // the room/server match immediately without emitting match_ended;
+  // this preserves the visible result and lets either player enter a
+  // new queue independently when they choose Play Again.
+  clearMatchState(matchId);
+  return true;
 }
 
 function getMatchBySocket(socketId) {
@@ -646,6 +802,7 @@ async function startMatch(socket, partner) {
     player1Elo: meta1.elo ?? DEFAULT_ELO,
     player2Elo: meta2.elo ?? DEFAULT_ELO,
     timerId: null,
+    finalizationTimerId: null,
     scores: {},
     liveScores: {},
     scanStartedAt: null,
@@ -664,11 +821,19 @@ async function startMatch(socket, partner) {
   socket.emit("usage_update", { isVIP: meta1.isVIP === true });
   partnerSocket.emit("usage_update", { isVIP: meta2.isVIP === true });
 
-  // Emit match_started to both players with stranger's details
+  // Emit match_started to both players with stranger's details.
+  // `partnerCountryCode` is the canonical 2-letter ISO code;
+  // `partnerCountry` is kept for legacy clients (display string
+  // with the flag already embedded). Newer clients should
+  // prefer the code and derive the flag locally — that way a
+  // sender with a broken display string can't make the partner
+  // see "IN" where they should see 🇮🇳.
   socket.emit("match_started", {
     matchId: match.id,
     partnerPeerId: meta2.peerId,
     partnerCountry: meta2.country ?? null,
+    partnerCountryCode: meta2.countryCode ?? null,
+    partnerName: meta2.displayName ?? null,
     role: "receiver",
     emoji,
     duration: MATCH_DURATION_SEC,
@@ -677,6 +842,8 @@ async function startMatch(socket, partner) {
     matchId: match.id,
     partnerPeerId: meta1.peerId,
     partnerCountry: meta1.country ?? null,
+    partnerCountryCode: meta1.countryCode ?? null,
+    partnerName: meta1.displayName ?? null,
     role: "caller",
     emoji,
     duration: MATCH_DURATION_SEC,
@@ -701,6 +868,11 @@ async function startMatch(socket, partner) {
         active.emojiLocked = true;
         active.scanStartedAt = Date.now();
         active.scanEndsAt = active.scanStartedAt + MATCH_DURATION_SEC * 1000;
+        active.finalizationTimerId = setTimeout(() => {
+          void finalizeMatchResult(match.id, { fillMissing: true }).catch((err) => {
+            console.error(`[SCORE] Deadline finalization failed for ${match.id}:`, err.message);
+          });
+        }, MATCH_DURATION_SEC * 1000 + SCORE_SUBMISSION_GRACE_MS);
         io.to(roomId).emit("emoji_locked", { matchId: match.id });
       }
       console.log(`[T] Match ${match.id} scan started (emoji locked)`);
@@ -835,7 +1007,23 @@ io.on("connection", (socket) => {
     if (getMatchBySocket(socket.id)) {
       return socket.emit("server_error", { detail: "Already in an active match." });
     }
-    console.log(`[Q] ${socket.id} joining queue peerId=${peerId}`);
+
+    // Display name + country are optional client-supplied fields.
+    // The client has already validated them (see
+    // `app/lib/storage.ts` and `app/lib/geo.ts`). We re-validate
+    // here defensively, but never persist them — the values stay
+    // in socketMeta (in-memory) for the duration of the session
+    // and are discarded on disconnect.
+    const displayName = readDisplayName(payload.name);
+    const clientCountry = readCountryLabel(payload.country);
+    // Preferred wire format: a 2-letter ISO code. The receiving
+    // client uses `isoFlag()` / `countryLabelFromCode()` to turn
+    // this into a flag + display name, so a glitched display
+    // string on the sender side can never make the partner see
+    // a country code instead of a flag.
+    const clientCountryCode = readCountryCode(payload.countryCode);
+
+    console.log(`[Q] ${socket.id} joining queue peerId=${peerId} name=${displayName ?? "(none)"} country=${clientCountryCode ?? "(none)"}`);
 
     let user;
     try {
@@ -849,6 +1037,12 @@ io.on("connection", (socket) => {
     socket.emit("user_id", { userId: user.id });
     socket.emit("usage_update", { isVIP });
 
+    // Country preference order:
+    //  1. Client-supplied label from the browser's geo lookup.
+    //     This is the primary source per the spec.
+    //  2. Edge geo header (cf-ipcountry / x-vercel-ip-country)
+    //     when the server is configured to trust them.
+    //  3. null — the partner just won't see a flag.
     const headers = socket.handshake?.headers || {};
     const trustGeoHeaders = process.env.TRUST_GEO_HEADERS === "true";
     let codeHeader = trustGeoHeaders
@@ -856,12 +1050,24 @@ io.on("connection", (socket) => {
       : null;
     if (Array.isArray(codeHeader)) codeHeader = codeHeader[0];
     let detectedCode = typeof codeHeader === "string" && codeHeader.length === 2 ? String(codeHeader).toUpperCase() : null;
-    const detectedCountry = detectedCode ? countryLabelFromCode(detectedCode) : null;
+    const edgeCountry = detectedCode ? countryLabelFromCode(detectedCode) : null;
+    // Country-code preference order:
+    //  1. Client-supplied 2-letter ISO code (the preferred wire
+    //     format).
+    //  2. Edge geo header (cf-ipcountry / x-vercel-ip-country).
+    //  3. Code derived from the client-supplied display string
+    //     (legacy / defensive).
+    //  4. null — the partner just won't see a flag.
+    const resolvedCountryCode =
+      clientCountryCode || detectedCode || extractCountryCode(clientCountry);
+    const resolvedCountry = clientCountry || edgeCountry || (resolvedCountryCode ? countryLabelFromCode(resolvedCountryCode) : null);
 
     socketMeta.set(socket.id, {
       peerId,
       userId: user.id,
-      country: detectedCountry,
+      country: resolvedCountry,
+      countryCode: resolvedCountryCode,
+      displayName,
       elo: user.elo ?? DEFAULT_ELO,
       isVIP,
     });
@@ -1005,69 +1211,19 @@ io.on("connection", (socket) => {
     const match = activeMatches.get(existing.matchId);
     if (!match) return;
     const now = Date.now();
-    if (!match.scanStartedAt || !match.scanEndsAt || now < match.scanEndsAt - 1_500 || now > match.scanEndsAt + 5_000) {
+    if (!match.scanStartedAt || !match.scanEndsAt || now < match.scanEndsAt - 1_500 || now > match.scanEndsAt + SCORE_SUBMISSION_GRACE_MS) {
       return socket.emit("server_error", { detail: "Score submitted outside the round window." });
     }
     if (Object.hasOwn(match.scores, socket.id)) return;
 
     const samples = match.liveScores[socket.id] || [];
-    if (samples.length < 5) {
+    const normalizedScore = submittedRoundScore(samples, payload.score);
+    if (normalizedScore === null) {
       return socket.emit("server_error", { detail: "Not enough score samples were received." });
     }
-    const sampleAverage = samples.reduce((sum, value) => sum + value, 0) / samples.length;
-    const clientFinal = clampScore(payload.score);
-    const normalizedScore = clampScore(Number(((sampleAverage + clientFinal) / 2).toFixed(1)));
     match.scores[socket.id] = normalizedScore;
     socket.to(existing.roomId).emit("partner_score", { score: normalizedScore });
-
-    const p1Score = match.scores[match.player1SocketId];
-    const p2Score = match.scores[match.player2SocketId];
-    if (typeof p1Score === "number" && typeof p2Score === "number") {
-      if (match.resultSent) return;
-      match.resultSent = true;
-
-      const p1 = io.sockets.sockets.get(match.player1SocketId);
-      const p2 = io.sockets.sockets.get(match.player2SocketId);
-      const winnerSocketId =
-        p1Score === p2Score ? null : p1Score > p2Score ? match.player1SocketId : match.player2SocketId;
-      const winnerId =
-        winnerSocketId === match.player1SocketId
-          ? match.player1Id
-          : winnerSocketId === match.player2SocketId
-            ? match.player2Id
-            : null;
-
-      const elo = await finalizeMatchScores(existing.matchId, match, p1Score, p2Score, winnerId);
-
-      p1?.emit("scores_ready", { myScore: p1Score, partnerScore: p2Score });
-      p2?.emit("scores_ready", { myScore: p2Score, partnerScore: p1Score });
-      p1?.emit("match_result", {
-        matchId: existing.matchId,
-        myScore: p1Score,
-        partnerScore: p2Score,
-        winner: winnerSocketId === null ? "tie" : winnerSocketId === match.player1SocketId ? "you" : "rival",
-        winnerSocketId,
-        myElo: elo.player1.newElo,
-        partnerElo: elo.player2.newElo,
-        myEloDelta: elo.player1.delta,
-        partnerEloDelta: elo.player2.delta,
-        myTier: elo.player1.tier,
-        partnerTier: elo.player2.tier,
-      });
-      p2?.emit("match_result", {
-        matchId: existing.matchId,
-        myScore: p2Score,
-        partnerScore: p1Score,
-        winner: winnerSocketId === null ? "tie" : winnerSocketId === match.player2SocketId ? "you" : "rival",
-        winnerSocketId,
-        myElo: elo.player2.newElo,
-        partnerElo: elo.player1.newElo,
-        myEloDelta: elo.player2.delta,
-        partnerEloDelta: elo.player1.delta,
-        myTier: elo.player2.tier,
-        partnerTier: elo.player1.tier,
-      });
-    }
+    await finalizeMatchResult(existing.matchId);
   });
 
   socket.on("stop_matching", () => {

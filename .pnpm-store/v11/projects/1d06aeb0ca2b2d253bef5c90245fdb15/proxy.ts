@@ -22,7 +22,7 @@ export function proxy(request: NextRequest) {
     style-src 'self' 'unsafe-inline';
     img-src 'self' data: blob: https:;
     font-src 'self' data:;
-    connect-src 'self' ${signalingOrigin} ${signalingWsOrigin} https://api.revenuecat.com https://*.revenuecat.com https://*.paddle.com https://storage.googleapis.com https://0.peerjs.com wss://0.peerjs.com;
+    connect-src 'self' ${signalingOrigin} ${signalingWsOrigin} https://api.revenuecat.com https://*.revenuecat.com https://*.paddle.com https://storage.googleapis.com https://0.peerjs.com wss://0.peerjs.com https://ipapi.co https://*.ipapi.co http://ip-api.com;
     media-src 'self' blob:;
     worker-src 'self' blob:;
     frame-src https://js.stripe.com https://cdn.paddle.com https://*.revenuecat.com;

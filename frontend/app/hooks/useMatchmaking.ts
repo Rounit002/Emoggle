@@ -73,7 +73,25 @@ export interface MatchmakingState {
    * this, always wait for the server's broadcast.
    */
   emojiLocked: boolean;
+  /**
+   * Partner's display name, relayed through the signaling
+   * channel at match start. Null until `match_started` fires.
+   */
+  partnerName: string | null;
+  /**
+   * Partner's country as a "🇮🇳 India" style label. Relayed
+   * through the signaling channel at match start; null when the
+   * partner's geo lookup failed.
+   */
   partnerCountry: string | null;
+  /**
+   * Partner's 2-letter ISO country code ("IN", "US", "GB"). The
+   * canonical wire format — clients should prefer this over
+   * `partnerCountry` and derive the flag via `isoFlag()` so a
+   * glitched display string never makes the flag look like a
+   * country code. Null when the partner didn't supply one.
+   */
+  partnerCountryCode: string | null;
   /**
    * Identifier for the currently-active match. Set as soon as the
    * server fires `match_started` and cleared when the match ends
@@ -113,7 +131,26 @@ export interface MatchmakingState {
 
 export function useMatchmaking(
   localStream: MediaStream | null,
-  _myCountry: string | null = null,
+  /**
+   * Local player's display name (already validated). Sent to the
+   * server in `join_queue` and relayed to the partner in
+   * `match_started`. The server never persists it.
+   */
+  myName: string | null = null,
+  /**
+   * Local player's country, formatted as a "🇮🇳 India" label
+   * (flag + display name). Sent to the server in `join_queue` and
+   * relayed to the partner. The server never persists it.
+   */
+  myCountry: string | null = null,
+  /**
+   * Local player's 2-letter ISO country code (e.g. "IN"). This is
+   * the preferred wire format: small, unambiguous, and lets the
+   * receiving client render the flag via `isoFlag()` so a
+   * sender-side display glitch never makes the partner see
+   * "IN" where they should see 🇮🇳.
+   */
+  myCountryCode: string | null = null,
   profile: UserProfile | null = null,
   onProfileUpdate?: (profile: UserProfile) => void,
   sessionToken?: string | null
@@ -125,6 +162,28 @@ export function useMatchmaking(
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const streamTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stoppedRef = useRef(false);
+  const currentMatchIdRef = useRef<string | null>(null);
+
+  // Keep the latest player name + country in refs so the socket
+  // event listeners (which capture the value at registration
+  // time) can still see the freshest values when `join_queue`
+  // is fired. Updated in a layout-style effect after each render.
+  const identityRef = useRef<{
+    name: string | null;
+    country: string | null;
+    countryCode: string | null;
+  }>({
+    name: myName,
+    country: myCountry,
+    countryCode: myCountryCode,
+  });
+  useEffect(() => {
+    identityRef.current = {
+      name: myName,
+      country: myCountry,
+      countryCode: myCountryCode,
+    };
+  }, [myName, myCountry, myCountryCode]);
 
   const onProfileUpdateRef = useRef<((profile: UserProfile) => void) | undefined>(undefined);
 
@@ -140,7 +199,9 @@ export function useMatchmaking(
   const [emojiLocked, setEmojiLocked] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [rivalTyping, setRivalTyping] = useState(false);
+  const [partnerName, setPartnerName] = useState<string | null>(null);
   const [partnerCountry, setPartnerCountry] = useState<string | null>(null);
+  const [partnerCountryCode, setPartnerCountryCode] = useState<string | null>(null);
   const [currentMatchId, setCurrentMatchId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -148,12 +209,19 @@ export function useMatchmaking(
     onProfileUpdateRef.current = onProfileUpdate;
   }, [profile, onProfileUpdate]);
 
-  const buildJoinPayload = useCallback(
-    (peerId: string) => ({
+  const buildJoinPayload = useCallback((peerId: string) => {
+    const { name, country, countryCode } = identityRef.current;
+    return {
       peerId,
-    }),
-    []
-  );
+      // All three fields are optional on the server. Trimmed,
+      // length-bounded, and never persisted — the server keeps
+      // them in socketMeta (in-memory) only for the duration of
+      // the session and discards them on disconnect.
+      name: name ?? null,
+      country: country ?? null,
+      countryCode: countryCode ?? null,
+    };
+  }, []);
 
   const clearStreamTimeout = useCallback(() => {
     if (streamTimeoutRef.current) {
@@ -188,7 +256,10 @@ export function useMatchmaking(
     setEmojiLocked(false);
     setMessages([]);
     setRivalTyping(false);
+    setPartnerName(null);
     setPartnerCountry(null);
+    setPartnerCountryCode(null);
+    currentMatchIdRef.current = null;
     setCurrentMatchId(null);
   }, [clearStreamTimeout, setRemoteStreamSynced]);
 
@@ -307,12 +378,16 @@ export function useMatchmaking(
           role,
           emoji,
           partnerCountry: pc,
+          partnerCountryCode: pcc,
+          partnerName: pn,
         }: {
           matchId?: string;
           partnerPeerId: string;
           role: string;
           emoji?: string;
           partnerCountry?: string | null;
+          partnerCountryCode?: string | null;
+          partnerName?: string | null;
         }
       ) => {
           stoppedRef.current = false;
@@ -330,8 +405,12 @@ export function useMatchmaking(
           setPartnerLiveScore(null);
           setMatchResult(null);
           setMessages([]);
+          setPartnerName(typeof pn === "string" && pn ? pn : null);
           setPartnerCountry(pc ?? null);
-          setCurrentMatchId(typeof matchId === "string" && matchId ? matchId : null);
+          setPartnerCountryCode(typeof pcc === "string" && pcc ? pcc.toUpperCase() : null);
+          const nextMatchId = typeof matchId === "string" && matchId ? matchId : null;
+          currentMatchIdRef.current = nextMatchId;
+          setCurrentMatchId(nextMatchId);
           setStatus("matched");
           startStreamTimeout();
 
@@ -358,7 +437,15 @@ export function useMatchmaking(
       });
 
       socket.on("match_result", (result: MatchResult) => {
-        setMatchResult(result);
+        // Ignore a late packet from a match that has already been
+        // left/replaced. For the active match, the first finalized
+        // payload wins so duplicate socket delivery cannot mutate an
+        // already-rendered result.
+        if (!result || result.matchId !== currentMatchIdRef.current) return;
+        if (!Number.isFinite(result.myScore) || !Number.isFinite(result.partnerScore)) return;
+        setMatchResult((previous) =>
+          previous?.matchId === result.matchId ? previous : Object.freeze({ ...result }),
+        );
         setPartnerScore(result.partnerScore);
       });
 
@@ -487,12 +574,13 @@ export function useMatchmaking(
 
   const startMatching = useCallback(() => {
     stoppedRef.current = false;
+    resetMatchState();
     setStatus("waiting");
     const peerId = peerRef.current?.id;
     if (peerId && socketRef.current?.connected) {
       socketRef.current.emit("join_queue", buildJoinPayload(peerId));
     }
-  }, [buildJoinPayload]);
+  }, [buildJoinPayload, resetMatchState]);
 
   const sendChat = useCallback((text: string) => {
     if (!text.trim()) return;
@@ -524,7 +612,9 @@ export function useMatchmaking(
     matchResult,
     emojiPrompt,
     emojiLocked,
+    partnerName,
     partnerCountry,
+    partnerCountryCode,
     currentMatchId,
     submitScore,
     submitLiveScore,

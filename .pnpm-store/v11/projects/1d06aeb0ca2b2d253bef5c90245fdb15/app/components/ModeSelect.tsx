@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useRevenueCat } from "../context/RevenueCatContext";
+import { usePlayerName } from "../context/PlayerNameContext";
+import { useCountry } from "../context/CountryContext";
 import {
   BlinkingEmoji,
   FloatingEmoji,
@@ -19,13 +21,15 @@ import {
   Pill,
   ThemeToggle,
   Camera,
-  Mic,
-  Target,
   Crown,
+  Edit,
   Globe,
   Sparkle,
+  User,
   cn,
 } from "../ui";
+import { ChooseGameMode, type GameMode } from "./ChooseGameMode";
+import { NameEntryModal } from "./NameEntryModal";
 
 interface ModeSelectProps {
   onSelect: (mode: "camera" | "solo" | "celebrity") => void;
@@ -94,6 +98,27 @@ const fillClasses: Record<ModeCard["fill"], string> = {
 
 export default function ModeSelect({ onSelect }: ModeSelectProps) {
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
+  // True when the "Play now" CTA has opened the mode picker.
+  // Lives in ModeSelect (not in the parent) so the home page
+  // never unmounts while the modal is open — opening the modal
+  // should feel like a stack push, not a route change.
+  const [modePickerOpen, setModePickerOpen] = useState(false);
+  // True while the first-time "what's your name?" modal is on
+  // screen. Set automatically on mount if no name is stored, and
+  // re-set by any mode-pick attempt that races ahead of the gate.
+  const [nameModalOpen, setNameModalOpen] = useState(false);
+  // The first-time gate is "required" — the user can't dismiss it
+  // without picking a name. After a name exists, the same modal is
+  // re-used in non-required mode for the "edit name" flow.
+  const [nameModalRequired, setNameModalRequired] = useState(true);
+  // Tracks the next mode the user tried to pick while the name
+  // modal was open, so we can advance to the right picker once
+  // the modal closes successfully.
+  const [pendingMode, setPendingMode] = useState<GameMode | null>(null);
+
+  const { name, isHydrated: isNameHydrated, save: saveName } = usePlayerName();
+  const { country } = useCountry();
+
   const {
     isAvailable: isRevenueCatAvailable,
     isLoading: isRevenueCatLoading,
@@ -126,19 +151,83 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     };
   }, []);
 
-  const handleSelect = (mode: ModeCard) => {
-    if (mode.id === "celebrity") {
+  // Auto-open the first-time name modal once the storage has been
+  // read. We deliberately wait for `isNameHydrated` so we don't
+  // briefly flash the homepage and then slap a modal on top of
+  // it for returning users.
+  useEffect(() => {
+    if (!isNameHydrated) return;
+    if (name) return;
+    if (nameModalOpen) return;
+    setNameModalRequired(true);
+    setNameModalOpen(true);
+  }, [isNameHydrated, name, nameModalOpen]);
+
+  // Wrap `handleSelect` so the gate kicks in before any mode pick.
+  // If the user doesn't have a name, we open the modal in
+  // required mode and stash the chosen mode for after submit.
+  const requestMode = (mode: GameMode) => {
+    if (!name) {
+      setPendingMode(mode);
+      setNameModalRequired(true);
+      setNameModalOpen(true);
+      return;
+    }
+    proceedToMode(mode);
+  };
+
+  const handleSelect = (mode: ModeId) => {
+    requestMode(mode);
+  };
+
+  // The mode picker modal calls this with the chosen mode id.
+  // Same celebrity-paywall logic as the inline cards; the modal
+  // is the new entry point for the "Play now" CTA, the inline
+  // cards below are still direct entry points.
+  const handleModalSelect = (mode: GameMode) => {
+    setModePickerOpen(false);
+    requestMode(mode);
+  };
+
+  /** Actually transition into a mode — separated from the gate
+   *  wrapper so we can call it both from the click handler and
+   *  from the post-modal-success path. */
+  const proceedToMode = (mode: GameMode) => {
+    if (mode === "celebrity") {
       if (isVIP || !isRevenueCatAvailable) {
-        onSelect(mode.id);
+        onSelect(mode);
         return;
       }
       if (isRevenueCatLoading) return;
       void showPaywall().then((unlocked) => {
-        if (unlocked) onSelect(mode.id);
+        if (unlocked) onSelect(mode);
       });
       return;
     }
-    onSelect(mode.id);
+    onSelect(mode);
+  };
+
+  const handleNameSubmit = (next: string) => {
+    saveName(next);
+    setNameModalOpen(false);
+    // If the user was trying to pick a mode while the modal was
+    // up, continue that flow now that the gate is satisfied.
+    if (pendingMode) {
+      const target = pendingMode;
+      setPendingMode(null);
+      proceedToMode(target);
+    }
+  };
+
+  const handleEditName = () => {
+    setNameModalRequired(false);
+    setNameModalOpen(true);
+  };
+
+  const handleNameModalCancel = () => {
+    if (nameModalRequired) return; // first-time gate has no cancel
+    setNameModalOpen(false);
+    setPendingMode(null);
   };
 
   return (
@@ -150,7 +239,27 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
         {/* Top bar — chunky charcoal underline */}
         <header className="border-b-[3px] border-[var(--charcoal)]">
           <div className="flex items-center justify-between pb-4 sm:pb-5">
-            <Logo size="md" />
+            <div className="flex min-w-0 items-center gap-3">
+              <Logo size="md" />
+              {isNameHydrated && name && (
+                <button
+                  type="button"
+                  onClick={handleEditName}
+                  aria-label="Edit your name"
+                  title="Edit your name"
+                  className="inline-flex max-w-[160px] items-center gap-1.5 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-2.5 py-1 text-[11px] font-bold text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)] transition-transform active:translate-y-0.5 active:shadow-none sm:max-w-none sm:text-xs"
+                >
+                  <User size={12} />
+                  <span className="truncate">{name}</span>
+                  {country?.flag && (
+                    <span aria-hidden className="text-sm leading-none">
+                      {country.flag}
+                    </span>
+                  )}
+                  <Edit size={12} />
+                </button>
+              )}
+            </div>
             <nav className="flex items-center gap-4 text-sm font-bold text-[var(--charcoal)] sm:gap-6">
               <a href="/how-it-works" className="hidden hover:underline sm:inline">
                 How to play
@@ -228,7 +337,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 text="Make friends."
                 startDelay={0.3}
                 typingSpeed={90}
-                className="mt-2 inline-block rotate-[-2deg] rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--purple)] px-3 py-1 text-[var(--off-white)] shadow-[6px_6px_0_0_var(--charcoal)] sm:mt-3 sm:px-5 sm:py-2"
+                className="mt-2 inline-block whitespace-nowrap rotate-[-2deg] rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--purple)] px-3 py-1 text-[0.82em] text-[var(--off-white)] shadow-[6px_6px_0_0_var(--charcoal)] sm:mt-3 sm:px-5 sm:py-2 sm:text-[1em]"
               />
             </h1>
 
@@ -252,7 +361,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
             >
               <Button
                 size="lg"
-                onClick={() => handleSelect(MODES[0])}
+                onClick={() => setModePickerOpen(true)}
                 iconLeft={<Camera size={18} />}
               >
                 Play now
@@ -313,7 +422,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 )}
               >
                 <button
-                  onClick={() => handleSelect(mode)}
+                  onClick={() => handleSelect(mode.id)}
                   disabled={mode.id === "celebrity" && isRevenueCatAvailable && isRevenueCatLoading}
                   className={cn(
                     "group relative flex w-full max-w-[320px] flex-col items-start gap-4",
@@ -388,27 +497,30 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
           )}
         </section>
 
-        {/* Bottom — thick charcoal rule, simple nav */}
-        <footer className="mt-auto border-t-[3px] border-[var(--charcoal)]">
-          <div className="flex flex-col items-center justify-between gap-3 pt-4 sm:flex-row">
-            <Logo size="sm" />
-            <span className="text-xs font-bold text-[var(--on-surface-variant)]">
-              © {new Date().getFullYear()} Emoggle. Stay squishy.
-            </span>
-            <nav className="flex items-center gap-4 text-xs font-bold text-[var(--on-surface-variant)]">
-              <a href="/privacy" className="hover:text-[var(--charcoal)] hover:underline">
-                Privacy
-              </a>
-              <a href="/terms" className="hover:text-[var(--charcoal)] hover:underline">
-                Terms
-              </a>
-              <a href="/contact" className="hover:text-[var(--charcoal)] hover:underline">
-                Support
-              </a>
-            </nav>
-          </div>
-        </footer>
       </div>
+
+      {/* Mode picker — opened by the "Play now" CTA. Lives at
+          the end of the tree so its portal-like fixed overlay
+          sits on top of every other element on the home page. */}
+      <ChooseGameMode
+        open={modePickerOpen}
+        onClose={() => setModePickerOpen(false)}
+        onSelect={handleModalSelect}
+        isVIP={isVIP}
+      />
+
+      {/* Name entry — first-time gate or "edit name" affordance.
+          Required mode for the first-time flow so the user can't
+          dismiss without picking a name; non-required for the
+          edit affordance. Mounted last so the z-index sits on
+          top of every other element. */}
+      <NameEntryModal
+        open={nameModalOpen}
+        currentName={name}
+        required={nameModalRequired}
+        onSubmit={handleNameSubmit}
+        onCancel={handleNameModalCancel}
+      />
     </div>
   );
 }
@@ -469,8 +581,8 @@ function DecoEmojis() {
  *
  * It uses the same chunky-frame + sticker-shadow + score-bar language as the
  * in-game duel, sized for the landing. Two tilt-opposed frames (purple on
- * the left, pink on the right) flank a charcoal seam with a yellow target
- * emoji floating in the middle. Below each frame is a tinted score bar.
+ * the left, pink on the right) flank a clean center target area with a yellow
+ * emoji. Each camera carries the shared timer; tinted score bars sit below.
  *
  * This is the visual promise of the product: "this is what you'll see when
  * you play." On mobile it stacks the same way it does in-game.
@@ -479,26 +591,22 @@ function HeroPreview() {
   return (
     <div className="relative mx-auto flex w-full max-w-[640px] flex-col gap-3 lg:max-w-none">
       {/* Top label — the game-state header */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-start gap-2">
         <Pill tone="purple">
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--off-white)]" />
           Round 03
-        </Pill>
-        <Pill tone="yellow">
-          <span className="font-mono tabular">10s</span>
         </Pill>
       </div>
 
       {/* The face-off */}
       <div className="grid grid-cols-[1fr_auto_1fr] items-stretch gap-1.5 sm:gap-3">
         {/* Player A — purple */}
-        <PreviewColumn seat="a" label="Violet" score="8.4" src="/preview-faces/violet.webp" alt="A young woman with a playful expression." />
+        <PreviewColumn seat="a" label="Violet" score="8.4" time="10s" src="/preview-faces/violet.webp" alt="A young woman with a playful expression." />
 
         {/* Seam with the target emoji */}
-        <div className="relative flex w-14 items-center justify-center sm:w-20 lg:w-24">
-          <div className="absolute inset-y-2 left-1/2 w-1 -translate-x-1/2 bg-[var(--charcoal)]" aria-hidden />
-          <div className="relative z-10 flex flex-col items-center gap-1.5">
-            <span className="eyebrow text-[9px]">Target</span>
+        <div className="relative flex w-14 items-center justify-center pt-7 sm:w-20 sm:pt-8 lg:w-24">
+          <span className="eyebrow absolute top-0 text-[9px] sm:text-[10px]">Target</span>
+          <div className="relative z-10 flex flex-col items-center">
             <div
               className="flex h-14 w-14 items-center justify-center rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] shadow-[4px_4px_0_0_var(--charcoal)] sm:h-20 sm:w-20 lg:h-24 lg:w-24"
               aria-hidden
@@ -511,12 +619,11 @@ function HeroPreview() {
                 <BlinkingEmoji blinkDuration={200}>😜</BlinkingEmoji>
               </span>
             </div>
-            <span className="font-mono tabular text-[11px] font-bold text-[var(--charcoal)]">10s</span>
           </div>
         </div>
 
         {/* Player B — pink */}
-        <PreviewColumn seat="b" label="Pink" score="7.1" src="/preview-faces/pink.webp" alt="A young man winking with his tongue out, mimicking a playful emoji expression." />
+        <PreviewColumn seat="b" label="Pink" score="7.1" time="10s" src="/preview-faces/pink.webp" alt="A young man winking with his tongue out, mimicking a playful emoji expression." />
       </div>
     </div>
   );
@@ -526,12 +633,14 @@ function PreviewColumn({
   seat,
   label,
   score,
+  time,
   src,
   alt,
 }: {
   seat: "a" | "b";
   label: string;
   score: string;
+  time: string;
   src: string;
   alt: string;
 }) {
@@ -583,6 +692,12 @@ function PreviewColumn({
         >
           <span className="h-1.5 w-1.5 rounded-full" style={{ background: seatColor }} />
           {label}
+        </span>
+        <span
+          className="absolute right-2 top-2 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tabular text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)] sm:right-3 sm:top-3 sm:text-[10px]"
+          aria-label={`${time} remaining`}
+        >
+          {time}
         </span>
       </div>
 

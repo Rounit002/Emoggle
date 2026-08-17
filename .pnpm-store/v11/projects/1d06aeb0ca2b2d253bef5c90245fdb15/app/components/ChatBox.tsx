@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { ChatMessage } from "../hooks/useMatchmaking";
 
@@ -55,6 +55,25 @@ interface ChatBoxProps {
    * the user taps the confirm button.
    */
   onReport?: () => void;
+  /** Start as a compact dock below 640px; expanding opens a bottom sheet. */
+  compactOnMobile?: boolean;
+}
+
+const MOBILE_CHAT_QUERY = "(max-width: 639px)";
+
+function subscribeToMobileChat(onChange: () => void) {
+  const mediaQuery = window.matchMedia(MOBILE_CHAT_QUERY);
+  mediaQuery.addEventListener("change", onChange);
+  return () => mediaQuery.removeEventListener("change", onChange);
+}
+
+function getMobileChatViewport() {
+  return window.matchMedia(MOBILE_CHAT_QUERY).matches;
+}
+
+function getServerMobileChatViewport() {
+  // Prefer the compact dock during SSR. Desktop expands after hydration.
+  return true;
 }
 
 /* Tiny inline profanity list for the local preview. The
@@ -102,10 +121,17 @@ export default function ChatBox({
   partnerLabel = "Stranger",
   matchId,
   onReport,
+  compactOnMobile = false,
 }: ChatBoxProps) {
   const [input, setInput] = useState("");
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [minimizedPreference, setMinimizedPreference] = useState<boolean | null>(null);
   const [showReportConfirm, setShowReportConfirm] = useState(false);
+  const isMobileViewport = useSyncExternalStore(
+    subscribeToMobileChat,
+    getMobileChatViewport,
+    getServerMobileChatViewport,
+  );
+  const isMinimized = minimizedPreference ?? (compactOnMobile && isMobileViewport);
   const bottomRef = useRef<HTMLDivElement>(null);
   /* Scroll target for the message list. The page-level scroll
      must not move when a new message lands (or when the panel
@@ -119,14 +145,12 @@ export default function ChatBox({
   const lastSeenIndexRef = useRef(0);
   const initialMatchIdRef = useRef<string | null | undefined>(matchId);
 
-  /* Default-on-connect: every new match id flips the panel back to
-     its fully-open state. The ref captures the value on first
-     render only, so a re-render with the same id doesn't trigger
-     a re-open mid-match (e.g. after the user manually minimizes). */
+  /* A new match clears the prior toggle. Mobile returns to its compact
+     dock; desktop returns to its fully open panel. */
   useEffect(() => {
     if (!matchId) return;
     if (matchId === initialMatchIdRef.current) return;
-    setIsMinimized(false);
+    setMinimizedPreference(null);
     lastSeenIndexRef.current = 0;
   }, [matchId]);
 
@@ -208,7 +232,11 @@ export default function ChatBox({
 
   return (
     <div
-      className="relative flex h-full w-full min-h-0 flex-col overflow-hidden rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white)] shadow-[4px_4px_0_0_var(--charcoal)]"
+      className={`flex min-h-0 w-full flex-col overflow-hidden rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white)] shadow-[4px_4px_0_0_var(--charcoal)] ${
+        compactOnMobile && !isMinimized
+          ? "fixed inset-x-3 bottom-3 z-[60] h-[min(420px,70dvh)] w-auto sm:relative sm:inset-auto sm:z-auto sm:h-full sm:w-full"
+          : "relative h-full"
+      }`}
       aria-label="In-duel chat"
     >
       {/* Header — always visible, even when minimized. This is the
@@ -236,7 +264,7 @@ export default function ChatBox({
               onClick={() => setShowReportConfirm(true)}
               aria-label="Report this player"
               title="Report player"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] text-[var(--charcoal)] transition-transform duration-100 hover:bg-[var(--pink)] active:translate-y-[1px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--charcoal)]"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] text-[var(--charcoal)] transition-transform duration-100 hover:bg-[var(--pink)] active:translate-y-[1px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--charcoal)] sm:h-8 sm:w-8"
             >
               <svg
                 aria-hidden
@@ -254,10 +282,10 @@ export default function ChatBox({
           )}
           <button
             type="button"
-            onClick={() => setIsMinimized((m) => !m)}
+            onClick={() => setMinimizedPreference(!isMinimized)}
             aria-label={isMinimized ? "Expand chat" : "Minimize chat"}
             title={isMinimized ? "Expand chat" : "Minimize chat"}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] text-[var(--charcoal)] transition-transform duration-100 hover:bg-[var(--off-white-2)] active:translate-y-[1px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--charcoal)]"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] text-[var(--charcoal)] transition-transform duration-100 hover:bg-[var(--off-white-2)] active:translate-y-[1px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--charcoal)] sm:h-8 sm:w-8"
           >
             {isMinimized ? (
               <svg
@@ -391,8 +419,8 @@ export default function ChatBox({
       {isMinimized && (
         <button
           type="button"
-          onClick={() => setIsMinimized(false)}
-          className="flex-1 min-h-0 flex items-center justify-center px-3 text-center text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ink-muted)] hover:bg-[var(--surface-container-low)] transition-colors"
+          onClick={() => setMinimizedPreference(false)}
+          className="hidden flex-1 min-h-0 items-center justify-center px-3 text-center text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--ink-muted)] hover:bg-[var(--surface-container-low)] transition-colors sm:flex"
           aria-label="Expand chat"
         >
           Chat minimized · tap to expand

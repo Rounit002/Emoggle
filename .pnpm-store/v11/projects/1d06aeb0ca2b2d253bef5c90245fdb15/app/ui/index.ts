@@ -35,5 +35,8 @@ export {
   Crown,
   Trash,
   Play,
+  User,
+  Edit,
+  Eraser,
 } from "./Icon";
 export { cn } from "./cn";

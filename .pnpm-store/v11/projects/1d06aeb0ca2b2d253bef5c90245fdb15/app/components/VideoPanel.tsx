@@ -5,12 +5,22 @@ import { forwardRef, useEffect, useRef, type RefObject } from "react";
 import AnalyzingOverlay from "./AnalyzingOverlay";
 import type { FaceBox, FaceLandmark } from "../hooks/useExpressionScorer";
 import { useMediaPipeFace, type MeshConnection } from "../context/MediaPipeFaceContext";
+import { flagFromAnyOrFallback } from "../lib/country";
 
 interface VideoPanelProps {
   label: string;
   isLocal: boolean;
   playerName?: string;
   country?: string | null;
+  /**
+   * 2-letter ISO country code ("IN", "US", "GB"). The preferred
+   * flag source — when present we render the flag via
+   * `isoFlag()` so a glitched display string on the wire can
+   * never make the user see "IN" where they should see 🇮🇳.
+   * Falls back to `country` (and then to a code split) when
+   * missing, for legacy data.
+   */
+  countryCode?: string | null;
   rankLabel?: string;
   localStream?: MediaStream | null;
   remoteStream?: MediaStream | null;
@@ -37,6 +47,7 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
       isLocal,
       playerName,
       country,
+      countryCode,
       rankLabel = "UNRANKED | 400 ELO",
       localStream,
       remoteStream,
@@ -64,6 +75,13 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
         : "border border-zinc-700";
     const panelShape = fullBleedOnMobile ? "rounded-none sm:rounded-2xl" : "rounded-2xl";
 
+    // Derive the flag emoji with a clear priority order so a
+    // glitched `country` string on the wire (or in the cache)
+    // can never show "IN" in place of 🇮🇳. `flagFromAny` lives
+    // in `lib/country.ts` next to the same logic in the server
+    // — keep them in sync if you tweak the resolution order.
+    const flag = flagFromAnyOrFallback(country ?? null, countryCode ?? null);
+
     return (
       <div className={`relative h-full w-full min-h-0 min-w-0 overflow-hidden bg-zinc-900 transition-shadow duration-700 ${panelShape} ${panelBorder}`}>
         <div className="pointer-events-none absolute inset-0 z-20 border border-white/10 shadow-[inset_0_0_80px_rgba(0,0,0,0.65)]" />
@@ -77,8 +95,28 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
             <div className="absolute top-3 right-3 z-30 rounded-full border border-violet-300/30 bg-zinc-950/75 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white shadow-[0_0_22px_rgba(168,85,247,0.22)] backdrop-blur-md">
               {rankLabel.replace("|", " | ")}
             </div>
+            {/* Player name + country flag pill. Sits directly
+                under the YOU/STRANGER label at top-left so it is
+                always visible — even on mobile (where the older
+                bottom-left pill was repositioned to clear the
+                score card). The `playerName ?? label` fallback
+                keeps the "You" / "Stranger" text if no name ever
+                arrived; missing/invalid country metadata renders
+                the neutral globe fallback. */}
+            <div className="absolute top-12 left-3 z-30 flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 rounded-full border border-white/15 bg-black/65 px-2.5 py-1 backdrop-blur-md">
+              <span aria-hidden className="text-base leading-none">
+                {flag}
+              </span>
+              <span className="truncate text-[11px] font-bold text-white">
+                {playerName ?? label}
+              </span>
+            </div>
+            {/* Sticker-card badge at the bottom-left. On mobile
+                it shifts up (`bottom-[4.75rem]`) to clear the
+                score card sitting at the bottom of the tile. On
+                desktop it sits at the standard `bottom-3`. */}
             <div className={`absolute left-3 z-30 flex items-center gap-2 rounded-full border border-white/15 bg-black/65 px-3 py-1.5 backdrop-blur-md ${fullBleedOnMobile ? "bottom-[4.75rem] sm:bottom-3" : "bottom-3"}`}>
-              {country && <span className="text-lg leading-none">{country.split(" ")[0]}</span>}
+              <span aria-hidden className="text-lg leading-none">{flag}</span>
               <span className="text-xs font-black uppercase tracking-[0.16em] text-white">{playerName ?? label}</span>
             </div>
           </>

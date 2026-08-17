@@ -48,7 +48,7 @@ export function Seam({
     >
       {/* The line itself — chunky charcoal with a small offset shadow */}
       <div
-        className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-1 bg-[var(--charcoal)]"
+        className="absolute inset-y-0 left-1/2 hidden w-1 -translate-x-1/2 bg-[var(--charcoal)] sm:block"
         aria-hidden
       />
 
@@ -83,7 +83,7 @@ function PlayingContent({
 }) {
   return (
     <>
-      {label && <span className="eyebrow text-[10px]">{label}</span>}
+      {label && <span className="eyebrow hidden text-[10px] sm:inline">{label}</span>}
       {emoji && (
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
@@ -94,7 +94,7 @@ function PlayingContent({
             transition={{ type: "spring", stiffness: 320, damping: 22 }}
             className={cn(
               "flex aspect-square w-full max-w-[180px] items-center justify-center",
-              "rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--yellow)]",
+              "rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] sm:rounded-2xl",
               "shadow-[5px_5px_0_0_var(--charcoal)]",
               "lg:max-w-[220px]",
             )}
@@ -110,7 +110,7 @@ function PlayingContent({
       {typeof secondsLeft === "number" && (
         <span
           className={cn(
-            "font-mono tabular text-sm font-bold",
+          "hidden font-mono tabular text-sm font-bold sm:inline",
             "text-[var(--on-surface-variant)]",
             secondsLeft <= 3 && "text-[var(--pink-deep)]",
           )}

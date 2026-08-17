@@ -6,7 +6,11 @@ import VideoPanel from "./VideoPanel";
 import ChatBox from "./ChatBox";
 import { useMatchmaking } from "../hooks/useMatchmaking";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
+import { isValidScoreSample, useStableScoreSampler } from "../hooks/useStableScoreSampler";
 import { useUserProfile } from "../context/UserProfileContext";
+import { usePlayerName } from "../context/PlayerNameContext";
+import { useCountry } from "../context/CountryContext";
+import { ResultScreen, type MatchResultLike } from "./result";
 import {
   Button,
   IconButton,
@@ -27,6 +31,13 @@ import {
   cn,
   type Seat,
 } from "../ui";
+import {
+  appendMatchHistory,
+  computeStats,
+  setStats as setStoredStats,
+  type MatchHistoryEntry,
+} from "../lib/storage";
+import { flagFromAnyOrFallback } from "../lib/country";
 
 const ROUND_SECONDS = 10;
 
@@ -62,98 +73,106 @@ function finiteOr(value: number | undefined, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function resultCopy(
-  myScore: number | null,
-  rivalScore: number | null,
-  winner?: "you" | "rival" | "tie",
-) {
-  if (myScore === null || rivalScore === null) {
-    return { label: "Hold up", tone: "var(--yellow-deep)" as const, sub: "Waiting for rival score..." };
-  }
-  if (winner === "tie") {
-    return { label: "Twin energy", tone: "var(--yellow-deep)" as const, sub: "Same score. Clean tie." };
-  }
-  if (winner === "you") {
-    return {
-      label: myScore >= 8 ? "Ate that" : "Face card won",
-      tone: "var(--purple-deep)" as const,
-      sub: "Your face matched the emoji closer this round.",
-    };
-  }
-  if (winner === "rival") {
-    return {
-      label: rivalScore >= 8 ? "Got cooked" : "Almost ate",
-      tone: "var(--pink-deep)" as const,
-      sub: "Rival's face geometry landed closer to the emoji.",
-    };
-  }
-  const diff = myScore - rivalScore;
-  if (Math.abs(diff) <= 1) {
-    return { label: "Twin energy", tone: "var(--yellow-deep)" as const, sub: "Basically a tie." };
-  }
-  if (diff > 0) {
-    return {
-      label: myScore >= 8 ? "Ate that" : "Face card won",
-      tone: "var(--purple-deep)" as const,
-      sub: "Your emoji impression cleared the room.",
-    };
-  }
+/**
+ * Shape the matchmaking hook's `MatchResult` (and the local scores
+ * we already have) into the `MatchResultLike` shape consumed by
+ * `ResultScreen`.
+ */
+function buildMatchResult(args: {
+  matchResult: import("../hooks/useMatchmaking").MatchResult | null;
+  emoji: string | null;
+  myName: string | null;
+  partnerName: string | null;
+  myFlag: string;
+  partnerFlag: string;
+}): MatchResultLike | null {
+  const { matchResult, emoji, myName, partnerName, myFlag, partnerFlag } = args;
+  if (!matchResult) return null;
+
+  const outcome: MatchResultLike["outcome"] =
+    matchResult.winner === "tie"
+      ? "draw"
+      : matchResult.winner === "you"
+        ? "win"
+        : "loss";
+
   return {
-    label: rivalScore >= 8 ? "Got cooked" : "Almost ate",
-    tone: "var(--pink-deep)" as const,
-    sub: "Rival got closer to the emoji this round.",
+    myScore: matchResult.myScore,
+    opponentScore: matchResult.partnerScore,
+    emoji,
+    outcome,
+    playerName: myName ?? "ME",
+    opponentName: partnerName ?? null,
+    playerFlag: myFlag,
+    opponentFlag: partnerFlag,
+    matchId: matchResult.matchId,
   };
 }
 
 export default function DuelArena({ onBack }: DuelArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
-  const bestScoreRef = useRef(0);
-  const scoreSamplesRef = useRef<number[]>([]);
   const submittedRef = useRef(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [phase, setPhase] = useState<AppPhase>("lobby");
   const [roundSeconds, setRoundSeconds] = useState(ROUND_SECONDS);
-  const [bestScore, setBestScore] = useState<number | null>(null);
   const [finalScore, setFinalScore] = useState<number | null>(null);
   const [searchSession, setSearchSession] = useState(0);
   const [noOneFound, setNoOneFound] = useState(false);
-  const [myCountry, setMyCountry] = useState<string | null>(null);
   const [myRank, setMyRank] = useState<RankSnapshot>(DEFAULT_RANK);
   const [partnerRank, setPartnerRank] = useState<RankSnapshot>(DEFAULT_RANK);
   const { profile, saveProfile, sessionToken } = useUserProfile();
+  const { name: myName } = usePlayerName();
+  const { country: detectedCountry } = useCountry();
+  // The locally-detected country ("🇮🇳 India" or null). Used as
+  // the player's own flag on the tile. The partner's flag is
+  // supplied by the server in `match_started` from the partner's
+  // own edge-headers or, when the server doesn't trust the geo
+  // header, the partner's own client-side detection.
+  const myCountry = useMemo(() => {
+    if (detectedCountry) return detectedCountry.display;
+    // Fall back to the existing /api/geo response for symmetry
+    // with the partner side. Populated by the effect below.
+    return null;
+  }, [detectedCountry]);
+  // Canonical 2-letter ISO code. The wire format the signaling
+  // server relays to the partner, and what the partner's tile
+  // uses to render the flag. Sending the code (not the display
+  // string) means a sender with a glitched display string can
+  // never make the partner see "IN" where they should see 🇮🇳.
+  const myCountryCode = detectedCountry?.countryCode ?? null;
 
-  // Geo lookup — same logic as before, just refreshed for the new design.
-  useEffect(() => {
-    let isCancelled = false;
-    const base = process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
-    fetch(`${base}/api/geo`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!data || isCancelled) return;
-        if (typeof data.country === "string" && data.country) {
-          setMyCountry(data.country);
-          return;
-        }
-        const code: string | null = typeof data?.countryCode === "string" ? data.countryCode.toUpperCase() : null;
-        if (code && code.length === 2) {
-          const flag = code.replace(/./g, (c: string) => String.fromCodePoint(127462 + c.charCodeAt(0) - 65));
-          const name = new Intl.DisplayNames(["en"], { type: "region" }).of(code);
-          setMyCountry(name ? `${flag} ${name}` : flag);
-          return;
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      isCancelled = true;
-    };
-  }, []);
+  // Holds the latest expression-scorer output so the stable
+  // sampler can read it without re-subscribing on every render.
+  // Populated after `useExpressionScorer` returns below.
+  const expressionRef = useRef<ReturnType<typeof useExpressionScorer> | null>(null);
+
+  // Stable-interval sample collection. Runs a 100ms tick during
+  // the `playing` phase, only counting valid face-detection
+  // samples. The final 10-second score is the mean of every
+  // sample we managed to collect — never a single frame, never
+  // the last value the scorer happened to report.
+  const {
+    start: startScoreSampling,
+    stop: stopScoreSampling,
+    reset: resetScoreSampling,
+    getCurrent: getCurrentScoreSamples,
+  } = useStableScoreSampler(
+    () => {
+      const expression = expressionRef.current;
+      if (!expression) return null;
+      return {
+        score: expression.score,
+        valid: isValidScoreSample(expression.score, expression.status),
+      };
+    },
+    { intervalMs: 100 },
+  );
 
   const {
     status,
     remoteStream,
     countdown,
-    partnerScore,
     partnerLiveScore,
     matchResult,
     emojiPrompt,
@@ -164,7 +183,9 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     stopMatching,
     startMatching,
     requestChangeEmoji,
+    partnerName,
     partnerCountry,
+    partnerCountryCode,
     localPeerId,
     partnerPeerId,
     messages,
@@ -173,7 +194,15 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     sendTyping,
     reportPartner,
     currentMatchId,
-  } = useMatchmaking(localStream, myCountry, profile, saveProfile, sessionToken);
+  } = useMatchmaking(
+    localStream,
+    myName,
+    myCountry,
+    myCountryCode,
+    profile,
+    saveProfile,
+    sessionToken,
+  );
 
   const mySeat: Seat = useMemo(
     () => seatForIds(localPeerId, partnerPeerId),
@@ -198,7 +227,26 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     publishLiveScore,
   );
 
+  // Keep the stable sampler pointed at the freshest scorer state.
+  // Synced in an effect (not during render) so the React 19
+  // `react-hooks/refs` rule is happy and the interval callback
+  // never sees a stale value.
+  useEffect(() => {
+    expressionRef.current = expression;
+  }, [expression]);
+
   const liveScore = toTenPoint(expression.score);
+
+  // Drive the sampler off the active phase. `start()` resets any
+  // prior run, so consecutive rounds don't share samples.
+  useEffect(() => {
+    if (phase === "playing") {
+      startScoreSampling();
+    } else {
+      stopScoreSampling();
+    }
+    return stopScoreSampling;
+  }, [phase, startScoreSampling, stopScoreSampling]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -226,26 +274,22 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     if (status === "matched") {
       setPhase("dueling");
       setRoundSeconds(ROUND_SECONDS);
-      setBestScore(null);
       setFinalScore(null);
       setPartnerRank(DEFAULT_RANK);
-      bestScoreRef.current = 0;
-      scoreSamplesRef.current = [];
+      resetScoreSampling();
       submittedRef.current = false;
     }
-  }, [status, emojiPrompt]);
+  }, [status, emojiPrompt, resetScoreSampling]);
 
   useEffect(() => {
     if (status === "waiting" || status === "idle" || status === "connecting" || status === "stopped") {
       setPhase("lobby");
       setRoundSeconds(ROUND_SECONDS);
-      setBestScore(null);
       setFinalScore(null);
-      bestScoreRef.current = 0;
-      scoreSamplesRef.current = [];
+      resetScoreSampling();
       submittedRef.current = false;
     }
-  }, [status]);
+  }, [status, resetScoreSampling]);
 
   useEffect(() => {
     if (status !== "waiting") {
@@ -263,14 +307,12 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
       setPhase("countdown");
     } else {
       setRoundSeconds(ROUND_SECONDS);
-      setBestScore(null);
       setFinalScore(null);
-      bestScoreRef.current = 0;
-      scoreSamplesRef.current = [];
+      resetScoreSampling();
       submittedRef.current = false;
       setPhase("playing");
     }
-  }, [countdown]);
+  }, [countdown, resetScoreSampling]);
 
   useEffect(() => {
     if (!matchResult) return;
@@ -293,72 +335,75 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
   }, [matchResult]);
 
   // Persist completed duels to local history.
+  //
+  // Storage key moved from `emoggle:duel-history` to
+  // `emoggle_match_history` as part of the namespaced localStorage
+  // pass. The new key path is in `app/lib/storage.ts`, which also
+  // performs a one-shot migration from the legacy colon-form key
+  // the first time the new key is read.
   useEffect(() => {
     if (!matchResult) return;
     if (typeof window === "undefined") return;
-    try {
-      const key = "emoggle:duel-history";
-      const raw = window.localStorage.getItem(key);
-      const list: Array<Record<string, unknown>> = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(list)) return;
-      if (list.some((entry) => entry && entry.id === matchResult.matchId)) return;
-      const next = [
-        {
-          id: matchResult.matchId,
-          ts: Date.now(),
-          mySeat,
-          myScore: matchResult.myScore,
-          rivalScore: matchResult.partnerScore,
-          winner: matchResult.winner,
-          myTier: matchResult.myTier || DEFAULT_RANK.tier,
-          myElo: finiteOr(matchResult.myElo, DEFAULT_RANK.elo),
-          myDelta:
-            typeof matchResult.myEloDelta === "number" && Number.isFinite(matchResult.myEloDelta)
-              ? matchResult.myEloDelta
-              : null,
-        },
-        ...list,
-      ].slice(0, 50);
-      window.localStorage.setItem(key, JSON.stringify(next));
-    } catch {
-      /* ignore */
-    }
+    const entry: MatchHistoryEntry = {
+      id: matchResult.matchId,
+      ts: Date.now(),
+      mySeat,
+      myScore: matchResult.myScore,
+      rivalScore: matchResult.partnerScore,
+      winner: matchResult.winner,
+      myTier: matchResult.myTier || DEFAULT_RANK.tier,
+      myElo: finiteOr(matchResult.myElo, DEFAULT_RANK.elo),
+      myDelta:
+        typeof matchResult.myEloDelta === "number" && Number.isFinite(matchResult.myEloDelta)
+          ? matchResult.myEloDelta
+          : null,
+    };
+    const next = appendMatchHistory(entry);
+    // Recompute aggregate stats from the freshly-appended list.
+    // The solo history is also included so a single number
+    // captures the player's overall best / average.
+    setStoredStats(computeStats(next));
   }, [matchResult, mySeat]);
 
-  useEffect(() => {
-    if (phase !== "playing" || liveScore === null) return;
-    scoreSamplesRef.current.push(liveScore);
-    if (liveScore > bestScoreRef.current) {
-      bestScoreRef.current = liveScore;
-      setBestScore(liveScore);
-    }
-  }, [liveScore, phase]);
+  const finalizeLocalRound = useCallback(() => {
+    if (submittedRef.current) return;
+    submittedRef.current = true;
+
+    // Freeze the round before reading it. The ref-backed snapshot
+    // includes the most recent interval tick even if React has not
+    // rendered that state update yet.
+    stopScoreSampling();
+    const snapshot = getCurrentScoreSamples();
+    const averageScore = snapshot.sampleCount > 0 ? snapshot.average : 0;
+    const score = Number(averageScore.toFixed(1));
+
+    // Keep the locally calculated value immutable for diagnostics and
+    // the waiting UI. The visible verdict waits for `match_result`,
+    // whose scores are server-normalized and mapped per player.
+    setFinalScore(score);
+    submitScore(score);
+    submitLiveScore(score);
+    setPhase("results");
+  }, [getCurrentScoreSamples, stopScoreSampling, submitLiveScore, submitScore]);
 
   useEffect(() => {
     if (phase !== "playing") return;
+    let secondsLeft = ROUND_SECONDS;
     const timer = window.setInterval(() => {
-      setRoundSeconds((seconds) => {
-        if (seconds <= 1) {
-          window.clearInterval(timer);
-          const samples = scoreSamplesRef.current;
-          const averageScore = samples.length
-            ? samples.reduce((sum, sample) => sum + sample, 0) / samples.length
-            : bestScoreRef.current;
-          const score = Number(averageScore.toFixed(1));
-          if (!submittedRef.current) {
-            submittedRef.current = true;
-            setFinalScore(score);
-            submitScore(score);
-            submitLiveScore(score);
-          }
-          setPhase("results");
-          return 0;
-        }
-        return seconds - 1;
-      });
+      secondsLeft -= 1;
+      setRoundSeconds(Math.max(0, secondsLeft));
+      if (secondsLeft <= 0) {
+        window.clearInterval(timer);
+        finalizeLocalRound();
+      }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [phase, submitScore, submitLiveScore]);
+  }, [finalizeLocalRound, phase]);
+
+  const resolvedFinalScore = matchResult?.myScore ?? finalScore;
+  const resolvedPartnerScore = matchResult?.partnerScore ?? null;
+  const myFlag = flagFromAnyOrFallback(myCountry, myCountryCode);
+  const partnerFlag = flagFromAnyOrFallback(partnerCountry, partnerCountryCode);
 
   const remoteDisplayStream =
     remoteStream ??
@@ -404,12 +449,11 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     setIsMicMuted(next);
   }, [localStream, isMicMuted]);
 
-  const finalResult = resultCopy(finalScore, partnerScore, matchResult?.winner);
-  const myScore = mySeat === "a" ? (phase === "results" ? finalScore : liveScore) : (phase === "results" ? partnerScore : partnerLiveScore);
-  const rivalScore = mySeat === "a" ? (phase === "results" ? partnerScore : partnerLiveScore) : (phase === "results" ? finalScore : liveScore);
-
+  // The result modal is the only place final scores are shown. Keeping the
+  // seam idle prevents a second score stack from sitting behind (or, on
+  // narrow screens, above) the modal.
   const seamState: "idle" | "playing" | "revealing" =
-    phase === "playing" ? "playing" : phase === "results" ? "revealing" : "idle";
+    phase === "playing" ? "playing" : "idle";
 
   const inMatch = status === "matched";
 
@@ -446,27 +490,23 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
         </div>
       </header>
 
-      {/* The face-off: cameras on top, chat directly underneath.
-          Mobile uses two full-bleed rows with the seam floating at
-          their shared boundary. At sm+ the existing padded,
-          side-by-side layout is restored. */}
+      {/* Mobile: two inset camera cards with a dedicated emoji row.
+          Desktop restores the side-by-side arena. */}
       <main
-        className="flex min-h-0 flex-1 flex-col gap-0 p-0 sm:gap-4 sm:p-4 lg:gap-6 lg:p-6"
+        className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:gap-4 sm:p-4 lg:gap-6 lg:p-6"
         aria-label="Duel arena"
       >
-        {/* Cameras + seam. Equal mobile rows split the usable camera
-            height; the minimum keeps both feeds usable on short
-            phones while the separate chat slot remains below. */}
-        <div className="relative grid min-h-[560px] flex-1 grid-cols-1 grid-rows-2 gap-0 sm:min-h-[480px] sm:grid-cols-[1fr_auto_1fr] sm:grid-rows-1 sm:gap-4 lg:min-h-[520px]">
+        {/* The seam is a real mobile grid row, so it cannot cover a face. */}
+        <div className="relative grid flex-none grid-cols-1 grid-rows-[auto_auto_auto] gap-3 sm:min-h-[480px] sm:flex-1 sm:grid-cols-[1fr_auto_1fr] sm:grid-rows-1 sm:gap-4 lg:min-h-[520px]">
           {/* Player A column */}
           <DuelColumn
             seat="a"
-            playerName="You"
+            playerName={mySeat === "a" ? (myName ?? "You") : (partnerName ?? "Rival")}
             country={mySeat === "a" ? myCountry : partnerCountry}
+            countryCode={mySeat === "a" ? myCountryCode : partnerCountryCode}
             rankLabel={mySeat === "a" ? formatRank(myRank) : formatRank(partnerRank)}
-            score={mySeat === "a" ? myScore : rivalScore}
             liveScore={mySeat === "a" ? liveScore : partnerLiveScore}
-            finalScore={mySeat === "a" ? finalScore : partnerScore}
+            finalScore={mySeat === "a" ? resolvedFinalScore : resolvedPartnerScore}
             phase={phase}
             isLocal={mySeat === "a"}
             localStream={localStream}
@@ -483,8 +523,8 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
           <SeamColumn
             state={seamState}
             emoji={emojiPrompt}
-            scoreA={mySeat === "a" ? (phase === "results" ? finalScore : liveScore) : (phase === "results" ? partnerScore : partnerLiveScore)}
-            scoreB={mySeat === "a" ? (phase === "results" ? partnerScore : partnerLiveScore) : (phase === "results" ? finalScore : liveScore)}
+            scoreA={mySeat === "a" ? (phase === "results" ? resolvedFinalScore : liveScore) : (phase === "results" ? resolvedPartnerScore : partnerLiveScore)}
+            scoreB={mySeat === "a" ? (phase === "results" ? resolvedPartnerScore : partnerLiveScore) : (phase === "results" ? resolvedFinalScore : liveScore)}
             secondsLeft={phase === "playing" ? roundSeconds : null}
             emojiLocked={emojiLocked}
             onRequestChangeEmoji={requestChangeEmoji}
@@ -493,12 +533,12 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
           {/* Player B column */}
           <DuelColumn
             seat="b"
-            playerName={rivalSeat === "a" ? "You" : "Rival"}
+            playerName={rivalSeat === "a" ? (myName ?? "You") : (partnerName ?? "Rival")}
             country={rivalSeat === "a" ? myCountry : partnerCountry}
+            countryCode={rivalSeat === "a" ? myCountryCode : partnerCountryCode}
             rankLabel={rivalSeat === "a" ? formatRank(myRank) : formatRank(partnerRank)}
-            score={rivalSeat === "a" ? myScore : rivalScore}
             liveScore={rivalSeat === "a" ? liveScore : partnerLiveScore}
-            finalScore={rivalSeat === "a" ? finalScore : partnerScore}
+            finalScore={rivalSeat === "a" ? resolvedFinalScore : resolvedPartnerScore}
             phase={phase}
             isLocal={rivalSeat === "a"}
             localStream={localStream}
@@ -518,15 +558,16 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
             footer. Any overflow messages scroll inside the panel
             itself, so the section never grows. */}
         {inMatch && (
-          <div className="flex-none w-full h-[300px]">
+          <div className="mx-auto h-[72px] w-full max-w-[360px] flex-none sm:h-[300px] sm:max-w-none">
             <ChatBox
               messages={messages}
               onSend={sendChat}
               onTyping={sendTyping}
               rivalTyping={rivalTyping}
-              partnerLabel="Stranger"
+              partnerLabel={partnerName ?? "Stranger"}
               matchId={currentMatchId}
               onReport={handleReportPartner}
+              compactOnMobile
             />
           </div>
         )}
@@ -564,15 +605,19 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
       {/* Score reveal — page 5 lands this in final form */}
       <AnimatePresence>
         {phase === "results" && (
-          <ScoreReveal
-            result={finalResult}
-            scoreA={mySeat === "a" ? finalScore : partnerScore}
-            scoreB={mySeat === "a" ? partnerScore : finalScore}
-            myRank={myRank}
-            partnerRank={partnerRank}
-            mySeat={mySeat}
+          <ResultScreen
+            result={buildMatchResult({
+              matchResult,
+              emoji: emojiPrompt,
+              myName,
+              partnerName,
+              myFlag,
+              partnerFlag,
+            })}
             onPlayAgain={handleRetry}
             onLeave={onBack}
+            selfLabel={myName ?? "ME"}
+            rivalLabel={partnerName ?? "STRANGER"}
           />
         )}
       </AnimatePresence>
@@ -588,8 +633,14 @@ interface DuelColumnProps {
   seat: Seat;
   playerName: string;
   country: string | null;
+  /**
+   * 2-letter ISO country code (e.g. "IN"). When present, the
+   * tile renders the flag via `isoFlag()` — the canonical path
+   * that never falls back to the raw code. The `country` prop
+   * is kept around for the bottom sticker-card variant.
+   */
+  countryCode: string | null;
   rankLabel: string;
-  score: number | null;
   liveScore: number | null;
   finalScore: number | null;
   phase: AppPhase;
@@ -608,8 +659,8 @@ function DuelColumn({
   seat,
   playerName,
   country,
+  countryCode,
   rankLabel,
-  score,
   liveScore,
   finalScore,
   phase,
@@ -625,7 +676,6 @@ function DuelColumn({
 }: DuelColumnProps) {
   const isA = seat === "a";
   const accent = isA ? "var(--purple)" : "var(--pink)";
-  const accentDeep = isA ? "var(--purple-deep)" : "var(--pink-deep)";
   const accentText = isA ? "var(--purple-deep)" : "var(--pink-deep)";
 
   const isPlaying = phase === "playing" || phase === "results";
@@ -633,26 +683,23 @@ function DuelColumn({
   const barValue = displayScore === null ? 0 : Math.max(0, Math.min(1, displayScore / 10));
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col gap-0 sm:gap-3">
-      {/* Full-bleed pane on mobile; the framed, tilted 16:9 card is
-          restored at sm+. VideoPanel keeps the stream absolutely
-          positioned so its intrinsic resolution cannot affect the
-          grid geometry. */}
+    <div className="relative mx-auto flex h-auto w-full max-w-[360px] min-h-0 flex-col sm:mx-0 sm:h-full sm:max-w-none sm:gap-3">
+      {/* Centered 4:3 mobile card; the tilted 16:9 card returns at sm+. */}
       <div
         className={cn(
-          "relative min-h-0 w-full flex-1 overflow-hidden bg-[var(--off-white-2)]",
-          "rounded-none border-0 shadow-none",
+          "relative aspect-[4/3] w-full flex-none overflow-hidden rounded-[1.75rem] border-[4px] bg-[var(--off-white-2)] shadow-[5px_5px_0_0_var(--charcoal)]",
           "sm:aspect-video sm:flex-none sm:rounded-3xl sm:border-[4px] sm:shadow-[8px_8px_0_0_var(--charcoal)]",
           isA
-            ? "sm:-rotate-[1.5deg] sm:border-[var(--purple-deep)]"
-            : "sm:rotate-[1.5deg] sm:border-[var(--pink-deep)]",
+            ? "border-[var(--purple-deep)] sm:-rotate-[1.5deg]"
+            : "border-[var(--pink-deep)] sm:rotate-[1.5deg]",
         )}
       >
         <VideoPanel
           ref={webcamRef}
-          label={isA ? "YOU" : "STRANGER"}
+          label={isLocal ? "YOU" : "STRANGER"}
           playerName={playerName}
           country={country}
+          countryCode={countryCode}
           rankLabel={rankLabel}
           isLocal={isLocal}
           localStream={localStream ?? null}
@@ -672,11 +719,32 @@ function DuelColumn({
           fullBleedOnMobile
         />
 
-        {/* Seat color tag in the bottom corner */}
+        <div className="absolute bottom-3 left-3 z-40 inline-flex items-baseline gap-1.5 rounded-full border border-white/20 bg-black/70 px-3 py-1.5 text-white shadow-lg backdrop-blur-md sm:hidden">
+          <span className="text-[9px] font-black uppercase tracking-[0.16em] text-white/70">Score</span>
+          <span className="font-mono text-base font-black leading-none tabular-nums">
+            {displayScore === null ? "--" : displayScore.toFixed(1)}
+          </span>
+          <span className="text-[9px] font-bold text-white/60">/10</span>
+        </div>
+
+        {isLocal && (
+          <div className="absolute bottom-2.5 right-2.5 z-40 sm:hidden">
+            <IconButton
+              size="sm"
+              variant={isMicMuted ? "default" : isA ? "purple" : "pink"}
+              label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
+              onClick={onToggleMic}
+            >
+              {isMicMuted ? <MicOff size={16} /> : <Mic size={16} />}
+            </IconButton>
+          </div>
+        )}
+
+        {/* Desktop seat color tag; mobile identity comes from the outline. */}
         <span
           aria-hidden
           className={cn(
-            "absolute bottom-[4.75rem] right-3 z-30 flex items-center gap-1.5 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] shadow-[2px_2px_0_0_var(--charcoal)] sm:bottom-3",
+            "absolute bottom-3 right-3 z-30 hidden items-center gap-1.5 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] shadow-[2px_2px_0_0_var(--charcoal)] sm:flex",
             isA
               ? "text-[var(--purple-deep)] sm:left-3 sm:right-auto"
               : "text-[var(--pink-deep)] sm:right-3",
@@ -687,19 +755,20 @@ function DuelColumn({
         </span>
       </div>
 
-      {/* Existing score controls overlay the mobile feed, then return
-          to their original below-camera position at sm+. */}
-      <div className="absolute inset-x-3 bottom-3 z-40 flex flex-none items-center gap-3 rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-3 py-2 shadow-[4px_4px_0_0_var(--charcoal)] sm:static">
-        <IconButton
-          size="sm"
-          variant={isMicMuted ? "default" : isA ? "purple" : "pink"}
-          label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
-          onClick={onToggleMic}
-        >
-          {isMicMuted ? <MicOff size={16} /> : <Mic size={16} />}
-        </IconButton>
+      {/* Full score controls stay below the camera on desktop only. */}
+      <div className="relative z-40 hidden min-h-12 flex-none items-center gap-3 rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-3 py-2 shadow-[4px_4px_0_0_var(--charcoal)] sm:flex">
+        {isLocal && (
+          <IconButton
+            size="sm"
+            variant={isMicMuted ? "default" : isA ? "purple" : "pink"}
+            label={isMicMuted ? "Unmute microphone" : "Mute microphone"}
+            onClick={onToggleMic}
+          >
+            {isMicMuted ? <MicOff size={16} /> : <Mic size={16} />}
+          </IconButton>
+        )}
         <div className="flex-1">
-          <div className="flex items-center justify-between font-mono text-[10px] tabular font-bold uppercase tracking-[0.14em] text-[var(--ink-muted)]">
+          <div className="flex items-center justify-between gap-3 font-mono text-[10px] tabular font-bold uppercase tracking-[0.14em] text-[var(--ink-muted)]">
             <span style={{ color: accentText }}>{isA ? "Violet" : "Pink"}</span>
             <span>
               {displayScore === null ? "--" : displayScore.toFixed(1)}/10
@@ -792,13 +861,13 @@ function SeamColumn({
 
   return (
     <div
-      className="absolute inset-x-0 top-1/2 z-50 flex -translate-y-1/2 items-stretch justify-center sm:relative sm:inset-auto sm:top-auto sm:z-auto sm:translate-y-0"
+      className="relative flex h-[72px] items-center justify-center sm:inset-auto sm:top-auto sm:z-auto sm:h-auto sm:items-stretch"
       aria-hidden={state === "idle"}
     >
       <div
-        className="absolute left-3 right-3 top-1/2 h-px -translate-y-1/2 sm:left-1/2 sm:right-auto sm:top-3 sm:bottom-3 sm:h-auto sm:w-1 sm:-translate-x-1/2 sm:translate-y-0 bg-[var(--charcoal)]"
+        className="absolute left-1/2 top-3 bottom-3 hidden w-1 -translate-x-1/2 bg-[var(--charcoal)] sm:block"
       />
-      <div className="relative z-10 flex w-full flex-row items-center justify-center px-3 py-3 sm:w-auto sm:flex-col sm:gap-0 sm:px-0 sm:py-0">
+      <div className="relative z-10 flex w-full flex-row items-center justify-center sm:w-auto sm:flex-col sm:gap-0">
         <Seam
           state={state}
           scoreA={scoreA ?? null}
@@ -821,7 +890,7 @@ function SeamColumn({
                   : "Cooldown — wait a moment"
             }
             className={cn(
-              "absolute right-3 top-1/2 inline-flex -translate-y-1/2 items-center justify-center gap-1.5 rounded-full sm:static sm:mt-2 sm:translate-y-0",
+              "hidden items-center justify-center gap-1.5 rounded-full sm:static sm:mt-2 sm:inline-flex sm:translate-y-0",
               "border-[2px] border-[var(--charcoal)] bg-[var(--off-white)]",
               "px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--charcoal)]",
               "shadow-[2px_2px_0_0_var(--charcoal)]",
@@ -850,7 +919,19 @@ function NoMatchOverlay({ onRetry }: { onRetry: () => void }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="absolute inset-0 z-30 flex items-center justify-center bg-[var(--ink-overlay)] p-4"
+      // z-60 sits above the camera score-bar (z-40) and the header
+      // (z-30). The background is fully opaque so the underlying
+      // camera controls don't bleed through and look like they're
+      // overlapping the modal. `env(safe-area-inset-*)` is
+      // applied via the padding so notch devices have room.
+      className="absolute inset-0 z-[60] flex items-center justify-center p-4 sm:p-6"
+      style={{
+        backgroundColor: "var(--off-white)",
+        paddingTop: "max(1rem, env(safe-area-inset-top))",
+        paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+        paddingLeft: "max(1rem, env(safe-area-inset-left))",
+        paddingRight: "max(1rem, env(safe-area-inset-right))",
+      }}
     >
       <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-6 text-center shadow-[8px_8px_0_0_var(--charcoal)] tilt-l-1 sm:p-8">
         <span className="font-display text-5xl" aria-hidden>👀</span>
@@ -874,7 +955,14 @@ function PausedOverlay({ onStart }: { onStart: () => void }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="absolute inset-0 z-30 flex items-center justify-center bg-[var(--ink-overlay)] p-4"
+      className="absolute inset-0 z-[60] flex items-center justify-center p-4 sm:p-6"
+      style={{
+        backgroundColor: "var(--off-white)",
+        paddingTop: "max(1rem, env(safe-area-inset-top))",
+        paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+        paddingLeft: "max(1rem, env(safe-area-inset-left))",
+        paddingRight: "max(1rem, env(safe-area-inset-right))",
+      }}
     >
       <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-6 text-center shadow-[8px_8px_0_0_var(--charcoal)] tilt-r-1 sm:p-8">
         <h2 className="font-display text-2xl font-bold tracking-tight text-[var(--charcoal)] sm:text-3xl">
@@ -913,185 +1001,5 @@ function Countdown({ count }: { count: number }) {
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-/* =====================================================================
-   ScoreReveal — the signature moment.
-   --------------------------------------------------------------------
-   The card is a sticker: chunky 4px charcoal border, 8px hard
-   offset shadow, slight tilt. The two player scores are mounted
-   on colored sub-cards (purple for A, pink for B) with their own
-   sticker shadows. The center column has a "vs" mark on yellow
-   (the energy color, used here as a single static element — no
-   pulsing, no looping). The whole card springs in from the seam
-   in a single satisfying moment.
-   ===================================================================== */
-
-interface ScoreRevealProps {
-  result: ReturnType<typeof resultCopy>;
-  scoreA: number | null;
-  scoreB: number | null;
-  myRank: RankSnapshot;
-  partnerRank: RankSnapshot;
-  mySeat: Seat;
-  onPlayAgain: () => void;
-  onLeave: () => void;
-}
-
-function ScoreReveal({
-  result,
-  scoreA,
-  scoreB,
-  myRank,
-  partnerRank,
-  mySeat,
-  onPlayAgain,
-  onLeave,
-}: ScoreRevealProps) {
-  const winner: Seat | "tie" | null =
-    scoreA === null || scoreB === null
-      ? null
-      : Math.abs(scoreA - scoreB) < 0.05
-        ? "tie"
-        : scoreA > scoreB
-          ? "a"
-          : "b";
-
-  const iWon = winner === "tie" ? null : winner === mySeat;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
-      className="absolute inset-0 z-40 flex items-center justify-center bg-[var(--ink-overlay)] p-4"
-    >
-      <motion.div
-        initial={{ y: 24, opacity: 0, scale: 0.92, rotate: -1.5 }}
-        animate={{ y: 0, opacity: 1, scale: 1, rotate: 0 }}
-        transition={{ type: "spring", stiffness: 280, damping: 22, delay: 0.05 }}
-        className="flex w-full max-w-xl flex-col items-stretch gap-5 rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-6 text-center shadow-[10px_10px_0_0_var(--charcoal)] sm:p-9"
-      >
-        {/* Headline area */}
-        <div className="flex flex-col items-center gap-2">
-          <span className="eyebrow">Round result</span>
-          <motion.h2
-            initial={{ scale: 0.7, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: "spring", stiffness: 360, damping: 18, delay: 0.18 }}
-            className="font-display text-[clamp(2.5rem,7vw,4rem)] font-bold leading-[1.05] tracking-tight"
-            style={{ color: result.tone }}
-          >
-            {result.label}
-          </motion.h2>
-          <p className="max-w-md text-sm leading-relaxed text-[var(--on-surface-variant)]">
-            {result.sub}
-          </p>
-        </div>
-
-        {/* Two score blocks with a yellow VS divider */}
-        <div className="mt-2 flex items-stretch justify-center gap-3 sm:gap-4">
-          <RevealScoreCard
-            seat="a"
-            score={scoreA}
-            tier={mySeat === "a" ? myRank.tier : partnerRank.tier}
-            elo={mySeat === "a" ? myRank.elo : partnerRank.elo}
-            winner={winner === "a"}
-            delay={0.18}
-          />
-
-          {/* The "vs" mark — yellow circle, sticker shadow, the energy color. */}
-          <motion.div
-            initial={{ scale: 0.6, opacity: 0, rotate: -10 }}
-            animate={{ scale: 1, opacity: 1, rotate: 0 }}
-            transition={{ type: "spring", stiffness: 360, damping: 18, delay: 0.32 }}
-            className="flex h-14 w-14 flex-none items-center justify-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] font-display text-lg font-bold text-[var(--charcoal)] shadow-[4px_4px_0_0_var(--charcoal)]"
-            aria-hidden
-          >
-            vs
-          </motion.div>
-
-          <RevealScoreCard
-            seat="b"
-            score={scoreB}
-            tier={mySeat === "b" ? myRank.tier : partnerRank.tier}
-            elo={mySeat === "b" ? myRank.elo : partnerRank.elo}
-            winner={winner === "b"}
-            delay={0.24}
-          />
-        </div>
-
-        {/* The single celebratory banner — only if you actually won. */}
-        {iWon && (
-          <motion.div
-            initial={{ y: 8, opacity: 0, scale: 0.95, rotate: -1 }}
-            animate={{ y: 0, opacity: 1, scale: 1, rotate: -1 }}
-            transition={{ type: "spring", stiffness: 320, damping: 22, delay: 0.45 }}
-            className="rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--pink)] px-4 py-1.5 text-sm font-bold text-[var(--charcoal)] shadow-[4px_4px_0_0_var(--charcoal)]"
-          >
-            🏆 You won this round
-          </motion.div>
-        )}
-
-        <motion.div
-          initial={{ y: 8, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.25, delay: 0.5 }}
-          className="mt-2 flex flex-wrap items-center justify-center gap-3"
-        >
-          <Button onClick={onPlayAgain} iconLeft={<Refresh size={16} />}>Play again</Button>
-          <Button variant="secondary" onClick={onLeave}>Back to home</Button>
-        </motion.div>
-      </motion.div>
-    </motion.div>
-  );
-}
-
-function RevealScoreCard({
-  seat,
-  score,
-  tier,
-  elo,
-  winner,
-  delay,
-}: {
-  seat: Seat;
-  score: number | null;
-  tier: string;
-  elo: number;
-  winner: boolean;
-  delay: number;
-}) {
-  const isA = seat === "a";
-  const fill = isA ? "bg-[var(--purple)] text-[var(--off-white)]" : "bg-[var(--pink)] text-[var(--charcoal)]";
-  const align = isA ? "items-end text-right" : "items-start text-left";
-  return (
-    <motion.div
-      initial={{ x: isA ? -16 : 16, opacity: 0, rotate: isA ? -2 : 2 }}
-      animate={{ x: 0, opacity: 1, rotate: isA ? -1 : 1 }}
-      transition={{ type: "spring", stiffness: 280, damping: 24, delay }}
-      className={cn(
-        "flex flex-1 flex-col gap-2 rounded-2xl border-[3px] border-[var(--charcoal)] p-4",
-        "shadow-[6px_6px_0_0_var(--charcoal)]",
-        fill,
-      )}
-    >
-      <span
-        className="font-display text-[clamp(2.5rem,7vw,4rem)] font-bold leading-none tabular tracking-tight"
-        style={{ color: isA ? "var(--off-white)" : "var(--charcoal)" }}
-      >
-        {score === null ? "--" : score.toFixed(1)}
-      </span>
-      <span
-        className="font-mono text-[10px] uppercase tracking-[0.18em] opacity-80"
-      >
-        {isA ? "Violet" : "Pink"} · {tier} {elo}
-      </span>
-      {winner && (
-        <Pill tone={isA ? "purple" : "pink"}>Winner</Pill>
-      )}
-    </motion.div>
   );
 }

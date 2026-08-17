@@ -7,6 +7,8 @@ import ModeSelect from "./ModeSelect";
 import SoloFaceJudge from "./SoloFaceJudge";
 import { MediaPipeFaceProvider } from "../context/MediaPipeFaceContext";
 import { UserProfileProvider } from "../context/UserProfileContext";
+import { PlayerNameProvider } from "../context/PlayerNameContext";
+import { CountryProvider } from "../context/CountryContext";
 import { RevenueCatProvider } from "../context/RevenueCatContext";
 import { useSmoothScrollController } from "./SmoothScroll";
 
@@ -23,9 +25,13 @@ export default function HomeExperience() {
   return (
     <MediaPipeFaceProvider>
       <UserProfileProvider>
-        <RevenueCatProvider>
-          <HomeContent />
-        </RevenueCatProvider>
+        <PlayerNameProvider>
+          <CountryProvider>
+            <RevenueCatProvider>
+              <HomeContent />
+            </RevenueCatProvider>
+          </CountryProvider>
+        </PlayerNameProvider>
       </UserProfileProvider>
     </MediaPipeFaceProvider>
   );

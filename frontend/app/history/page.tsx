@@ -2,59 +2,34 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Logo, Pill, Button, ThemeToggle, ArrowLeft, Trash, History as HistoryIcon, cn } from "../ui";
-
-const SOLO_KEY = "emoggle:solo-history";
-const DUEL_KEY = "emoggle:duel-history";
-
-interface SoloEntry {
-  emoji: string;
-  score: number;
-  ts: number;
-}
-
-interface DuelEntry {
-  id: string;
-  ts: number;
-  mySeat: "a" | "b";
-  myScore: number;
-  rivalScore: number;
-  winner: "you" | "rival" | "tie";
-  myTier: string;
-  myElo: number;
-  myDelta: number | null;
-}
+import { Logo, Pill, Button, ThemeToggle, ArrowLeft, History as HistoryIcon, Eraser, cn } from "../ui";
+import {
+  clearAll as clearAllStorage,
+  getMatchHistory,
+  getSoloHistory,
+  type MatchHistoryEntry,
+  type SoloHistoryEntry,
+} from "../lib/storage";
 
 type Tab = "solo" | "duels";
 
 export default function HistoryPage() {
   const [tab, setTab] = useState<Tab>("solo");
-  const [solo, setSolo] = useState<SoloEntry[]>([]);
-  const [duels, setDuels] = useState<DuelEntry[]>([]);
+  const [solo, setSolo] = useState<SoloHistoryEntry[]>([]);
+  const [duels, setDuels] = useState<MatchHistoryEntry[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    try {
-      const s = window.localStorage.getItem(SOLO_KEY);
-      if (s) {
-        const parsed = JSON.parse(s);
-        if (Array.isArray(parsed)) setSolo(parsed.filter(isSolo));
-      }
-    } catch { /* ignore */ }
-    try {
-      const d = window.localStorage.getItem(DUEL_KEY);
-      if (d) {
-        const parsed = JSON.parse(d);
-        if (Array.isArray(parsed)) setDuels(parsed.filter(isDuel));
-      }
-    } catch { /* ignore */ }
+    // The storage helpers migrate the legacy colon-form keys on
+    // first read, so existing users keep their history.
+    setSolo(getSoloHistory());
+    setDuels(getMatchHistory());
     setHydrated(true);
   }, []);
 
   const clearAll = () => {
-    if (!window.confirm("Clear all history on this device?")) return;
-    window.localStorage.removeItem(SOLO_KEY);
-    window.localStorage.removeItem(DUEL_KEY);
+    if (!window.confirm("Clear all Emoggle data on this device?\n\nThis wipes your name, your history, and the cached country. It cannot be undone.")) return;
+    clearAllStorage();
     setSolo([]);
     setDuels([]);
   };
@@ -135,8 +110,8 @@ export default function HistoryPage() {
               <TabButton active={tab === "duels"} onClick={() => setTab("duels")}>Duels</TabButton>
             </div>
             {hydrated && (solo.length > 0 || duels.length > 0) && (
-              <Button variant="ghost" size="sm" onClick={clearAll} iconLeft={<Trash size={14} />}>
-                Clear
+              <Button variant="ghost" size="sm" onClick={clearAll} iconLeft={<Eraser size={14} />}>
+                Clear my data
               </Button>
             )}
           </div>
@@ -234,7 +209,7 @@ function TabButton({
   );
 }
 
-function SoloTable({ entries }: { entries: SoloEntry[] }) {
+function SoloTable({ entries }: { entries: SoloHistoryEntry[] }) {
   if (entries.length === 0) {
     return <div className="px-6 py-12 text-center text-sm text-[var(--on-surface-variant)]">No solo attempts yet.</div>;
   }
@@ -277,7 +252,7 @@ function SoloTable({ entries }: { entries: SoloEntry[] }) {
   );
 }
 
-function DuelTable({ entries }: { entries: DuelEntry[] }) {
+function DuelTable({ entries }: { entries: MatchHistoryEntry[] }) {
   if (entries.length === 0) {
     return <div className="px-6 py-12 text-center text-sm text-[var(--on-surface-variant)]">No duels yet.</div>;
   }
@@ -293,7 +268,7 @@ function DuelTable({ entries }: { entries: DuelEntry[] }) {
         </tr>
       </thead>
       <tbody>
-        {duelsToRows(entries).map((d) => (
+        {entries.map((d) => (
           <tr key={d.id} className="border-t-[2px] border-[var(--ink-line)]">
             <td className="px-5 py-3">
               <Pill tone={d.winner === "you" ? "purple" : d.winner === "rival" ? "pink" : "yellow"}>
@@ -322,33 +297,6 @@ function DuelTable({ entries }: { entries: DuelEntry[] }) {
         ))}
       </tbody>
     </table>
-  );
-}
-
-function duelsToRows(entries: DuelEntry[]) {
-  return entries;
-}
-
-function isSolo(entry: unknown): entry is SoloEntry {
-  if (!entry || typeof entry !== "object") return false;
-  const e = entry as Record<string, unknown>;
-  return (
-    typeof e.emoji === "string" &&
-    typeof e.score === "number" &&
-    typeof e.ts === "number"
-  );
-}
-
-function isDuel(entry: unknown): entry is DuelEntry {
-  if (!entry || typeof entry !== "object") return false;
-  const e = entry as Record<string, unknown>;
-  return (
-    typeof e.id === "string" &&
-    typeof e.ts === "number" &&
-    typeof e.myScore === "number" &&
-    typeof e.rivalScore === "number" &&
-    (e.winner === "you" || e.winner === "rival" || e.winner === "tie") &&
-    (e.mySeat === "a" || e.mySeat === "b")
   );
 }
 

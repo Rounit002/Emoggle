@@ -192,3 +192,34 @@ export function Play({ size = 18, ...rest }: IconProps) {
     </svg>
   );
 }
+
+/** Single-person silhouette — used next to the player-name affordance. */
+export function User({ size = 18, ...rest }: IconProps) {
+  return (
+    <svg {...base(size, rest)}>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5 20c0-3.5 3.1-6 7-6s7 2.5 7 6" />
+    </svg>
+  );
+}
+
+/** Pencil — used for the "edit name" affordance. */
+export function Edit({ size = 18, ...rest }: IconProps) {
+  return (
+    <svg {...base(size, rest)}>
+      <path d="M4 20h4l10-10-4-4L4 16v4z" />
+      <path d="M14 6l4 4" />
+    </svg>
+  );
+}
+
+/** Eraser / clear — used by the "clear my data" button when the
+ *  X icon would read as a close action. */
+export function Eraser({ size = 18, ...rest }: IconProps) {
+  return (
+    <svg {...base(size, rest)}>
+      <path d="M3 17l8-8 6 6-8 8H3v-6z" />
+      <path d="M11 9l4-4 6 6-4 4" />
+    </svg>
+  );
+}
