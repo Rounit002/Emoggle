@@ -18,7 +18,7 @@ async function main() {
   });
   try {
     const page = await browser.newPage();
-    page.on("pageerror", (err) => console.error("[pageerror]", err.message));
+    page.on("pageerror", (err: Error) => console.error("[pageerror]", err.message));
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true });
     await page.goto(`${BASE}/`, { waitUntil: "networkidle2", timeout: 30000 });
     // Click "Play now".

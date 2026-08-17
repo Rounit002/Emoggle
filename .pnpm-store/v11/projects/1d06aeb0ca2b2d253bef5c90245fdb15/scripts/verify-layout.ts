@@ -19,7 +19,7 @@ async function main() {
   });
   try {
     const page = await browser.newPage();
-    page.on("pageerror", (err) => console.error("[pageerror]", err.message));
+    page.on("pageerror", (err: Error) => console.error("[pageerror]", err.message));
     // Mobile viewport — this is where the original screenshot
     // showed the overlap.
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true });

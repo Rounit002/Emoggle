@@ -39,7 +39,7 @@ async function main() {
   });
   try {
     const page = await browser.newPage();
-    page.on("pageerror", (err) => console.error("[pageerror]", err.message));
+    page.on("pageerror", (err: Error) => console.error("[pageerror]", err.message));
     page.on("console", (msg) => {
       const t = msg.type();
       if (t === "error" || t === "warn") {

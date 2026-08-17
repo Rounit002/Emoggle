@@ -24,7 +24,7 @@ async function main() {
   });
   try {
     const page = await browser.newPage();
-    page.on("pageerror", (err) => console.error("[pageerror]", err.message));
+    page.on("pageerror", (err: Error) => console.error("[pageerror]", err.message));
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
     await page.goto(`${BASE}/`, { waitUntil: "networkidle2", timeout: 30000 });
     // Enter the duel arena.
