@@ -69,7 +69,7 @@ export const metadata: Metadata = {
     },
   },
   verification: {
-    google: "_FcLfnyQyR0FK8IMP-hsD21-x4I9BmfXuS5OZrm1Q8I",
+    google: "hPfEmfCTnZis0AtlNL2yV2pKpN5DCstjANbwEwim0UQ",
     other: {
       ...(process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION
         ? { "msvalidate.01": process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION }
