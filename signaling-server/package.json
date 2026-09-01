@@ -1,0 +1,30 @@
+{
+  "name": "signaling-server",
+  "version": "2.0.0",
+  "description": "Emoggle matchmaking signaling server with pg (raw SQL)",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "npm run test:unit && npm run test:matchmaking",
+    "test:unit": "node --test test/auth.test.js test/matchScore.test.js",
+    "test:matchmaking": "node test/celebrity.test.js",
+    "db:init": "node -e \"require('./db').initSchema().then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)})\""
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.22.2",
+    "express-rate-limit": "7.5.0",
+    "pg": "^8.21.0",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "socket.io-client": "^4.8.3"
+  }
+}

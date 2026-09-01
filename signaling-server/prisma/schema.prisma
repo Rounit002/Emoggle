@@ -1,0 +1,71 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  socketId     String?  @unique
+  username     String   @default("anonymous")
+  elo          Int      @default(400)
+  isVIP        Boolean  @default(false)
+  freeGenderMatchesLeft Int @default(5)
+  createdAt    DateTime @default(now())
+  email        String?  @unique
+  passwordHash String?
+  authProvider String   @default("local")
+  googleId     String?  @unique
+
+  matchesAsPlayer1 Match[] @relation("Player1")
+  matchesAsPlayer2 Match[] @relation("Player2")
+
+  @@index([socketId])
+  @@index([elo])
+}
+
+model Match {
+  id           String      @id @default(cuid())
+  player1Id    String
+  player2Id    String
+  currentEmoji String
+  player1Score Float?
+  player2Score Float?
+  winnerId     String?
+  status       MatchStatus @default(ACTIVE)
+  createdAt    DateTime    @default(now())
+  completedAt  DateTime?
+
+  player1 User @relation("Player1", fields: [player1Id], references: [id])
+  player2 User @relation("Player2", fields: [player2Id], references: [id])
+
+  @@index([status])
+  @@index([winnerId])
+  @@index([player1Id])
+  @@index([player2Id])
+}
+
+enum MatchStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  DISCONNECTED
+}
+
+model CelebrityFace {
+  id              Int      @id @default(autoincrement())
+  name            String
+  category        String   // 'meme', 'celebrity', 'character'
+  imageUrl        String
+  difficulty      String   @default("medium") // 'easy', 'medium', 'hard'
+  facialLandmarks Json?    // Pre-computed landmark data for comparison
+  usageCount      Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([category])
+  @@index([difficulty])
+  @@index([usageCount])
+}

@@ -1,0 +1,538 @@
+@import "tailwindcss";
+
+/* =========================================================
+   Emoggle — "Vibrant Party Play" design system
+   ---------------------------------------------------------
+   Neo-Pop / Tactile Modernism. Light off-white surface,
+   energetic yellow primary, bright purple secondary,
+   coral pink tertiary, deep charcoal text.
+   No realistic shadows — only hard offset sticker shadows.
+   No sharp corners — hyper-rounded everywhere.
+   No flashing motion. Single satisfying spring-in moments.
+   ========================================================= */
+
+:root {
+  /* Default = light theme. The dark block below overrides these via
+     `data-theme="dark"` on the <html> element, set by the inline
+     theme script in layout.tsx before paint to avoid a flash. */
+  color-scheme: light;
+
+  /* Surface */
+  --surface:           #f9f9f9;
+  --surface-dim:       #dadada;
+  --surface-bright:    #f9f9f9;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low:    #f3f3f3;
+  --surface-container:        #eeeeee;
+  --surface-container-high:   #e8e8e8;
+  --surface-container-highest:#e2e2e2;
+  --on-surface:        #1a1c1c;
+  --on-surface-variant:#4d4633;
+  --inverse-surface:   #2f3131;
+  --inverse-on-surface:#f1f1f1;
+  --outline:           #7e7761;
+  --outline-variant:   #d0c6ad;
+  --surface-tint:      #705d00;
+  --surface-variant:   #e2e2e2;
+
+  /* Primary — Energetic Yellow */
+  --primary:                #705d00;
+  --on-primary:             #ffffff;
+  --primary-container:      #ffd93d;
+  --on-primary-container:   #725e00;
+  --inverse-primary:        #e8c426;
+  --primary-fixed:          #ffe173;
+  --primary-fixed-dim:      #e8c426;
+  --on-primary-fixed:       #221b00;
+  --on-primary-fixed-variant:#554500;
+
+  /* Secondary — Bright Purple */
+  --secondary:                #5644d0;
+  --on-secondary:             #ffffff;
+  --secondary-container:      #6f5fea;
+  --on-secondary-container:   #fffbff;
+  --secondary-fixed:          #e4dfff;
+  --secondary-fixed-dim:      #c6bfff;
+  --on-secondary-fixed:       #160066;
+  --on-secondary-fixed-variant:#4029ba;
+
+  /* Tertiary — Coral Pink */
+  --tertiary:                #ae2f34;
+  --on-tertiary:             #ffffff;
+  --tertiary-container:      #ffd1ce;
+  --on-tertiary-container:   #b03136;
+  --tertiary-fixed:          #ffdad8;
+  --tertiary-fixed-dim:      #ffb3b0;
+  --on-tertiary-fixed:       #410006;
+  --on-tertiary-fixed-variant:#8c1520;
+
+  /* Error */
+  --error:                #ba1a1a;
+  --on-error:             #ffffff;
+  --error-container:      #ffdad6;
+  --on-error-container:   #93000a;
+
+  /* Convenience aliases — same as the "Vibrant Party Play" tokens,
+     but friendlier names for the components. */
+  --charcoal:        #1a1c1c;   /* text, thick borders (ink) */
+  --off-white:       #f9f9f9;   /* base background */
+  --off-white-2:     #f3f3f3;   /* card surface */
+  --yellow:          #ffd93d;   /* primary action color */
+  --yellow-deep:     #705d00;   /* text on yellow */
+  --purple:          #6f5fea;   /* player / interactive accent */
+  --purple-deep:     #5644d0;   /* text on purple, outlines */
+  --pink:            #ffb3b0;   /* tertiary accent */
+  --pink-deep:       #ae2f34;   /* deep pink for text/outline */
+
+  /* Semantic ink — what text and structural borders actually use.
+     In light mode this is plain charcoal; in dark mode it flips to
+     an off-white tone. Components should prefer these over the raw
+     --charcoal alias for any color that's supposed to read on the
+     page surface (so the theme swap is automatic). */
+  --ink:             #1a1c1c;
+  --ink-muted:       #4d4633;
+  --ink-inverse:     #f9f9f9;   /* ink that reads on a dark surface */
+
+  /* Tinted ink for soft separators and subtle backgrounds.
+     These are pre-mixed at 12-30% opacity for the light theme
+     and re-mixed for the dark theme in the [data-theme="dark"]
+     block. The intent: replace `text-[var(--charcoal)]/30` style
+     modifiers with semantic tokens that survive the theme flip. */
+  --ink-soft:        rgba(26, 28, 28, 0.30);
+  --ink-faint:       rgba(26, 28, 28, 0.16);
+  --ink-line:        rgba(26, 28, 28, 0.16);
+  --ink-overlay:     rgba(26, 28, 28, 0.30);
+
+  /* Sticker shadow — the structural offset shadow.
+     In light mode it's a hard black 4px offset. In dark mode it
+     becomes the off-white tone so the same "stuck on the table"
+     language still reads on a dark surface. */
+  --ink-shadow:      #1a1c1c;
+  --ink-shadow-rgb:  26, 28, 28;
+
+  /* Shape — hyper-rounded, no sharp corners */
+  --r-sm: 0.5rem;   /* 8px */
+  --r-md: 1rem;     /* 16px */
+  --r-lg: 1.5rem;   /* 24px */
+  --r-xl: 2rem;     /* 32px — for large cards */
+  --r-2xl: 3rem;    /* 48px — for hero cards */
+  --r-pill: 9999px;
+
+  /* Sticker shadow — hard offset, no blur.
+     The shadow color is now --ink-shadow so it auto-flips between
+     charcoal (light) and off-white (dark) themes. */
+  --sticker:        4px 4px 0 0 var(--ink-shadow);
+  --sticker-sm:     3px 3px 0 0 var(--ink-shadow);
+  --sticker-lg:     6px 6px 0 0 var(--ink-shadow);
+  --sticker-xl:     8px 8px 0 0 var(--ink-shadow);
+
+  /* Spacing rhythm */
+  --gutter: 24px;
+  --margin-mobile: 16px;
+  --margin-desktop: 48px;
+  --container-max: 1200px;
+
+  /* Reduced motion */
+  --motion-reduce: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-reduce: 0;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@theme inline {
+  /* Surfaces */
+  --color-surface: var(--surface);
+  --color-surface-dim: var(--surface-dim);
+  --color-surface-bright: var(--surface-bright);
+  --color-surface-container-lowest: var(--surface-container-lowest);
+  --color-surface-container-low: var(--surface-container-low);
+  --color-surface-container: var(--surface-container);
+  --color-surface-container-high: var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+  --color-inverse-surface: var(--inverse-surface);
+  --color-inverse-on-surface: var(--inverse-on-surface);
+  --color-outline: var(--outline);
+  --color-outline-variant: var(--outline-variant);
+  --color-surface-tint: var(--surface-tint);
+  --color-surface-variant: var(--surface-variant);
+
+  /* Primary */
+  --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  --color-primary-container: var(--primary-container);
+  --color-on-primary-container: var(--on-primary-container);
+  --color-inverse-primary: var(--inverse-primary);
+  --color-primary-fixed: var(--primary-fixed);
+  --color-primary-fixed-dim: var(--primary-fixed-dim);
+  --color-on-primary-fixed: var(--on-primary-fixed);
+  --color-on-primary-fixed-variant: var(--on-primary-fixed-variant);
+
+  /* Secondary */
+  --color-secondary: var(--secondary);
+  --color-on-secondary: var(--on-secondary);
+  --color-secondary-container: var(--secondary-container);
+  --color-on-secondary-container: var(--on-secondary-container);
+  --color-secondary-fixed: var(--secondary-fixed);
+  --color-secondary-fixed-dim: var(--secondary-fixed-dim);
+  --color-on-secondary-fixed: var(--on-secondary-fixed);
+  --color-on-secondary-fixed-variant: var(--on-secondary-fixed-variant);
+
+  /* Tertiary */
+  --color-tertiary: var(--tertiary);
+  --color-on-tertiary: var(--on-tertiary);
+  --color-tertiary-container: var(--tertiary-container);
+  --color-on-tertiary-container: var(--on-tertiary-container);
+  --color-tertiary-fixed: var(--tertiary-fixed);
+  --color-tertiary-fixed-dim: var(--tertiary-fixed-dim);
+  --color-on-tertiary-fixed: var(--on-tertiary-fixed);
+  --color-on-tertiary-fixed-variant: var(--on-tertiary-fixed-variant);
+
+  /* Error */
+  --color-error: var(--error);
+  --color-on-error: var(--on-error);
+  --color-error-container: var(--error-container);
+  --color-on-error-container: var(--on-error-container);
+
+  /* Friendly aliases used by the components */
+  --color-charcoal: var(--charcoal);
+  --color-off-white: var(--off-white);
+  --color-off-white-2: var(--off-white-2);
+  --color-yellow: var(--yellow);
+  --color-yellow-deep: var(--yellow-deep);
+  --color-purple: var(--purple);
+  --color-purple-deep: var(--purple-deep);
+  --color-pink: var(--pink);
+  --color-pink-deep: var(--pink-deep);
+
+  /* Semantic ink pair — preferred over --color-charcoal for any
+     element that's "text on the page" so dark mode works without
+     extra per-component logic. */
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-inverse: var(--ink-inverse);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-ink-line: var(--ink-line);
+  --color-ink-overlay: var(--ink-overlay);
+  --color-ink-shadow: var(--ink-shadow);
+
+  /* Type — Quicksand for display, Plus Jakarta Sans for body, JetBrains Mono for numerals */
+  --font-display: var(--font-display), "Quicksand", "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-sans:    var(--font-sans),    "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+  --font-mono:    var(--font-mono),    ui-monospace, "JetBrains Mono", "SFMono-Regular", monospace;
+}
+
+/* =========================================================
+   Base layer
+   ========================================================= */
+
+html, body {
+  background: var(--off-white);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-image: none;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--yellow);
+  color: var(--ink-inverse);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "ss01" 1;
+}
+
+/* =========================================================
+   Focus rings — thick, visible, brand-aware
+   ========================================================= */
+
+*:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* =========================================================
+   Reusable utility layer
+   ========================================================= */
+
+@layer utilities {
+  /* The display headline face. Quicksand is bubbly and rounded. */
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+
+  /* Type rhythm */
+  .eyebrow {
+    font-family: var(--font-sans);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--on-surface-variant);
+  }
+
+  /* The signature sticker shadow. Hard offset, no blur.
+     Use on cards, buttons, chips, and any "pop-out" element.
+     Color is driven by --ink-shadow so it auto-flips between
+     charcoal (light theme) and off-white (dark theme). */
+  .sticker {
+    box-shadow: var(--sticker);
+  }
+  .sticker-sm {
+    box-shadow: var(--sticker-sm);
+  }
+  .sticker-lg {
+    box-shadow: var(--sticker-lg);
+  }
+  .sticker-xl {
+    box-shadow: var(--sticker-xl);
+  }
+
+  /* Accent-color sticker variants. In dark mode these still read
+     because the underlying chip is filled with a brand color, and
+     the shadow stays in the accent family (purple shadow on purple
+     card, etc). */
+  .sticker-yellow {
+    box-shadow: 4px 4px 0 0 var(--ink-shadow);
+  }
+  .sticker-purple {
+    box-shadow: 4px 4px 0 0 var(--ink-shadow);
+  }
+  .sticker-pink {
+    box-shadow: 4px 4px 0 0 var(--ink-shadow);
+  }
+
+  /* "Sheen" — a glossy top-half overlay for the squishy plastic feel.
+     Apply on top half of a button or card to add a subtle highlight. */
+  .sheen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.32) 0%,
+      rgba(255, 255, 255, 0) 50%
+    );
+    pointer-events: none;
+  }
+
+  /* Striped "candy-cane" animation for active loading bars.
+     Slow, well under the 3 Hz safety threshold (1.4s cycle). */
+  @keyframes candy-stripe {
+    0%   { background-position: 0 0; }
+    100% { background-position: 24px 0; }
+  }
+  .candy-stripe {
+    background-image: repeating-linear-gradient(
+      45deg,
+      currentColor 0 12px,
+      transparent 12px 24px
+    );
+    animation: candy-stripe 1.4s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .candy-stripe {
+      animation: none;
+    }
+  }
+
+  /* Hyper-rounded — base radii */
+  .r-sm    { border-radius: var(--r-sm); }
+  .r-md    { border-radius: var(--r-md); }
+  .r-lg    { border-radius: var(--r-lg); }
+  .r-xl    { border-radius: var(--r-xl); }
+  .r-2xl   { border-radius: var(--r-2xl); }
+  .r-pill  { border-radius: var(--r-pill); }
+
+  /* Slight tilt helpers for the "scattered on a table" look.
+     Each card uses one of these randomly via inline style or class. */
+  .tilt-l-1  { transform: rotate(-1.5deg); }
+  .tilt-l-2  { transform: rotate(-2deg); }
+  .tilt-r-1  { transform: rotate(1.5deg); }
+  .tilt-r-2  { transform: rotate(2deg); }
+  .tilt-0    { transform: rotate(0deg); }
+}
+
+/* =========================================================
+   Info pages (legal / about / how-it-works)
+   ========================================================= */
+
+.info-content {
+  color: var(--on-surface);
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.info-content > * + * {
+  margin-top: 2rem;
+}
+
+.info-content h2 {
+  color: var(--charcoal);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+  font-family: var(--font-display);
+}
+
+.info-content p,
+.info-content li {
+  max-width: 75ch;
+  color: var(--on-surface-variant);
+}
+
+.info-content ul,
+.info-content ol {
+  display: grid;
+  gap: 0.75rem;
+  list-style-position: outside;
+  margin-left: 1.25rem;
+}
+
+.info-content ul { list-style-type: disc; }
+.info-content ol { list-style-type: decimal; }
+
+/* =========================================================
+   Dark theme — "Cozy Party Night"
+   ---------------------------------------------------------
+   Warm dark surface (brown-tinted charcoal), neon yellow /
+   purple / pink accents at full saturation, off-white ink and
+   off-white sticker shadow so the same card language reads.
+   Activated by setting data-theme="dark" on <html> from the
+   inline boot script in layout.tsx.
+   ========================================================= */
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Surface — warm cozy charcoal, brown-tinted so the off-white ink
+     and yellow accent feel like lamp-light, not a cold OLED black. */
+  --surface:           #1c1a18;
+  --surface-dim:       #14110f;
+  --surface-bright:    #252220;
+  --surface-container-lowest: #100e0c;
+  --surface-container-low:    #1f1c19;
+  --surface-container:        #232017;
+  --surface-container-high:   #2a261f;
+  --surface-container-highest:#322d25;
+  --on-surface:        #f6efe1;
+  --on-surface-variant:#c7bda6;
+  --inverse-surface:   #f6efe1;
+  --inverse-on-surface:#1c1a18;
+  --outline:           #8a7f6a;
+  --outline-variant:   #3a342a;
+  --surface-tint:      #ffe173;
+  --surface-variant:   #2a261f;
+
+  /* Primary — yellow stays loud, but a touch warmer/cleaner
+     against the warm dark surface. */
+  --primary:                #ffe173;
+  --on-primary:             #221b00;
+  --primary-container:      #ffd93d;
+  --on-primary-container:   #4a3a00;
+  --inverse-primary:        #705d00;
+  --primary-fixed:          #ffe173;
+  --primary-fixed-dim:      #e8c426;
+  --on-primary-fixed:       #221b00;
+  --on-primary-fixed-variant:#554500;
+
+  /* Secondary — purple gets brighter to pop on warm dark. */
+  --secondary:                #b6a8ff;
+  --on-secondary:             #1c1656;
+  --secondary-container:      #8a7df0;
+  --on-secondary-container:   #fffbff;
+  --secondary-fixed:          #e4dfff;
+  --secondary-fixed-dim:      #c6bfff;
+  --on-secondary-fixed:       #160066;
+  --on-secondary-fixed-variant:#4029ba;
+
+  /* Tertiary — pink stays coral, just a touch warmer. */
+  --tertiary:                #ffb3b0;
+  --on-tertiary:             #5b0a0e;
+  --tertiary-container:      #ff8e89;
+  --on-tertiary-container:   #4a060a;
+  --tertiary-fixed:          #ffdad8;
+  --tertiary-fixed-dim:      #ffb3b0;
+  --on-tertiary-fixed:       #410006;
+  --on-tertiary-fixed-variant:#8c1520;
+
+  /* Error — softer for dark mode, still readable. */
+  --error:                #ff8a80;
+  --on-error:             #5b0a0a;
+  --error-container:      #5b1a1a;
+  --on-error-container:   #ffdad6;
+
+  /* Friendly aliases — flipped: charcoal becomes off-white ink,
+     off-white becomes the dark surface, etc. We keep the names
+     the same so component classes like `border-[var(--charcoal)]`
+     work in both themes. */
+  --charcoal:        #f6efe1;   /* off-white ink */
+  --off-white:       #1c1a18;   /* dark surface */
+  --off-white-2:     #232017;   /* dark card surface */
+  --yellow:          #ffd93d;   /* brighter for dark */
+  --yellow-deep:     #ffe173;   /* text on dark yellow chip */
+  --purple:          #8a7df0;   /* brighter for dark */
+  --purple-deep:     #b6a8ff;   /* text on dark purple chip */
+  --pink:            #ff8e89;   /* slightly warmer for dark */
+  --pink-deep:       #ffb3b0;   /* text on dark pink chip */
+
+  /* Semantic ink swap — components that use these will auto-flip. */
+  --ink:             #f6efe1;
+  --ink-muted:       #c7bda6;
+  --ink-inverse:     #1c1a18;
+
+  /* Tinted ink — dark-mode equivalents of the opacity modifiers
+     used in the light theme. */
+  --ink-soft:        rgba(246, 239, 225, 0.35);
+  --ink-faint:       rgba(246, 239, 225, 0.18);
+  --ink-line:        rgba(246, 239, 225, 0.18);
+  --ink-overlay:     rgba(0, 0, 0, 0.55);
+
+  /* Sticker shadow — off-white on dark so the same 4px offset
+     still reads as "stuck on the table". */
+  --ink-shadow:      #f6efe1;
+  --ink-shadow-rgb:  246, 239, 225;
+}
+
+/* Manual override data attribute (toggled by the nav sun/moon
+   button). When `data-theme="light"` is set explicitly we use the
+   light tokens even if the system prefers dark. */
+[data-theme="light"] {
+  color-scheme: light;
+}
