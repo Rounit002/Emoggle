@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import ChatBox from "./ChatBox";
 import { useMatchmaking } from "../hooks/useMatchmaking";
+import { useLocalCamera, type LocalCameraStatus } from "../hooks/useLocalCamera";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
 import { isValidScoreSample, useStableScoreSampler } from "../hooks/useStableScoreSampler";
 import { useUserProfile } from "../context/UserProfileContext";
@@ -112,7 +113,12 @@ function buildMatchResult(args: {
 export default function DuelArena({ onBack }: DuelArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const submittedRef = useRef(false);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const {
+    stream: localStream,
+    status: localCameraStatus,
+    error: localCameraError,
+    retry: retryCamera,
+  } = useLocalCamera({ audio: true });
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [phase, setPhase] = useState<AppPhase>("lobby");
   const [roundSeconds, setRoundSeconds] = useState(ROUND_SECONDS);
@@ -201,7 +207,7 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     myCountryCode,
     profile,
     saveProfile,
-    sessionToken,
+    localStream ? sessionToken : null,
   );
 
   const mySeat: Seat = useMemo(
@@ -247,28 +253,6 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     }
     return stopScoreSampling;
   }, [phase, startScoreSampling, stopScoreSampling]);
-
-  useEffect(() => {
-    let stream: MediaStream | null = null;
-    navigator.mediaDevices
-      .getUserMedia({ video: { width: 1280, height: 720 }, audio: true })
-      .then((mediaStream) => {
-        stream = mediaStream;
-        setLocalStream(mediaStream);
-      })
-      .catch(() => {
-        navigator.mediaDevices
-          .getUserMedia({ video: { width: 1280, height: 720 }, audio: false })
-          .then((mediaStream) => {
-            stream = mediaStream;
-            setLocalStream(mediaStream);
-          })
-          .catch((err) => console.error("[Camera]", err));
-      });
-    return () => {
-      stream?.getTracks().forEach((track) => track.stop());
-    };
-  }, []);
 
   useEffect(() => {
     if (status === "matched") {
@@ -517,6 +501,9 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
             rivalLiveScore={mySeat === "a" ? partnerLiveScore : liveScore}
             onToggleMic={toggleMic}
             isMicMuted={isMicMuted}
+            localCameraStatus={localCameraStatus}
+            localCameraError={localCameraError}
+            onRetryCamera={retryCamera}
           />
 
           {/* The seam */}
@@ -549,6 +536,9 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
             rivalLiveScore={rivalSeat === "a" ? partnerLiveScore : liveScore}
             onToggleMic={toggleMic}
             isMicMuted={isMicMuted}
+            localCameraStatus={localCameraStatus}
+            localCameraError={localCameraError}
+            onRetryCamera={retryCamera}
           />
         </div>
 
@@ -580,6 +570,9 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
             status={status}
             onCancel={handleCancelSearch}
             onRetry={handleRetry}
+            cameraStatus={localCameraStatus}
+            cameraError={localCameraError}
+            onRetryCamera={retryCamera}
           />
         )}
       </AnimatePresence>
@@ -654,6 +647,9 @@ interface DuelColumnProps {
   rivalLiveScore: number | null;
   onToggleMic: () => void;
   isMicMuted: boolean;
+  localCameraStatus: LocalCameraStatus;
+  localCameraError: string | null;
+  onRetryCamera: () => void;
 }
 
 function DuelColumn({
@@ -674,6 +670,9 @@ function DuelColumn({
   rivalLiveScore,
   onToggleMic,
   isMicMuted,
+  localCameraStatus,
+  localCameraError,
+  onRetryCamera,
 }: DuelColumnProps) {
   const isA = seat === "a";
   const accent = isA ? "var(--purple)" : "var(--pink)";
@@ -719,6 +718,9 @@ function DuelColumn({
           scanBox={scanBox}
           faceLandmarks={faceLandmarks}
           fullBleedOnMobile
+          localCameraStatus={isLocal ? localCameraStatus : undefined}
+          localCameraError={isLocal ? localCameraError : undefined}
+          onRetryCamera={isLocal ? onRetryCamera : undefined}
         />
 
         <div className="absolute bottom-3 left-3 z-40 inline-flex items-baseline gap-1.5 rounded-full border border-white/20 bg-black/70 px-3 py-1.5 text-white shadow-lg backdrop-blur-md sm:hidden">

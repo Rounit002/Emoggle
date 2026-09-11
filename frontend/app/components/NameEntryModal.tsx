@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Button, User, X, cn } from "../ui";
 import { NAME_MAX_LENGTH, validateName } from "../lib/storage";
 
@@ -49,12 +49,16 @@ export function NameEntryModal({
   const [value, setValue] = useState(currentName ?? "");
   const [touched, setTouched] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const reduceMotion = useReducedMotion();
 
   // Sync the input when the modal re-opens with a different
   // pre-filled value (e.g. the user clicked "Edit name" while
   // a different tab updated the name).
   useEffect(() => {
     if (open) {
+      // Reset form state when a fresh dialog session opens.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setValue(currentName ?? "");
       setTouched(false);
       // Focus the input after the modal mount animation lands.
@@ -64,15 +68,39 @@ export function NameEntryModal({
     return undefined;
   }, [open, currentName]);
 
-  // Escape closes — unless this is the required first-time gate.
+  // Keep keyboard focus inside the dialog. Escape closes only when optional.
   useEffect(() => {
-    if (!open || required || !onCancel) return;
+    if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape" && !required) onCancel?.();
+      if (e.key !== "Tab") return;
+      const focusable = formRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [open, required, onCancel]);
+
+  useEffect(() => {
+    if (!open) return;
+    const returnFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    return () => {
+      window.setTimeout(() => returnFocus?.focus(), 0);
+    };
+  }, [open]);
 
   // Lock body scroll while the modal is open.
   useEffect(() => {
@@ -111,10 +139,10 @@ export function NameEntryModal({
       {open && (
         <motion.div
           key="name-entry"
-          initial={{ opacity: 0 }}
+          initial={reduceMotion ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
+          transition={{ duration: reduceMotion ? 0 : 0.18 }}
           className="fixed inset-0 z-[100] flex items-center justify-center bg-[var(--ink-overlay)] p-4 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
@@ -125,10 +153,11 @@ export function NameEntryModal({
           }}
         >
           <motion.form
-            initial={{ y: 20, opacity: 0, scale: 0.96, rotate: -1.5 }}
+            ref={formRef}
+            initial={reduceMotion ? false : { y: 20, opacity: 0, scale: 0.96, rotate: -1.5 }}
             animate={{ y: 0, opacity: 1, scale: 1, rotate: 0 }}
             exit={{ y: 12, opacity: 0, scale: 0.97, rotate: 1 }}
-            transition={{ type: "spring", stiffness: 320, damping: 22 }}
+            transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 320, damping: 22 }}
             onSubmit={handleSubmit}
             className={cn(
               "relative flex w-full max-w-md flex-col gap-5 rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-6 shadow-[10px_10px_0_0_var(--charcoal)] sm:p-7",
@@ -139,7 +168,7 @@ export function NameEntryModal({
                 type="button"
                 onClick={onCancel}
                 aria-label="Cancel"
-                className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)] active:translate-y-0.5 active:shadow-none"
+                className="absolute right-3 top-3 inline-flex h-11 w-11 touch-manipulation cursor-pointer items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)] transition-[transform,box-shadow,background-color] duration-150 active:translate-y-0.5 active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--charcoal)] motion-reduce:transition-none"
               >
                 <X size={16} />
               </button>
@@ -147,7 +176,7 @@ export function NameEntryModal({
 
             <div className="flex flex-col items-center gap-2 text-center">
               <span
-                className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] shadow-[4px_4px_0_0_var(--charcoal)]"
+                className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border-[3px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] shadow-[4px_4px_0_0_var(--ink-shadow)]"
                 aria-hidden
               >
                 <User size={26} />

@@ -95,7 +95,7 @@ function PlayingContent({
             transition={{ duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
             className={cn(
               "flex aspect-square w-full max-w-[180px] items-center justify-center",
-              "rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] sm:rounded-2xl",
+              "rounded-full border-[3px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] sm:rounded-2xl",
               "shadow-[5px_5px_0_0_var(--charcoal)]",
               "lg:max-w-[220px]",
             )}

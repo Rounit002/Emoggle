@@ -157,16 +157,17 @@ function StatCard({
 }) {
   const fillClass =
     fill === "yellow"
-      ? "bg-[var(--yellow)]"
+      ? "on-accent bg-[var(--yellow)]"
       : fill === "purple"
-        ? "bg-[var(--purple)] text-[var(--off-white)]"
+        ? "on-accent-inverse bg-[var(--purple)] text-[var(--ink)]"
         : fill === "pink"
-          ? "bg-[var(--pink)]"
+          ? "on-accent bg-[var(--pink)]"
           : "bg-[var(--off-white-2)]";
-  const valueColor =
-    fill === "purple" ? "text-[var(--off-white)]" : "text-[var(--charcoal)]";
-  const subColor =
-    fill === "purple" ? "text-[var(--ink-inverse)]/80" : "text-[var(--on-surface-variant)]";
+  // One pair for all four fills: --ink / --ink-muted resolve through
+  // whichever on-accent scope fillClass applied, and fall back to the
+  // theme ink on the neutral card.
+  const valueColor = "text-[var(--ink)]";
+  const subColor = "text-[var(--ink-muted)]";
   return (
     <div
       className={cn(

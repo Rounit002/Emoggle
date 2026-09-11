@@ -53,10 +53,10 @@ const STATE_CONTENT: Record<SharePhase | "default", ButtonContent> = {
 };
 
 const TONE_STYLES: Record<ButtonContent["tone"], string> = {
-  primary: "bg-[var(--purple)] text-[var(--off-white)] hover:bg-[var(--purple-deep)]",
+  primary: "on-accent-inverse bg-[var(--purple)] text-[var(--ink)] hover:bg-[var(--purple-hover)]",
   secondary: "bg-[var(--off-white-2)] text-[var(--charcoal)] hover:bg-[var(--surface-container-high)]",
-  success: "bg-[var(--yellow)] text-[var(--charcoal)] hover:bg-[var(--primary-fixed)]",
-  danger: "bg-[var(--pink)] text-[var(--charcoal)] hover:bg-[var(--tertiary-container)]",
+  success: "on-accent bg-[var(--yellow)] text-[var(--ink)] hover:bg-[var(--yellow-hover)]",
+  danger: "on-accent bg-[var(--pink)] text-[var(--ink)] hover:bg-[var(--pink-hover)]",
 };
 
 export function ShareButton({

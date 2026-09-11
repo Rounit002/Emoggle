@@ -23,14 +23,20 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * press-squash (the whole button drops 4px on press, matching the
  * shadow offset, so it feels like pushing into a soft surface).
  */
+// The border, sticker shadow and focus ring all sit *outside* the
+// button, against the page — so they use --ink-shadow, which flips
+// with the theme. --charcoal can't be used here: on the filled
+// variants the `.on-accent` scope pins it to the dark ink that
+// prints on the fill, which would make all three vanish on the
+// dark page. In the light theme the two resolve to the same value.
 const base =
-  "relative inline-flex items-center justify-center gap-2 font-bold tracking-tight " +
-  "rounded-full border-[3px] border-[var(--charcoal)] " +
-  "transition-transform duration-100 ease-out " +
+  "relative inline-flex touch-manipulation cursor-pointer items-center justify-center gap-2 font-bold tracking-tight " +
+  "rounded-full border-[3px] border-[var(--ink-shadow)] " +
+  "transition-[transform,box-shadow,background-color,color,opacity] duration-150 ease-out motion-reduce:transition-none " +
   "active:translate-y-1 " +
-  "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--charcoal)] " +
-  "disabled:opacity-50 disabled:cursor-not-allowed select-none will-change-transform " +
-  "shadow-[4px_4px_0_0_var(--charcoal)] active:shadow-[0_0_0_0_var(--charcoal)]";
+  "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--ink-shadow)] " +
+  "disabled:opacity-50 disabled:cursor-not-allowed disabled:active:translate-y-0 select-none will-change-transform " +
+  "shadow-[4px_4px_0_0_var(--ink-shadow)] active:shadow-[0_0_0_0_var(--ink-shadow)]";
 
 const sizes: Record<Size, string> = {
   sm: "h-11 px-5 text-sm",
@@ -38,15 +44,21 @@ const sizes: Record<Size, string> = {
   lg: "h-16 px-8 text-base",
 };
 
+// The three filled variants carry an `on-accent` scope class. The
+// yellow / pink / purple fills stay light in dark mode, so their
+// label has to stay dark (white, for purple) rather than following
+// the theme — see the .on-accent rules in globals.css.
 const variants: Record<Variant, string> = {
   // Primary: yellow. The energy of the game.
-  primary: "bg-[var(--yellow)] text-[var(--charcoal)] hover:bg-[#ffe173]",
+  primary: "on-accent bg-[var(--yellow)] text-[var(--ink)] hover:bg-[var(--yellow-hover)]",
   // Secondary: bright purple. For back/cancel.
-  secondary: "bg-[var(--purple)] text-[var(--off-white)] hover:bg-[var(--purple-deep)]",
+  secondary: "on-accent-inverse bg-[var(--purple)] text-[var(--ink)] hover:bg-[var(--purple-hover)]",
   // Tertiary: coral pink. For special moments (win CTA, alerts).
-  tertiary: "bg-[var(--pink)] text-[var(--charcoal)] hover:bg-[var(--tertiary-container)]",
+  tertiary: "on-accent bg-[var(--pink)] text-[var(--ink)] hover:bg-[var(--pink-hover)]",
+  // Ghost sits on the page surface, so it follows the theme ink.
   ghost: "bg-[var(--off-white)] text-[var(--charcoal)] hover:bg-[var(--surface-container)]",
-  danger: "bg-[var(--error)] text-[var(--on-error)] hover:bg-[#d32f2f]",
+  // `on-error` is a marker only — it carries the dark-theme disabled rule.
+  danger: "on-error bg-[var(--error)] text-[var(--on-error)] hover:bg-[var(--error-hover)]",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(

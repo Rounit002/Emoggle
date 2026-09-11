@@ -267,7 +267,7 @@ function PendingResult({ onRetry, onLeave }: { onRetry: () => void; onLeave?: ()
         aria-hidden
         animate={{ rotate: 360 }}
         transition={{ duration: 1, ease: "linear", repeat: Infinity }}
-        className="flex h-16 w-16 items-center justify-center rounded-full border-[4px] border-[var(--charcoal)] border-t-[var(--pink)] bg-[var(--yellow)] text-2xl shadow-[4px_4px_0_0_var(--charcoal)]"
+        className="flex h-16 w-16 items-center justify-center rounded-full border-[4px] border-[var(--ink-shadow)] border-t-[var(--pink)] on-accent bg-[var(--yellow)] text-2xl shadow-[4px_4px_0_0_var(--ink-shadow)]"
       >
         🎬
       </motion.span>
@@ -366,13 +366,13 @@ function CelebrityTile({
 }) {
   if (!celebrity) {
     return (
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] text-3xl shadow-[3px_3px_0_0_var(--charcoal)] sm:h-16 sm:w-16 sm:text-4xl sm:shadow-[4px_4px_0_0_var(--charcoal)]">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border-[3px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] text-3xl shadow-[3px_3px_0_0_var(--ink-shadow)] sm:h-16 sm:w-16 sm:text-4xl sm:shadow-[4px_4px_0_0_var(--ink-shadow)]">
         🏆
       </div>
     );
   }
   return (
-    <div className="relative h-14 w-14 overflow-hidden rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] shadow-[3px_3px_0_0_var(--charcoal)] sm:h-16 sm:w-16 sm:shadow-[4px_4px_0_0_var(--charcoal)]">
+    <div className="relative h-14 w-14 overflow-hidden rounded-2xl border-[3px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] shadow-[3px_3px_0_0_var(--ink-shadow)] sm:h-16 sm:w-16 sm:shadow-[4px_4px_0_0_var(--ink-shadow)]">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={celebrity.imageUrl}
@@ -413,7 +413,7 @@ function ScoreStrip({
         initial={{ scale: 0.6, opacity: 0, rotate: -10 }}
         animate={{ scale: 1, opacity: 1, rotate: 0 }}
         transition={{ type: "spring", stiffness: 360, damping: 18, delay: 0.32 }}
-        className="flex h-11 w-11 flex-none items-center justify-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] font-display text-sm font-bold uppercase text-[var(--charcoal)] shadow-[3px_3px_0_0_var(--charcoal)] sm:h-14 sm:w-14 sm:text-lg sm:shadow-[4px_4px_0_0_var(--charcoal)]"
+        className="flex h-11 w-11 flex-none items-center justify-center rounded-full border-[3px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] font-display text-sm font-bold uppercase text-[var(--ink)] shadow-[3px_3px_0_0_var(--ink-shadow)] sm:h-14 sm:w-14 sm:text-lg sm:shadow-[4px_4px_0_0_var(--ink-shadow)]"
         aria-hidden
       >
         vs
@@ -452,8 +452,8 @@ function RevealScoreCard({
 }) {
   const fill =
     tone === "purple"
-      ? "bg-[var(--purple)] text-[var(--off-white)]"
-      : "bg-[var(--pink)] text-[var(--charcoal)]";
+      ? "on-accent-inverse bg-[var(--purple)] text-[var(--ink)]"
+      : "on-accent bg-[var(--pink)] text-[var(--ink)]";
   return (
     <motion.div
       initial={{ y: 8, opacity: 0, scale: 0.95, rotate: tone === "purple" ? -2 : 2 }}
@@ -473,9 +473,9 @@ function RevealScoreCard({
       </span>
       <span
         className="font-display text-4xl font-bold leading-none tabular tracking-tight sm:text-[clamp(2.25rem,6vw,3.5rem)]"
-        style={{
-          color: tone === "purple" ? "var(--off-white)" : "var(--charcoal)",
-        }}
+        // --ink, not --charcoal/--off-white: the wrapper's on-accent
+        // scope already resolves it to the right ink for this fill.
+        style={{ color: "var(--ink)" }}
       >
         {score.toFixed(1)}
       </span>
@@ -483,7 +483,7 @@ function RevealScoreCard({
         <span
           className={cn(
             "rounded-full border-[2px] border-[var(--charcoal)] px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.18em]",
-            "bg-[var(--yellow)] text-[var(--charcoal)]",
+            "on-accent bg-[var(--yellow)] text-[var(--ink)]",
           )}
         >
           Winner

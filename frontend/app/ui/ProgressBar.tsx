@@ -14,10 +14,13 @@ interface ProgressBarProps {
   animated?: boolean;
 }
 
+// `text-*` here is what the candy-stripe draws with (it paints in
+// currentColor), so it has to stay legible against its own fill —
+// hence the on-accent scopes rather than the theme ink.
 const tones = {
-  purple: "bg-[var(--purple)] text-[var(--off-white)]",
-  pink: "bg-[var(--pink)] text-[var(--charcoal)]",
-  yellow: "bg-[var(--yellow)] text-[var(--charcoal)]",
+  purple: "on-accent-inverse bg-[var(--purple)] text-[var(--ink)]",
+  pink: "on-accent bg-[var(--pink)] text-[var(--ink)]",
+  yellow: "on-accent bg-[var(--yellow)] text-[var(--ink)]",
   neutral: "bg-[var(--charcoal)] text-[var(--off-white)]",
 } as const;
 
@@ -50,7 +53,7 @@ export function ProgressBar({
         aria-valuenow={Math.round(clamped * 100)}
         aria-valuemin={0}
         aria-valuemax={100}
-        className="relative h-3 flex-1 overflow-hidden rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white-2)]"
+        className="relative h-3 flex-1 overflow-hidden rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--off-white-2)]"
       >
         <div
           className={cn("h-full rounded-full", tones[tone], candyStripe && "candy-stripe")}

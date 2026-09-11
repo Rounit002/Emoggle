@@ -244,7 +244,7 @@ export default function ChatBox({
           chat is available, and can tap the header to expand. */}
       <header className="flex-none flex items-center justify-between gap-2 px-3 py-2.5 border-b-[2px] border-[var(--ink-faint)] bg-[var(--off-white)]">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--purple)] text-[10px] font-black uppercase tracking-[0.18em] text-white">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] on-accent-inverse bg-[var(--purple)] text-[10px] font-black uppercase tracking-[0.18em] text-white">
             {partnerLabel.slice(0, 2).toUpperCase()}
           </span>
           <div className="min-w-0">
@@ -264,7 +264,7 @@ export default function ChatBox({
               onClick={() => setShowReportConfirm(true)}
               aria-label="Report this player"
               title="Report player"
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] text-[var(--charcoal)] transition-transform duration-100 hover:bg-[var(--pink)] active:translate-y-[1px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--charcoal)] sm:h-8 sm:w-8"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] text-[var(--charcoal)] transition-transform duration-100 hover:bg-[var(--pink)] hover:text-[var(--on-accent)] active:translate-y-[1px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--charcoal)] sm:h-8 sm:w-8"
             >
               <svg
                 aria-hidden
@@ -387,7 +387,7 @@ export default function ChatBox({
                 onClick={handleSend}
                 disabled={!input.trim()}
                 aria-label="Send message"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] text-[var(--yellow-deep)] shadow-[2px_2px_0_0_var(--charcoal)] transition-transform duration-100 active:translate-y-[1px] active:shadow-[0_0_0_0_var(--charcoal)] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--charcoal)]"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)] transition-transform duration-100 active:translate-y-[1px] active:shadow-[0_0_0_0_var(--ink-shadow)] disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--charcoal)]"
               >
                 <svg
                   aria-hidden
@@ -461,7 +461,7 @@ export default function ChatBox({
                 <button
                   type="button"
                   onClick={handleReport}
-                  className="flex-1 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--pink)] px-3 py-2 text-[11px] font-extrabold uppercase tracking-[0.16em] text-[var(--pink-deep)] shadow-[2px_2px_0_0_var(--charcoal)] transition-transform duration-100 active:translate-y-[1px] active:shadow-[0_0_0_0_var(--charcoal)]"
+                  className="flex-1 rounded-full border-[2px] border-[var(--ink-shadow)] on-accent bg-[var(--pink)] px-3 py-2 text-[11px] font-extrabold uppercase tracking-[0.16em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)] transition-transform duration-100 active:translate-y-[1px] active:shadow-[0_0_0_0_var(--ink-shadow)]"
                 >
                   Report
                 </button>
@@ -512,7 +512,7 @@ function MessageBubble({
         <div
           className={`px-3 py-1.5 text-[13px] leading-snug break-words rounded-2xl border-[2px] border-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)] ${
             fromSelf
-              ? "bg-[var(--yellow)] text-[var(--yellow-deep)] rounded-br-sm"
+              ? "on-accent bg-[var(--yellow)] text-[var(--ink)] rounded-br-sm"
               : "bg-[var(--off-white)] text-[var(--charcoal)] rounded-bl-sm"
           }`}
         >

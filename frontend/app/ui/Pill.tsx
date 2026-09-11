@@ -18,15 +18,19 @@ interface PillProps {
   small?: boolean;
 }
 
+// The three filled tones pin their ink with an `on-accent` scope —
+// the fills stay light in dark mode, so the label must stay dark.
+// Border and sticker shadow stay on --ink-shadow so the pill still
+// has an edge against the dark page.
 const toneStyles: Record<Tone, string> = {
   neutral:
     "bg-[var(--off-white-2)] text-[var(--charcoal)] border-[var(--charcoal)]",
   yellow:
-    "bg-[var(--yellow)] text-[var(--charcoal)] border-[var(--charcoal)]",
+    "on-accent bg-[var(--yellow)] text-[var(--ink)] border-[var(--ink-shadow)]",
   purple:
-    "bg-[var(--purple)] text-[var(--off-white)] border-[var(--charcoal)]",
+    "on-accent-inverse bg-[var(--purple)] text-[var(--ink)] border-[var(--ink-shadow)]",
   pink:
-    "bg-[var(--pink)] text-[var(--charcoal)] border-[var(--charcoal)]",
+    "on-accent bg-[var(--pink)] text-[var(--ink)] border-[var(--ink-shadow)]",
 };
 
 export function Pill({ children, tone = "neutral", className, small = false }: PillProps) {
@@ -36,7 +40,7 @@ export function Pill({ children, tone = "neutral", className, small = false }: P
         "inline-flex items-center gap-1.5 rounded-full border-[2px] px-3 py-0.5",
         "font-bold tracking-wide uppercase",
         small ? "text-[9px] px-2 py-0.5" : "text-[11px]",
-        "shadow-[2px_2px_0_0_var(--charcoal)]",
+        "shadow-[2px_2px_0_0_var(--ink-shadow)]",
         toneStyles[tone],
         className,
       )}

@@ -84,6 +84,22 @@
   --pink:            #ffb3b0;   /* tertiary accent */
   --pink-deep:       #ae2f34;   /* deep pink for text/outline */
 
+  /* Tinted accent surfaces — the soft wash behind a "tinted" icon
+     button, as opposed to the solid --purple / --pink fill. */
+  --purple-container:  #ece9ff;
+  --pink-container:    #ffdad8;
+  --yellow-container:  #fff3c4;
+
+  /* Hover shades for the filled buttons. These need their own
+     tokens rather than a hardcoded hex or a reused *-deep value:
+     in dark mode the *-deep tokens are light (they're ink for the
+     dark page), so using one as a hover fill would wash the button
+     out under its own label. */
+  --yellow-hover:  #ffe173;
+  --purple-hover:  #5644d0;
+  --pink-hover:    #ffd1d0;
+  --error-hover:   #d32f2f;
+
   /* Semantic ink — what text and structural borders actually use.
      In light mode this is plain charcoal; in dark mode it flips to
      an off-white tone. Components should prefer these over the raw
@@ -109,6 +125,52 @@
      language still reads on a dark surface. */
   --ink-shadow:      #1a1c1c;
   --ink-shadow-rgb:  26, 28, 28;
+
+  /* ---------------------------------------------------------
+     Ink that sits ON a bright brand fill.
+     ---------------------------------------------------------
+     The yellow / pink / purple fills are light-to-mid colors in
+     BOTH themes — dark mode only makes them more saturated, never
+     darker. So the ink printed on them must NOT flip with the
+     theme the way --ink / --charcoal do, or every filled button
+     turns into light-on-light mush in dark mode.
+
+     Don't reach for these directly on a nested element; put the
+     `.on-accent` (yellow / pink) or `.on-accent-inverse` (purple)
+     class on the filled container instead. Those re-point the
+     --ink family for the whole subtree, so descendants written as
+     `text-[var(--ink)]` / `--ink-muted` / `--ink-soft` print
+     correctly on the fill in both themes.
+
+     They deliberately leave --charcoal, --off-white and
+     --ink-shadow alone, because those three are how a *nested*
+     element addresses the page rather than the fill:
+       - a chip inside the card (`bg-[var(--off-white)]
+         text-[var(--charcoal)]`) stays a page-surface chip — white
+         with dark ink in the light theme, black with light ink in
+         the dark one;
+       - the filled element's own border and sticker shadow stay on
+         --ink-shadow so they read against the page behind it.
+     So: text directly on the fill uses --ink; anything that is its
+     own little surface keeps using --charcoal / --off-white.
+
+     The alpha steps below are picked, not eyeballed: 0.86 is the
+     lowest that still clears 4.5:1 on the *pink* fill (the darkest
+     of the three), and 0.62 the lowest that clears 3:1 there for
+     the big decorative numerals. */
+  --on-accent:         #17140d;
+  --on-accent-muted:   rgba(23, 20, 13, 0.86);
+  --on-accent-soft:    rgba(23, 20, 13, 0.62);
+  --on-accent-faint:   rgba(23, 20, 13, 0.32);
+
+  /* Purple is the one fill dark enough to carry light ink — but only
+     just: white on --purple is 4.67:1 in the light theme, so there's
+     no headroom to soften "muted" text with alpha. It stays full
+     white; size and weight carry the hierarchy instead. */
+  --on-accent-inverse:         #ffffff;
+  --on-accent-inverse-muted:   #ffffff;
+  --on-accent-inverse-soft:    rgba(255, 255, 255, 0.78);
+  --on-accent-inverse-faint:   rgba(255, 255, 255, 0.45);
 
   /* Shape — hyper-rounded, no sharp corners */
   --r-sm: 0.5rem;   /* 8px */
@@ -229,6 +291,24 @@
   --color-ink-overlay: var(--ink-overlay);
   --color-ink-shadow: var(--ink-shadow);
 
+  /* Tinted accent surfaces */
+  --color-purple-container: var(--purple-container);
+  --color-pink-container: var(--pink-container);
+  --color-yellow-container: var(--yellow-container);
+  --color-yellow-hover: var(--yellow-hover);
+  --color-purple-hover: var(--purple-hover);
+  --color-pink-hover: var(--pink-hover);
+  --color-error-hover: var(--error-hover);
+
+  /* Ink that prints on a brand fill. Prefer the `.on-accent` /
+     `.on-accent-inverse` scope classes over reaching for these
+     one element at a time. */
+  --color-on-accent: var(--on-accent);
+  --color-on-accent-muted: var(--on-accent-muted);
+  --color-on-accent-soft: var(--on-accent-soft);
+  --color-on-accent-inverse: var(--on-accent-inverse);
+  --color-on-accent-inverse-muted: var(--on-accent-inverse-muted);
+
   /* Type — Quicksand for display, Plus Jakarta Sans for body, JetBrains Mono for numerals */
   --font-display: var(--font-display), "Quicksand", "Plus Jakarta Sans", system-ui, sans-serif;
   --font-sans:    var(--font-sans),    "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
@@ -288,6 +368,46 @@ a:focus-visible,
    ========================================================= */
 
 @layer utilities {
+  /* ---------------------------------------------------------
+     Ink scopes for bright brand fills
+     ---------------------------------------------------------
+     Put `.on-accent` on any element filled with --yellow or --pink,
+     and `.on-accent-inverse` on any element filled with --purple.
+
+     They re-point the ink tokens for the whole subtree, so the
+     element and everything inside it prints readable ink on that
+     fill in BOTH themes — without editing a single descendant.
+     That's the whole trick: dark mode flips --ink / --charcoal to
+     off-white, which is right on the page surface and badly wrong
+     on a yellow button.
+
+     Deliberately NOT re-pointed: --ink-shadow. The filled element's
+     own border and sticker shadow should still read against the
+     page behind it (off-white on the dark page), so keep those on
+     var(--ink-shadow). Nested chips inside the fill go on
+     var(--charcoal) as before and correctly pick up the dark ink. */
+  .on-accent {
+    --ink:                var(--on-accent);
+    --ink-muted:          var(--on-accent-muted);
+    --ink-soft:           var(--on-accent-soft);
+    --ink-faint:          var(--on-accent-faint);
+    --ink-line:           var(--on-accent-soft);
+    --on-surface:         var(--on-accent);
+    --on-surface-variant: var(--on-accent-muted);
+    color: var(--on-accent);
+  }
+
+  .on-accent-inverse {
+    --ink:                var(--on-accent-inverse);
+    --ink-muted:          var(--on-accent-inverse-muted);
+    --ink-soft:           var(--on-accent-inverse-soft);
+    --ink-faint:          var(--on-accent-inverse-faint);
+    --ink-line:           var(--on-accent-inverse-soft);
+    --on-surface:         var(--on-accent-inverse);
+    --on-surface-variant: var(--on-accent-inverse-muted);
+    color: var(--on-accent-inverse);
+  }
+
   /* The display headline face. Quicksand is bubbly and rounded. */
   .font-display {
     font-family: var(--font-display);
@@ -429,39 +549,49 @@ a:focus-visible,
 .info-content ol { list-style-type: decimal; }
 
 /* =========================================================
-   Dark theme — "Cozy Party Night"
+   Dark theme — "Jet Black Party Night"
    ---------------------------------------------------------
-   Warm dark surface (brown-tinted charcoal), neon yellow /
-   purple / pink accents at full saturation, off-white ink and
-   off-white sticker shadow so the same card language reads.
+   Pure jet-black page surface with a short neutral grey ramp for
+   the cards that sit on it. The brand accents (yellow / purple /
+   pink) stay fully saturated so they read as light-emitting chips
+   against the black, and the ink + sticker shadow flip to a warm
+   off-white so the same card language still reads.
+
+   The one rule that matters: anything FILLED with a brand accent
+   keeps dark ink. The accents don't get darker in this theme, so
+   the ink on them must not get lighter. That's what the
+   `.on-accent` / `.on-accent-inverse` scopes above are for —
+   the tokens below never need to know about it.
+
    Activated by setting data-theme="dark" on <html> from the
-   inline boot script in layout.tsx.
+   pre-paint boot script (public/theme-boot.js, loaded
+   beforeInteractive in layout.tsx).
    ========================================================= */
 
 [data-theme="dark"] {
   color-scheme: dark;
 
-  /* Surface — warm cozy charcoal, brown-tinted so the off-white ink
-     and yellow accent feel like lamp-light, not a cold OLED black. */
-  --surface:           #1c1a18;
-  --surface-dim:       #14110f;
-  --surface-bright:    #252220;
-  --surface-container-lowest: #100e0c;
-  --surface-container-low:    #1f1c19;
-  --surface-container:        #232017;
-  --surface-container-high:   #2a261f;
-  --surface-container-highest:#322d25;
-  --on-surface:        #f6efe1;
-  --on-surface-variant:#c7bda6;
-  --inverse-surface:   #f6efe1;
-  --inverse-on-surface:#1c1a18;
-  --outline:           #8a7f6a;
-  --outline-variant:   #3a342a;
+  /* Surface — jet black page, with a tight neutral ramp above it so
+     stacked cards stay distinguishable without going muddy grey. */
+  --surface:           #000000;
+  --surface-dim:       #000000;
+  --surface-bright:    #1c1c1c;
+  --surface-container-lowest: #000000;
+  --surface-container-low:    #0a0a0a;
+  --surface-container:        #111111;
+  --surface-container-high:   #1a1a1a;
+  --surface-container-highest:#242424;
+  --on-surface:        #f4f1ea;
+  --on-surface-variant:#bdb7ab;
+  --inverse-surface:   #f4f1ea;
+  --inverse-on-surface:#000000;
+  --outline:           #8f8a7f;
+  --outline-variant:   #2e2e2e;
   --surface-tint:      #ffe173;
-  --surface-variant:   #2a261f;
+  --surface-variant:   #1a1a1a;
 
-  /* Primary — yellow stays loud, but a touch warmer/cleaner
-     against the warm dark surface. */
+  /* Primary — yellow stays loud; it's the main light source on the
+     black page. */
   --primary:                #ffe173;
   --on-primary:             #221b00;
   --primary-container:      #ffd93d;
@@ -472,11 +602,14 @@ a:focus-visible,
   --on-primary-fixed:       #221b00;
   --on-primary-fixed-variant:#554500;
 
-  /* Secondary — purple gets brighter to pop on warm dark. */
+  /* Secondary — purple, held a shade deeper than the light theme
+     (#6f5fea -> #6454dd) so the white ink it carries clears 4.5:1
+     instead of 4.67:1 with no headroom. Still plenty vivid on black
+     at 3.85:1 against the page. */
   --secondary:                #b6a8ff;
   --on-secondary:             #1c1656;
-  --secondary-container:      #8a7df0;
-  --on-secondary-container:   #fffbff;
+  --secondary-container:      #6454dd;
+  --on-secondary-container:   #ffffff;
   --secondary-fixed:          #e4dfff;
   --secondary-fixed-dim:      #c6bfff;
   --on-secondary-fixed:       #160066;
@@ -494,40 +627,92 @@ a:focus-visible,
 
   /* Error — softer for dark mode, still readable. */
   --error:                #ff8a80;
-  --on-error:             #5b0a0a;
+  --on-error:             #4a0606;
   --error-container:      #5b1a1a;
   --on-error-container:   #ffdad6;
 
   /* Friendly aliases — flipped: charcoal becomes off-white ink,
-     off-white becomes the dark surface, etc. We keep the names
+     off-white becomes the jet-black surface, etc. We keep the names
      the same so component classes like `border-[var(--charcoal)]`
-     work in both themes. */
-  --charcoal:        #f6efe1;   /* off-white ink */
-  --off-white:       #1c1a18;   /* dark surface */
-  --off-white-2:     #232017;   /* dark card surface */
-  --yellow:          #ffd93d;   /* brighter for dark */
-  --yellow-deep:     #ffe173;   /* text on dark yellow chip */
-  --purple:          #8a7df0;   /* brighter for dark */
-  --purple-deep:     #b6a8ff;   /* text on dark purple chip */
-  --pink:            #ff8e89;   /* slightly warmer for dark */
-  --pink-deep:       #ffb3b0;   /* text on dark pink chip */
+     work in both themes.
+
+     The three accent fills deliberately do NOT get darker here —
+     they're the light source. Text printed on them is handled by
+     the `.on-accent` scopes, not by these tokens. */
+  --charcoal:        #f4f1ea;   /* off-white ink */
+  --off-white:       #000000;   /* jet black page surface */
+  --off-white-2:     #111111;   /* card surface */
+  --yellow:          #ffd93d;
+  --yellow-deep:     #ffe173;   /* yellow ink ON the dark page */
+  --purple:          #6454dd;   /* deep enough that white ink clears 4.5:1 */
+  --purple-deep:     #b6a8ff;   /* purple ink ON the dark page */
+  --pink:            #ff8e89;
+  --pink-deep:       #ffb3b0;   /* pink ink ON the dark page */
+
+  /* Tinted accent surfaces — used by the "tinted" icon buttons. */
+  --purple-container:  #1e1840;
+  --pink-container:    #3a1210;
+  --yellow-container:  #2c2408;
+
+  /* Hover shades. Held deeper than the resting fill (same direction
+     as the light theme) so the dark ink on these buttons keeps its
+     contrast while hovered. */
+  --yellow-hover:  #f5c800;
+  --purple-hover:  #5644d0;
+  --pink-hover:    #ff736d;
+  --error-hover:   #ff6f63;
 
   /* Semantic ink swap — components that use these will auto-flip. */
-  --ink:             #f6efe1;
-  --ink-muted:       #c7bda6;
-  --ink-inverse:     #1c1a18;
+  --ink:             #f4f1ea;
+  --ink-muted:       #bdb7ab;
+  --ink-inverse:     #000000;
 
   /* Tinted ink — dark-mode equivalents of the opacity modifiers
      used in the light theme. */
-  --ink-soft:        rgba(246, 239, 225, 0.35);
-  --ink-faint:       rgba(246, 239, 225, 0.18);
-  --ink-line:        rgba(246, 239, 225, 0.18);
-  --ink-overlay:     rgba(0, 0, 0, 0.55);
+  --ink-soft:        rgba(244, 241, 234, 0.38);
+  --ink-faint:       rgba(244, 241, 234, 0.16);
+  --ink-line:        rgba(244, 241, 234, 0.18);
+  --ink-overlay:     rgba(0, 0, 0, 0.72);
 
-  /* Sticker shadow — off-white on dark so the same 4px offset
-     still reads as "stuck on the table". */
-  --ink-shadow:      #f6efe1;
-  --ink-shadow-rgb:  246, 239, 225;
+  /* Sticker shadow — off-white on jet black so the same 4px offset
+     still reads as "stuck on the table". Held a shade below the ink
+     so a page full of cards doesn't turn into a glare of outlines. */
+  --ink-shadow:      #d8d3c6;
+  --ink-shadow-rgb:  216, 211, 198;
+}
+
+/* ---------------------------------------------------------
+   Disabled accent fills in the dark theme
+   ---------------------------------------------------------
+   `opacity-50` is the disabled treatment everywhere in this UI.
+   Composited over the off-white page it lightens the chip while
+   the dark label stays put, so the label still reads. Composited
+   over jet black it darkens chip AND label by the same factor,
+   and the label sinks into the fill — measured 2.1:1 to 3.6:1 on
+   the filled buttons.
+
+   So in this theme a disabled accent button stops being a dimmed
+   accent chip and becomes a flat inert one: full opacity, neutral
+   surface, muted-but-legible ink (5.8:1), and no sticker shadow,
+   since it isn't pressable. The light theme is untouched.
+
+   `.on-error` is only a marker for this rule: the error fill flips
+   the other way round (dark red + white ink in the light theme,
+   light red + dark ink here), so --on-error already handles its
+   resting state — but its disabled state collapses the same way. */
+[data-theme="dark"] .on-accent:disabled,
+[data-theme="dark"] .on-accent-inverse:disabled,
+[data-theme="dark"] .on-error:disabled,
+[data-theme="dark"] .on-accent[aria-disabled="true"],
+[data-theme="dark"] .on-accent-inverse[aria-disabled="true"],
+[data-theme="dark"] .on-error[aria-disabled="true"] {
+  --ink: #9a948a;
+  --ink-muted: #9a948a;
+  opacity: 1;
+  background-color: #1a1a1a;
+  color: #9a948a;
+  border-color: #3a3a3a;
+  box-shadow: none;
 }
 
 /* Manual override data attribute (toggled by the nav sun/moon

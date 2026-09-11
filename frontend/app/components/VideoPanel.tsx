@@ -4,8 +4,10 @@ import { motion } from "framer-motion";
 import { forwardRef, useEffect, useRef, type RefObject } from "react";
 import AnalyzingOverlay from "./AnalyzingOverlay";
 import type { FaceBox, FaceLandmark } from "../hooks/useExpressionScorer";
+import type { LocalCameraStatus } from "../hooks/useLocalCamera";
 import { useMediaPipeFace, type MeshConnection } from "../context/MediaPipeFaceContext";
 import { flagFromAnyOrFallback } from "../lib/country";
+import { Button, Camera, Refresh } from "../ui";
 
 interface VideoPanelProps {
   label: string;
@@ -30,6 +32,10 @@ interface VideoPanelProps {
    * disable this to avoid racing a second getUserMedia request.
    */
   autoAcquireLocalStream?: boolean;
+  /** Explicit local-camera state supplied by the arena that owns the stream. */
+  localCameraStatus?: LocalCameraStatus;
+  localCameraError?: string | null;
+  onRetryCamera?: () => void;
   frozenFrame?: string | null;
   score?: number | null;
   liveScore?: number | null;
@@ -58,6 +64,9 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
       localStream,
       remoteStream,
       autoAcquireLocalStream = true,
+      localCameraStatus,
+      localCameraError,
+      onRetryCamera,
       frozenFrame,
       score,
       liveScore,
@@ -88,6 +97,7 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
     // in `lib/country.ts` next to the same logic in the server
     // — keep them in sync if you tweak the resolution order.
     const flag = flagFromAnyOrFallback(country ?? null, countryCode ?? null);
+    const effectiveCameraStatus = localCameraStatus ?? (localStream ? "ready" : "requesting");
 
     return (
       <div className={`relative h-full w-full min-h-0 min-w-0 overflow-hidden bg-zinc-900 transition-shadow duration-700 ${panelShape} ${panelBorder}`}>
@@ -191,11 +201,41 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
           />
         )}
 
+        {isLocal && !frozenFrame && effectiveCameraStatus !== "ready" && (
+          <div
+            className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-zinc-950/90 px-5 text-center text-white backdrop-blur-sm"
+            role={effectiveCameraStatus === "error" ? "alert" : "status"}
+            aria-live="polite"
+          >
+            <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border-2 border-white/30 bg-white/10">
+              <Camera size={26} />
+            </span>
+            <div className="space-y-1">
+              <p className="font-display text-xl font-bold">
+                {effectiveCameraStatus === "error" ? "Camera unavailable" : "Allow camera access"}
+              </p>
+              <p className="mx-auto max-w-sm text-sm leading-relaxed text-zinc-300">
+                {effectiveCameraStatus === "error"
+                  ? localCameraError ?? "Check your browser permissions and try again."
+                  : "Your camera preview will appear here. Emoggle needs it to score your expression."}
+              </p>
+            </div>
+            {effectiveCameraStatus === "error" && onRetryCamera && (
+              <Button size="sm" onClick={onRetryCamera} iconLeft={<Refresh size={15} />}>
+                Try camera again
+              </Button>
+            )}
+          </div>
+        )}
+
         {!isLocal && !frozenFrame && (
           <RemoteVideo stream={remoteStream ?? null} />
         )}
 
         {frozenFrame && (
+          // Frozen frames are data URLs captured from the live camera, so
+          // Next Image optimization cannot improve or cache them.
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={frozenFrame}
             alt="frozen frame"

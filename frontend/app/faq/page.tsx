@@ -41,7 +41,7 @@ export default function FaqPage() {
         title="Frequently asked questions"
         intro="Straight answers about playing Emoggle, webcam requirements, scoring, and privacy."
       >
-        <div className="divide-y divide-white/10 rounded-3xl border border-white/10 bg-white/[0.03] px-6 sm:px-8">
+        <div className="divide-y divide-[var(--ink-line)] rounded-3xl border border-[var(--ink-line)] bg-[var(--off-white-2)] px-6 sm:px-8">
           {frequentlyAskedQuestions.map((item) => (
             <section key={item.question} className="py-7">
               <h2 className="mt-0 text-xl">{item.question}</h2>

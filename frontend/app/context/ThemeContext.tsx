@@ -62,7 +62,7 @@ function applyToDom(mode: ThemeMode) {
   if (meta) {
     meta.setAttribute(
       "content",
-      mode === "dark" ? "#1c1a18" : "#f9f9f9",
+      mode === "dark" ? "#000000" : "#f9f9f9",
     );
   }
 }

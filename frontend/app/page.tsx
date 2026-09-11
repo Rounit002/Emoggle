@@ -68,7 +68,7 @@ export default function Home() {
         className="border-t-[3px] border-[var(--charcoal)] px-4 py-16 sm:px-5 sm:py-24"
       >
         <div className="mx-auto max-w-[1200px]">
-          <span className="inline-block rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)]">
+          <span className="on-accent inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
             Play in your browser
           </span>
           <h2
@@ -97,7 +97,7 @@ export default function Home() {
               delay={0}
               className="rounded-3xl border-[4px] border-[var(--purple-deep)] bg-[var(--off-white-2)] p-5 shadow-[6px_6px_0_0_var(--charcoal)] tilt-l-1 sm:p-7"
             >
-              <span className="inline-block rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--purple)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--off-white)] shadow-[2px_2px_0_0_var(--charcoal)]">
+              <span className="on-accent-inverse inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--purple)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
                 Multiplayer mode
               </span>
               <h3 className="mt-3 font-display text-2xl font-bold tracking-tight text-[var(--charcoal)]">
@@ -116,7 +116,7 @@ export default function Home() {
               delay={0.08}
               className="rounded-3xl border-[4px] border-[var(--pink-deep)] bg-[var(--off-white-2)] p-5 shadow-[6px_6px_0_0_var(--charcoal)] tilt-r-1 sm:p-7"
             >
-              <span className="inline-block rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--pink)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)]">
+              <span className="on-accent inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--pink)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
                 Solo mode
               </span>
               <h3 className="mt-3 font-display text-2xl font-bold tracking-tight text-[var(--charcoal)]">
@@ -147,7 +147,7 @@ export default function Home() {
                   i === 0 ? "tilt-l-1" : i === 1 ? "tilt-0" : "tilt-r-1"
                 }`}
               >
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] font-mono text-sm font-extrabold text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)]">
+                <span className="on-accent inline-flex h-9 w-9 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] font-mono text-sm font-extrabold text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
                   {number}
                 </span>
                 <h3 className="mt-5 font-display text-lg font-bold tracking-tight text-[var(--charcoal)]">
@@ -167,7 +167,7 @@ export default function Home() {
         className="border-t-[3px] border-[var(--charcoal)] px-4 py-16 sm:px-5 sm:py-24"
       >
         <div className="mx-auto max-w-4xl">
-          <span className="inline-block rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)]">
+          <span className="on-accent inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
             Quick answers
           </span>
           <h2
@@ -182,7 +182,7 @@ export default function Home() {
                 <summary className="cursor-pointer list-none pr-6 font-display text-base font-bold text-[var(--charcoal)] marker:hidden sm:pr-8 sm:text-lg">
                   <span className="flex items-center justify-between gap-3">
                     {item.question}
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] font-mono text-base font-bold text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)] transition-transform group-open:rotate-45">
+                    <span className="on-accent inline-flex h-7 w-7 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] font-mono text-base font-bold text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)] transition-transform group-open:rotate-45">
                       +
                     </span>
                   </span>
@@ -195,7 +195,7 @@ export default function Home() {
           </div>
           <Link
             href="/faq"
-            className="mt-6 inline-flex h-12 items-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-5 text-sm font-bold text-[var(--charcoal)] shadow-[4px_4px_0_0_var(--charcoal)] transition-transform active:translate-y-1 active:shadow-none hover:bg-[var(--yellow)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--charcoal)]"
+            className="mt-6 inline-flex h-12 items-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-5 text-sm font-bold text-[var(--charcoal)] shadow-[4px_4px_0_0_var(--ink-shadow)] transition-transform active:translate-y-1 active:shadow-none hover:bg-[var(--yellow)] hover:text-[var(--on-accent)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--charcoal)]"
           >
             Read all FAQs
           </Link>

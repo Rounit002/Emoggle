@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { MotionConfig } from "framer-motion";
 import CelebrityDuelArena from "./CelebrityDuelArena";
 import DuelArena from "./DuelArena";
 import ModeSelect from "./ModeSelect";
@@ -28,7 +29,9 @@ export default function HomeExperience() {
         <PlayerNameProvider>
           <CountryProvider>
             <RevenueCatProvider>
-              <HomeContent />
+              <MotionConfig reducedMotion="user">
+                <HomeContent />
+              </MotionConfig>
             </RevenueCatProvider>
           </CountryProvider>
         </PlayerNameProvider>
@@ -41,33 +44,26 @@ function HomeContent() {
   const [view, setView] = useState<View>("home");
   const setSmoothScrollEnabled = useSmoothScrollController();
 
-  /* Pin the page scroll position across view transitions.
-
-     The user has been reading the landing page (which includes
-     the long "How Emoggle works" / FAQ / nav sections below the
-     mode select). When they hit "Play now" the view swaps from
-     ModeSelect to DuelArena — the new content tree has a
-     different intrinsic height, and the browser's default
-     "preserve scroll offset" behavior can drag the viewport to
-     the bottom of the new content.
-
-     To make the page stay exactly where the user left it, we
-     snapshot window.scrollY at the moment the user picks a mode
-     (or hits Back), then re-apply it in a layout effect after
-     React has committed the new tree. The effect runs before
-     the browser paints, so the user never sees the jump. */
+  /* Games always open at their beginning. When the player returns,
+     restore the landing-page position they came from. */
   const pendingScrollY = useRef<number | null>(null);
+  const homeScrollY = useRef(0);
 
   const goTo = useCallback((next: View) => {
     if (typeof window !== "undefined") {
-      pendingScrollY.current = window.scrollY;
+      if (view === "home" && next !== "home") {
+        homeScrollY.current = window.scrollY;
+        pendingScrollY.current = 0;
+      } else if (next === "home") {
+        pendingScrollY.current = homeScrollY.current;
+      }
     }
     // Live camera modes already run animation and face-tracking loops.
     // Remove Lenis before those trees mount so its global RAF does not
     // compete for the same frame budget.
     setSmoothScrollEnabled(next === "home");
     setView(next);
-  }, [setSmoothScrollEnabled]);
+  }, [setSmoothScrollEnabled, view]);
 
   useEffect(
     () => () => {

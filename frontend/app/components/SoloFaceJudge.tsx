@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
+import { useLocalCamera } from "../hooks/useLocalCamera";
 import { isValidScoreSample, useStableScoreSampler } from "../hooks/useStableScoreSampler";
 import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
@@ -11,10 +12,8 @@ import {
   Button,
   EmojiPromptMotion,
   WebEmoji,
-  IconButton,
   Logo,
   Pill,
-  ProgressBar,
   Score,
   ThemeToggle,
   ArrowLeft,
@@ -79,12 +78,20 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
   const [roundSeconds, setRoundSeconds] = useState(ROUND_SECONDS);
   const [finalScore, setFinalScore] = useState<number | null>(null);
   const [history, setHistory] = useState<SoloHistoryEntry[]>([]);
+  const {
+    stream: localStream,
+    status: localCameraStatus,
+    error: localCameraError,
+    retry: retryCamera,
+  } = useLocalCamera();
   const { name: playerName } = usePlayerName();
   const { country: detectedCountry } = useCountry();
 
   useEffect(() => {
     // `getSoloHistory` migrates the legacy colon-form key on first
     // read, so existing users keep their attempts.
+    // This is intentionally a post-hydration browser-storage sync.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHistory(getSoloHistory());
   }, []);
 
@@ -159,6 +166,7 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
   const personalBest = history.length > 0 ? Math.max(...history.map((e) => e.score)) : null;
 
   const startRound = () => {
+    if (localCameraStatus !== "ready") return;
     sampler.reset();
     setFinalScore(null);
     setRoundSeconds(ROUND_SECONDS);
@@ -236,6 +244,11 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
               country={detectedCountry?.display ?? null}
               rankLabel="SOLO · PRACTICE"
               isLocal={true}
+              localStream={localStream}
+              autoAcquireLocalStream={false}
+              localCameraStatus={localCameraStatus}
+              localCameraError={localCameraError}
+              onRetryCamera={retryCamera}
               frozenFrame={null}
               liveScore={phase === "results" ? finalScore : liveScore}
               score={finalScore}
@@ -301,8 +314,16 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
           {/* Action buttons */}
           {phase !== "playing" && (
             <div className="flex flex-col gap-2">
-              <Button block size="lg" onClick={startRound} iconLeft={<Camera size={18} />}>
-                {phase === "results" ? "Try again" : "Start scan"}
+              <Button
+                block
+                size="lg"
+                onClick={startRound}
+                iconLeft={<Camera size={18} />}
+                disabled={localCameraStatus !== "ready"}
+              >
+                {localCameraStatus === "ready"
+                  ? phase === "results" ? "Try again" : "Start scan"
+                  : localCameraStatus === "error" ? "Camera unavailable" : "Waiting for camera…"}
               </Button>
               <Button block variant="secondary" onClick={nextEmoji} iconLeft={<Refresh size={16} />}>
                 New emoji
@@ -339,14 +360,14 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
   );
 }
 
-function EmojiCard({ emoji, active }: { emoji: string; active: boolean }) {
+function EmojiCard({ emoji }: { emoji: string; active: boolean }) {
   return (
     <motion.div
       layout
       className={cn(
         // Target emoji scales up on desktop so it doesn't look like a
         // postage stamp next to a 1000+ px wide camera frame.
-        "flex aspect-square w-full max-w-[180px] items-center justify-center rounded-2xl border-[4px] border-[var(--charcoal)] bg-[var(--yellow)] min-[420px]:max-w-[220px] sm:max-w-[240px] lg:max-w-[280px] xl:max-w-[300px]",
+        "flex aspect-square w-full max-w-[180px] items-center justify-center rounded-2xl border-[4px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] min-[420px]:max-w-[220px] sm:max-w-[240px] lg:max-w-[280px] xl:max-w-[300px]",
         "shadow-[6px_6px_0_0_var(--charcoal)]",
         "tilt-r-1",
       )}
@@ -367,10 +388,10 @@ function HistoryChip({ entry }: { entry: SoloHistoryEntry }) {
     entry.score >= 8 ? "purple" : entry.score >= 5 ? "yellow" : "pink";
   const chipClass =
     tone === "purple"
-      ? "bg-[var(--purple)] text-[var(--off-white)] border-[var(--charcoal)]"
+      ? "on-accent-inverse bg-[var(--purple)] text-[var(--ink)] border-[var(--ink-shadow)]"
       : tone === "yellow"
-        ? "bg-[var(--yellow)] text-[var(--charcoal)] border-[var(--charcoal)]"
-        : "bg-[var(--pink)] text-[var(--charcoal)] border-[var(--charcoal)]";
+        ? "on-accent bg-[var(--yellow)] text-[var(--ink)] border-[var(--ink-shadow)]"
+        : "on-accent bg-[var(--pink)] text-[var(--ink)] border-[var(--ink-shadow)]";
   return (
     <span
       className={cn(

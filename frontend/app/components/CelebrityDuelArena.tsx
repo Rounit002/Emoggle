@@ -29,10 +29,12 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import ChatBox from "./ChatBox";
+import Countdown from "./Countdown";
 import { useUserProfile } from "../context/UserProfileContext";
 import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
 import { useMatchmaking, type MatchResult } from "../hooks/useMatchmaking";
+import { useLocalCamera } from "../hooks/useLocalCamera";
 import { useCelebrityExpressionScorer } from "../hooks/useCelebrityExpressionScorer";
 import { useStableScoreSampler, isValidScoreSample } from "../hooks/useStableScoreSampler";
 import {
@@ -116,7 +118,12 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
   const peakAccumulatorRef = useRef<PeakScoreAccumulator>(createPeakAccumulator());
   const submittedRef = useRef(false);
 
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const {
+    stream: localStream,
+    status: localCameraStatus,
+    error: localCameraError,
+    retry: retryCamera,
+  } = useLocalCamera({ audio: true });
   const [phase, setPhase] = useState<AppPhase>("lobby");
   const [roundSeconds, setRoundSeconds] = useState(ROUND_SECONDS);
   const [finalScore, setFinalScore] = useState<number | null>(null);
@@ -164,7 +171,7 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
     myCountryCode,
     profile,
     saveProfile,
-    sessionToken,
+    localStream ? sessionToken : null,
     "celebrity",
   );
 
@@ -291,31 +298,6 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
     if (expression.score === null || !Number.isFinite(expression.score)) return;
     peakAccumulatorRef.current = pushPeakSample(peakAccumulatorRef.current, expression.score);
   }, [phase, expression.status, expression.score]);
-
-  /* Webcam acquisition — request audio last (mics are more likely
-   * to be permission-blocked than cameras, and audio isn't required
-   * for the mimic). */
-  useEffect(() => {
-    let stream: MediaStream | null = null;
-    navigator.mediaDevices
-      .getUserMedia({ video: { width: 1280, height: 720 }, audio: true })
-      .then((mediaStream) => {
-        stream = mediaStream;
-        setLocalStream(mediaStream);
-      })
-      .catch(() => {
-        navigator.mediaDevices
-          .getUserMedia({ video: { width: 1280, height: 720 }, audio: false })
-          .then((mediaStream) => {
-            stream = mediaStream;
-            setLocalStream(mediaStream);
-          })
-          .catch((err) => console.error("[Camera]", err));
-      });
-    return () => {
-      stream?.getTracks().forEach((track) => track.stop());
-    };
-  }, []);
 
   /* Finalize the local round — push the current peak sample, submit
    * the canonical peak score, lock the result UI. */
@@ -444,6 +426,9 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
             liveScore={liveScore}
             opponentLiveScore={partnerLiveScore}
             scoreAlign="right"
+            localCameraStatus={localCameraStatus}
+            localCameraError={localCameraError}
+            onRetryCamera={retryCamera}
           />
           <VideoPanel
             label="RIVAL"
@@ -478,34 +463,17 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
               status={status}
               onCancel={handleCancelSearch}
               onRetry={handleRetry}
+              cameraStatus={localCameraStatus}
+              cameraError={localCameraError}
+              onRetryCamera={retryCamera}
             />
           )}
         </AnimatePresence>
       </main>
 
       <AnimatePresence>
-        {countdown !== null && countdown > 0 && phase === "countdown" && (
-          <motion.div
-            key="cd"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-black/35 backdrop-blur-sm"
-            aria-live="polite"
-            aria-label={`Round starts in ${countdown}`}
-          >
-            <motion.div
-              key={countdown}
-              initial={{ scale: 1.6, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.6, opacity: 0 }}
-              transition={{ duration: 0.4, ease: "easeOut" }}
-              className="text-[10rem] font-black text-white leading-none drop-shadow-[0_0_60px_rgba(255,255,255,0.6)]"
-              style={{ textShadow: "0 0 80px rgba(168,85,247,0.7)" }}
-            >
-              {countdown}
-            </motion.div>
-          </motion.div>
+        {phase === "countdown" && countdown !== null && (
+          <Countdown count={countdown} />
         )}
       </AnimatePresence>
 
@@ -555,7 +523,7 @@ function CelebrityHero({
       <div className="flex items-center gap-3 sm:gap-4">
         <div
           className={cn(
-            "relative flex h-20 w-20 flex-none items-center justify-center overflow-hidden rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] shadow-[3px_3px_0_0_var(--charcoal)] sm:h-24 sm:w-24",
+            "relative flex h-20 w-20 flex-none items-center justify-center overflow-hidden rounded-2xl border-[3px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] shadow-[3px_3px_0_0_var(--ink-shadow)] sm:h-24 sm:w-24",
             phase === "countdown" && "animate-pulse"
           )}
           aria-hidden={imageLoadError}
@@ -607,7 +575,7 @@ function CelebrityHero({
         )}
         <span
           aria-hidden
-          className="hidden h-10 w-10 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] text-xs font-black uppercase text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)] sm:flex"
+          className="hidden h-10 w-10 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] text-xs font-black uppercase text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)] sm:flex"
         >
           vs
         </span>
@@ -643,8 +611,8 @@ function ScoreBadge({
 }) {
   const fill =
     tone === "purple"
-      ? "bg-[var(--purple)] text-[var(--off-white)]"
-      : "bg-[var(--pink)] text-[var(--charcoal)]";
+      ? "on-accent-inverse bg-[var(--purple)] text-[var(--ink)]"
+      : "on-accent bg-[var(--pink)] text-[var(--ink)]";
   return (
     <div
       className={cn(

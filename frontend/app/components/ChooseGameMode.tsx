@@ -24,8 +24,8 @@
  *  whenever the user changes their mind.
  */
 
-import { useCallback, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   ArrowLeft,
   Camera,
@@ -67,10 +67,13 @@ interface ModeOption {
   tilt: "tilt-l-1" | "tilt-l-2" | "tilt-r-1" | "tilt-r-2" | "tilt-0";
 }
 
+// The `on-accent` scope pins the ink for the whole card subtree, so
+// the title, body copy, badge and CTA inside keep printing dark on
+// these fills in dark mode instead of flipping to off-white.
 const FILL_CLASSES: Record<ModeOption["fill"], string> = {
-  yellow: "bg-[var(--yellow)] text-[var(--charcoal)]",
-  purple: "bg-[var(--purple)] text-[var(--off-white)]",
-  pink: "bg-[var(--pink)] text-[var(--charcoal)]",
+  yellow: "on-accent bg-[var(--yellow)] text-[var(--ink)]",
+  purple: "on-accent-inverse bg-[var(--purple)] text-[var(--ink)]",
+  pink: "on-accent bg-[var(--pink)] text-[var(--ink)]",
 };
 
 const MODE_OPTIONS: ModeOption[] = [
@@ -115,16 +118,52 @@ export function ChooseGameMode({
   onSelect,
   isVIP = false,
 }: ChooseGameModeProps) {
+  const reduceMotion = useReducedMotion();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const firstOptionRef = useRef<HTMLButtonElement | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+
+  const handleClose = useCallback(() => {
+    if (isSelecting) return;
+    onClose();
+  }, [isSelecting, onClose]);
+
   // Escape closes the modal — matches the user's mental model
   // for a "page" rather than a tooltip.
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
+      if (e.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  }, [handleClose, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const returnFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const focusTimer = window.setTimeout(() => firstOptionRef.current?.focus(), 80);
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.setTimeout(() => returnFocus?.focus(), 0);
+    };
+  }, [open]);
 
   // Lock the body scroll while the modal is open so the page
   // underneath doesn't rubber-band on mobile.
@@ -139,9 +178,11 @@ export function ChooseGameMode({
 
   const handleSelect = useCallback(
     (mode: GameMode) => {
+      if (isSelecting) return;
+      setIsSelecting(true);
       onSelect(mode);
     },
-    [onSelect],
+    [isSelecting, onSelect],
   );
 
   return (
@@ -149,10 +190,11 @@ export function ChooseGameMode({
       {open && (
         <motion.div
           key="choose-mode"
-          initial={{ opacity: 0 }}
+          ref={dialogRef}
+          initial={reduceMotion ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.18 }}
+          transition={{ duration: reduceMotion ? 0 : 0.18 }}
           // Opaque off-white so the home page underneath is
           // completely hidden. Safe-area padding so notches
           // and home indicators don't crowd the cards.
@@ -166,14 +208,15 @@ export function ChooseGameMode({
           role="dialog"
           aria-modal="true"
           aria-label="Choose a game mode"
+          aria-busy={isSelecting}
         >
           {/* Top bar — back chevron + title + close X */}
           <div className="flex flex-none items-center justify-between gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               aria-label="Back to home"
-              className="inline-flex h-11 w-11 flex-none items-center justify-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] text-[var(--charcoal)] shadow-[3px_3px_0_0_var(--charcoal)] active:translate-y-1 active:shadow-[0_0_0_0_var(--charcoal)]"
+              className="inline-flex h-11 w-11 touch-manipulation cursor-pointer flex-none items-center justify-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] text-[var(--charcoal)] shadow-[3px_3px_0_0_var(--charcoal)] transition-[transform,box-shadow,background-color] duration-150 active:translate-y-1 active:shadow-[0_0_0_0_var(--charcoal)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--charcoal)] motion-reduce:transition-none"
             >
               <ArrowLeft size={18} />
             </button>
@@ -185,9 +228,9 @@ export function ChooseGameMode({
             </div>
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               aria-label="Close"
-              className="inline-flex h-11 w-11 flex-none items-center justify-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] text-[var(--charcoal)] shadow-[3px_3px_0_0_var(--charcoal)] active:translate-y-1 active:shadow-[0_0_0_0_var(--charcoal)]"
+              className="inline-flex h-11 w-11 touch-manipulation cursor-pointer flex-none items-center justify-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] text-[var(--charcoal)] shadow-[3px_3px_0_0_var(--charcoal)] transition-[transform,box-shadow,background-color] duration-150 active:translate-y-1 active:shadow-[0_0_0_0_var(--charcoal)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--charcoal)] motion-reduce:transition-none"
             >
               <X size={18} />
             </button>
@@ -198,26 +241,26 @@ export function ChooseGameMode({
             <ul className="mx-auto flex w-full max-w-2xl flex-col gap-5 pb-6 sm:gap-6">
               {MODE_OPTIONS.map((option, index) => {
                 const isCelebrity = option.id === "celebrity";
-                const badgeText = option.badge;
+                const badgeText = isCelebrity && isVIP ? "VIP" : option.badge;
                 return (
                   <motion.li
                     key={option.id}
-                    initial={{ y: 18, opacity: 0, scale: 0.96 }}
+                    initial={reduceMotion ? false : { y: 18, opacity: 0, scale: 0.96 }}
                     animate={{ y: 0, opacity: 1, scale: 1 }}
                     transition={{
-                      type: "spring",
+                      type: reduceMotion ? "tween" : "spring",
                       stiffness: 280,
                       damping: 22,
                       delay: 0.05 + index * 0.05,
                     }}
                     className={cn(
-                      "flex w-full flex-col gap-4 rounded-3xl border-[4px] border-[var(--charcoal)] p-5 shadow-[8px_8px_0_0_var(--charcoal)] sm:flex-row sm:items-center sm:gap-5 sm:p-6 sm:shadow-[10px_10px_0_0_var(--charcoal)]",
+                      "flex w-full flex-col gap-4 rounded-3xl border-[4px] border-[var(--ink-shadow)] p-5 shadow-[8px_8px_0_0_var(--ink-shadow)] sm:flex-row sm:items-center sm:gap-5 sm:p-6 sm:shadow-[10px_10px_0_0_var(--ink-shadow)]",
                       FILL_CLASSES[option.fill],
                       option.tilt,
                     )}
                   >
                     {/* Glyph circle */}
-                    <div className="flex h-20 w-20 flex-none items-center justify-center rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white)] text-5xl shadow-[3px_3px_0_0_var(--charcoal)] sm:h-24 sm:w-24 sm:text-6xl">
+                    <div className="flex h-20 w-20 flex-none items-center justify-center rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white)] text-5xl text-[var(--charcoal)] shadow-[3px_3px_0_0_var(--charcoal)] sm:h-24 sm:w-24 sm:text-6xl">
                       <span aria-hidden className="-rotate-3 leading-none">
                         <WebEmoji emoji={option.glyph} />
                       </span>
@@ -234,7 +277,7 @@ export function ChooseGameMode({
                             className={cn(
                               "inline-flex items-center gap-1 rounded-full border-[2px] border-[var(--charcoal)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em]",
                               isCelebrity
-                                ? "bg-[var(--yellow)] text-[var(--charcoal)]"
+                                ? "bg-[var(--yellow)] text-[var(--on-accent)]"
                                 : "bg-[var(--off-white)] text-[var(--charcoal)]",
                             )}
                           >
@@ -250,15 +293,17 @@ export function ChooseGameMode({
 
                     {/* CTA */}
                     <button
+                      ref={index === 0 ? firstOptionRef : undefined}
                       type="button"
                       onClick={() => handleSelect(option.id)}
+                      disabled={isSelecting}
                       className={cn(
-                        "relative inline-flex h-14 w-full items-center justify-center gap-2 rounded-full border-[3px] border-[var(--charcoal)] px-6 text-[15px] font-bold tracking-tight",
-                        "shadow-[4px_4px_0_0_var(--charcoal)] active:translate-y-1 active:shadow-[0_0_0_0_var(--charcoal)]",
-                        "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--charcoal)]",
-                        "transition-transform duration-100 ease-out",
+                        "relative inline-flex h-14 w-full items-center justify-center gap-2 rounded-full border-[3px] border-[var(--on-accent)] px-6 text-[15px] font-bold tracking-tight",
+                        "shadow-[4px_4px_0_0_var(--on-accent)] active:translate-y-1 active:shadow-[0_0_0_0_var(--on-accent)]",
+                        "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--on-accent)]",
+                        "touch-manipulation cursor-pointer transition-[transform,box-shadow,background-color,opacity] duration-150 ease-out motion-reduce:transition-none disabled:cursor-wait disabled:opacity-60 disabled:active:translate-y-0",
                         isCelebrity
-                          ? "bg-[var(--pink)] text-[var(--charcoal)] hover:bg-[#ffd1d0] sm:w-auto"
+                          ? "bg-[var(--pink)] text-[var(--on-accent)] hover:bg-[var(--pink-hover)] sm:w-auto"
                           : "bg-[var(--off-white)] text-[var(--charcoal)] hover:bg-[var(--off-white-2)] sm:w-auto",
                       )}
                     >
@@ -271,7 +316,9 @@ export function ChooseGameMode({
                         }}
                       />
                       <span className="relative">{option.ctaIcon}</span>
-                      <span className="relative whitespace-nowrap">{option.cta}</span>
+                      <span className="relative whitespace-nowrap">
+                        {isSelecting ? "Opening…" : option.cta}
+                      </span>
                     </button>
                   </motion.li>
                 );
@@ -285,8 +332,9 @@ export function ChooseGameMode({
           <div className="flex flex-none flex-col items-center gap-2 pt-2">
             <button
               type="button"
-              onClick={onClose}
-              className="text-sm font-bold uppercase tracking-[0.18em] text-[var(--on-surface-variant)] underline-offset-4 hover:underline"
+              onClick={handleClose}
+              disabled={isSelecting}
+              className="min-h-11 touch-manipulation cursor-pointer text-sm font-bold uppercase tracking-[0.18em] text-[var(--on-surface-variant)] underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--charcoal)] disabled:cursor-wait disabled:opacity-50"
             >
               ← Back to home
             </button>

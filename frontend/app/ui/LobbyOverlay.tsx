@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Button, WebEmoji } from "./";
+import type { LocalCameraStatus } from "../hooks/useLocalCamera";
 
 interface LobbyOverlayProps {
   status: "idle" | "connecting" | "waiting" | "matched" | "stopped" | "error";
@@ -10,13 +11,23 @@ interface LobbyOverlayProps {
   onCancel: () => void;
   /** Retry after a connection failure without leaving the game. */
   onRetry?: () => void;
+  cameraStatus?: LocalCameraStatus;
+  cameraError?: string | null;
+  onRetryCamera?: () => void;
 }
 
 const SEARCH_EMOJIS = ["😜", "🤪", "😎", "🥳", "🤩", "😆"];
 const ORBIT_RADIUS = 64;
 
 /** A lightweight matchmaking state with no card, spinner, or timer. */
-export function LobbyOverlay({ status, onCancel, onRetry }: LobbyOverlayProps) {
+export function LobbyOverlay({
+  status,
+  onCancel,
+  onRetry,
+  cameraStatus,
+  cameraError,
+  onRetryCamera,
+}: LobbyOverlayProps) {
   const reduceMotion = useReducedMotion();
   const [isTakingLonger, setIsTakingLonger] = useState(false);
   const [retryCycle, setRetryCycle] = useState(0);
@@ -33,15 +44,25 @@ export function LobbyOverlay({ status, onCancel, onRetry }: LobbyOverlayProps) {
   };
 
   const isConnecting = status === "connecting" || status === "idle";
+  const cameraFailed = cameraStatus === "error";
+  const cameraPending = cameraStatus === "requesting";
   const hasError = status === "error";
-  const title = hasError
+  const title = cameraFailed
+    ? "Camera access needed"
+    : cameraPending
+      ? "Allow camera access"
+      : hasError
     ? "Couldn’t connect"
     : isConnecting
       ? "Getting ready…"
       : isTakingLonger
         ? "Still looking…"
         : "Finding your match…";
-  const body = hasError
+  const body = cameraFailed
+    ? cameraError ?? "Allow camera access in your browser, then try again."
+    : cameraPending
+      ? "Use the browser prompt to allow your camera. Matchmaking starts once your preview is ready."
+      : hasError
     ? "Check that the game server is running, then try again."
     : isConnecting
       ? "Connecting to the game server and preparing your camera."
@@ -83,7 +104,7 @@ export function LobbyOverlay({ status, onCancel, onRetry }: LobbyOverlayProps) {
               return (
                 <motion.span
                   key={emoji}
-                  className="absolute flex h-11 w-11 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] text-2xl shadow-[3px_3px_0_0_var(--charcoal)]"
+                  className="absolute flex h-11 w-11 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] text-2xl shadow-[3px_3px_0_0_var(--ink-shadow)]"
                   style={{
                     left: `calc(50% + ${x}px)`,
                     top: `calc(50% + ${y}px)`,
@@ -102,7 +123,7 @@ export function LobbyOverlay({ status, onCancel, onRetry }: LobbyOverlayProps) {
               );
             })}
           </motion.div>
-          <span className="absolute left-1/2 top-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--purple)] text-2xl shadow-[3px_3px_0_0_var(--charcoal)]">
+          <span className="absolute left-1/2 top-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[3px] border-[var(--ink-shadow)] on-accent-inverse bg-[var(--purple)] text-2xl shadow-[3px_3px_0_0_var(--ink-shadow)]">
             <WebEmoji emoji="👀" />
           </span>
         </div>
@@ -117,13 +138,17 @@ export function LobbyOverlay({ status, onCancel, onRetry }: LobbyOverlayProps) {
         </div>
 
         <div className="mt-1 flex w-full max-w-xs flex-col gap-2 sm:flex-row">
-          {(hasError || isTakingLonger) && onRetry && (
+          {cameraFailed && onRetryCamera ? (
+            <Button onClick={onRetryCamera} className="min-h-11 flex-1">
+              Try camera again
+            </Button>
+          ) : (hasError || isTakingLonger) && onRetry && (
             <Button onClick={handleRetry} className="min-h-11 flex-1">
               Try again
             </Button>
           )}
           <Button variant="secondary" onClick={onCancel} className="min-h-11 flex-1">
-            {hasError ? "Back" : "Cancel search"}
+            {hasError || cameraFailed ? "Back" : "Cancel search"}
           </Button>
         </div>
       </motion.div>

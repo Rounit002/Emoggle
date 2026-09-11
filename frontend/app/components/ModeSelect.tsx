@@ -92,9 +92,9 @@ const MODES: ModeCard[] = [
 ];
 
 const fillClasses: Record<ModeCard["fill"], string> = {
-  yellow: "bg-[var(--yellow)]",
-  purple: "bg-[var(--purple)] text-[var(--off-white)]",
-  pink: "bg-[var(--pink)]",
+  yellow: "on-accent bg-[var(--yellow)]",
+  purple: "on-accent-inverse bg-[var(--purple)] text-[var(--ink)]",
+  pink: "on-accent bg-[var(--pink)]",
 };
 
 export default function ModeSelect({ onSelect }: ModeSelectProps) {
@@ -286,7 +286,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
               initial={{ opacity: 0, y: 18, rotate: -8 }}
               animate={{ opacity: 1, y: 0, rotate: -3 }}
               transition={{ duration: 0.52, ease: [0.16, 1, 0.3, 1] }}
-              className="relative flex h-28 w-28 items-center justify-center rounded-[2rem] border-[4px] border-[var(--charcoal)] bg-[var(--yellow)] shadow-[6px_6px_0_0_var(--charcoal)] sm:h-40 sm:w-40 sm:shadow-[8px_8px_0_0_var(--charcoal)] lg:h-48 lg:w-48"
+              className="relative flex h-28 w-28 items-center justify-center rounded-[2rem] border-[4px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] shadow-[6px_6px_0_0_var(--ink-shadow)] sm:h-40 sm:w-40 sm:shadow-[8px_8px_0_0_var(--ink-shadow)] lg:h-48 lg:w-48"
               aria-hidden
             >
               <EmojiPromptMotion
@@ -319,7 +319,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 text="Make friends."
                 startDelay={0.3}
                 typingSpeed={90}
-                className="mt-2 inline-block whitespace-nowrap rotate-[-2deg] rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--purple)] px-3 py-1 text-[0.82em] text-[var(--off-white)] shadow-[6px_6px_0_0_var(--charcoal)] sm:mt-3 sm:px-5 sm:py-2 sm:text-[1em]"
+                className="mt-2 inline-block whitespace-nowrap rotate-[-2deg] rounded-2xl border-[3px] border-[var(--ink-shadow)] on-accent-inverse bg-[var(--purple)] px-3 py-1 text-[0.82em] text-[var(--ink)] shadow-[6px_6px_0_0_var(--ink-shadow)] sm:mt-3 sm:px-5 sm:py-2 sm:text-[1em]"
               />
             </h1>
 
@@ -408,19 +408,19 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                   disabled={mode.id === "celebrity" && isRevenueCatAvailable && isRevenueCatLoading}
                   className={cn(
                     "group relative flex w-full max-w-[320px] flex-col items-start gap-4",
-                    "rounded-3xl border-[4px] border-[var(--charcoal)] p-4 text-left sm:p-5",
-                    "shadow-[6px_6px_0_0_var(--charcoal)]",
+                    "rounded-3xl border-[4px] border-[var(--ink-shadow)] p-4 text-left sm:p-5",
+                    "shadow-[6px_6px_0_0_var(--ink-shadow)]",
                     "transition-transform duration-100",
-                    "active:translate-y-1 active:shadow-[2px_2px_0_0_var(--charcoal)]",
+                    "active:translate-y-1 active:shadow-[2px_2px_0_0_var(--ink-shadow)]",
                     mode.tilt,
                     fillClasses[mode.fill],
-                    "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--charcoal)]",
+                    "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--ink-shadow)]",
                     mode.id === "celebrity" && isRevenueCatAvailable && isRevenueCatLoading && "opacity-60",
                   )}
                 >
                   <div className="flex w-full items-start justify-between">
                     <span
-                      className="flex h-12 w-12 items-center justify-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white)] sm:h-14 sm:w-14"
+                      className="flex h-12 w-12 items-center justify-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white)] text-[var(--charcoal)] sm:h-14 sm:w-14"
                     >
                       <span className="text-2xl leading-none sm:text-3xl" aria-hidden>
                         <WebEmoji emoji={mode.glyph} />
@@ -432,7 +432,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                   </div>
 
                   <div className="flex-1">
-                    <h3 className="font-display text-lg font-bold tracking-tight text-[var(--charcoal)]">
+                    <h3 className="font-display text-lg font-bold tracking-tight text-[var(--ink)]">
                       <Headline text={mode.title} trigger="scroll" />
                     </h3>
                     <p className="mt-1.5 text-sm leading-relaxed text-[var(--ink-muted)]">
@@ -585,7 +585,7 @@ function HeroPreview() {
           <span className="eyebrow absolute top-0 text-[9px] sm:text-[10px]">Target</span>
           <div className="relative z-10 flex flex-col items-center">
             <div
-              className="flex h-14 w-14 items-center justify-center rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] shadow-[4px_4px_0_0_var(--charcoal)] sm:h-20 sm:w-20 lg:h-24 lg:w-24"
+              className="flex h-14 w-14 items-center justify-center rounded-2xl border-[3px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] shadow-[4px_4px_0_0_var(--ink-shadow)] sm:h-20 sm:w-20 lg:h-24 lg:w-24"
               aria-hidden
             >
               <EmojiPromptMotion
@@ -670,7 +670,7 @@ function PreviewColumn({
           {label}
         </span>
         <span
-          className="absolute right-2 top-2 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tabular text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)] sm:right-3 sm:top-3 sm:text-[10px]"
+          className="absolute right-2 top-2 rounded-full border-[2px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tabular text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)] sm:right-3 sm:top-3 sm:text-[10px]"
           aria-label={`${time} remaining`}
         >
           {time}

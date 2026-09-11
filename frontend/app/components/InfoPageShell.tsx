@@ -36,7 +36,7 @@ export default function InfoPageShell({
         </nav>
 
         <header className="py-12 sm:py-16">
-          <span className="inline-block rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)]">
+          <span className="inline-block rounded-full border-[2px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
             {eyebrow}
           </span>
           <h1 className="mt-5 font-display text-4xl font-bold tracking-tight text-[var(--charcoal)] sm:text-6xl">
