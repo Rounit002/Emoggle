@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Emoggle">
+  <!--
+    The Emoggle mark: the smiling face that stands in for the "o" in
+    the wordmark, lifted out of app/ui/Logo.tsx so the two stay the
+    same shape.
+
+    Two deliberate differences from the wordmark version, both so it
+    survives being drawn at 16x16 in a browser tab. The disc is r=15
+    rather than r=14, to use the full canvas now that there is no
+    "Em" and "ggle" beside it. The strokes are 3 rather than 2.5,
+    because at 16px a 2.5 stroke lands on roughly 1.2 device pixels
+    and greys out.
+
+    The colors are the brand yellow and deep purple, hard coded at
+    their light theme values: a favicon renders outside the document,
+    so it cannot read CSS custom properties. Yellow reads against
+    both light and dark browser chrome, so one mark covers both.
+
+    Note for editors: this is XML, so a doubled hyphen is illegal
+    anywhere inside this comment, including when naming CSS tokens.
+  -->
+  <circle cx="16" cy="16" r="15" fill="#ffd93d"/>
+  <g fill="none" stroke="#5644d0" stroke-width="3" stroke-linecap="round">
+    <path d="M9 14 Q11 11 13 14"/>
+    <path d="M19 14 Q21 11 23 14"/>
+    <path d="M9 19 Q16 25 23 19"/>
+  </g>
+</svg>
