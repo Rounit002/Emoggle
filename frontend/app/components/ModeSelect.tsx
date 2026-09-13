@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import styles from "./HeroPreview.module.css";
 import { motion } from "framer-motion";
 import { useRevenueCat } from "../context/RevenueCatContext";
 import { usePlayerName } from "../context/PlayerNameContext";
@@ -613,146 +614,52 @@ function DecoEmojis() {
   );
 }
 
-/**
- * HeroPreview — a stylized face-off that fills the right column on desktop.
- *
- * It uses the same chunky-frame + sticker-shadow + score-bar language as the
- * in-game duel, sized for the landing. Two tilt-opposed frames (purple on
- * the left, pink on the right) flank a clean center target area with a yellow
- * emoji. Each camera carries the shared timer; tinted score bars sit below.
- *
- * This is the visual promise of the product: "this is what you'll see when
- * you play." On mobile it stacks the same way it does in-game.
- */
+/** Decorative landing preview; game state and controls live elsewhere. */
 function HeroPreview() {
   return (
-    <div className="relative mx-auto flex w-full max-w-[640px] flex-col gap-3 lg:max-w-none">
-      {/* Top label — the game-state header */}
-      <div className="flex items-center justify-start gap-2">
-        <Pill tone="purple">
-          <span className="h-1.5 w-1.5 rounded-full bg-[var(--off-white)]" />
-          Round 03
-        </Pill>
-      </div>
-
-      {/* The face-off */}
-      <div className="grid grid-cols-[1fr_auto_1fr] items-stretch gap-1.5 sm:gap-3">
-        {/* Player A — purple */}
-        <PreviewColumn seat="a" label="Violet" score="8.4" time="10s" src="/preview-faces/violet.webp" alt="A young woman with a playful expression." />
-
-        {/* Seam with the target emoji */}
-        <div className="relative flex w-14 items-center justify-center pt-7 sm:w-20 sm:pt-8 lg:w-24">
-          <span className="eyebrow absolute top-0 text-[9px] sm:text-[10px]">Target</span>
-          <div className="relative z-10 flex flex-col items-center">
-            <div
-              className="flex h-14 w-14 items-center justify-center rounded-2xl border-[3px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] shadow-[4px_4px_0_0_var(--ink-shadow)] sm:h-20 sm:w-20 lg:h-24 lg:w-24"
-              aria-hidden
-            >
-              <EmojiPromptMotion
-                emoji="😜"
-                className="text-3xl sm:text-5xl lg:text-6xl"
-                wrapperClassName="-rotate-3"
-                burstTone="pink"
-              />
-            </div>
-          </div>
+    <div className={styles.preview}>
+      <span className={styles.sunburst} aria-hidden="true"><i /><i /><i /></span>
+      <div className={styles.cards}>
+        <PreviewColumn seat="a" score={84} interest="travel" src="/preview-faces/violet.webp" alt="A young woman with a playful expression." />
+        <div className={styles.connector} aria-hidden="true">
+          <svg className={styles.rays} viewBox="0 0 80 180" fill="none">
+            <path d="M39 8 L40 37 M19 29 L25 41 M60 25 L54 40 M25 139 L19 154 M40 143 L41 167 M55 139 L62 151" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+          </svg>
+          <div className={styles.emoji}><WebEmoji emoji="😜" /></div>
         </div>
-
-        {/* Player B — pink */}
-        <PreviewColumn seat="b" label="Pink" score="7.1" time="10s" src="/preview-faces/pink.webp" alt="A young man winking with his tongue out, mimicking a playful emoji expression." />
+        <PreviewColumn seat="b" score={71} interest="music" src="/preview-faces/pink.webp" alt="A young man mimicking a playful emoji expression." />
       </div>
     </div>
   );
 }
 
-function PreviewColumn({
-  seat,
-  label,
-  score,
-  time,
-  src,
-  alt,
-}: {
+function PreviewColumn({ seat, score, interest, src, alt }: {
   seat: "a" | "b";
-  label: string;
-  score: string;
-  time: string;
+  score: number;
+  interest: string;
   src: string;
   alt: string;
 }) {
-  const isA = seat === "a";
-  const borderColor = isA ? "border-[var(--purple-deep)]" : "border-[var(--pink-deep)]";
-  const seatColor = isA ? "var(--purple)" : "var(--pink)";
-  const seatText = isA ? "text-[var(--purple-deep)]" : "text-[var(--pink-deep)]";
-  const tilt = isA ? "tilt-l-1" : "tilt-r-1";
-
   return (
-    <div className="flex flex-col gap-2">
-      {/* Camera frame — aspect-ratio sized, fills the column.
-          The image is the AI-generated portrait, sitting flush inside the
-          frame with a soft inner ring so the seat-color tag in the corner
-          reads cleanly on top. */}
-      <div
-        className={cn(
-          "relative aspect-[4/5] overflow-hidden rounded-2xl border-[4px] bg-[var(--off-white-2)]",
-          borderColor,
-          "shadow-[6px_6px_0_0_var(--charcoal)]",
-          tilt,
-        )}
-      >
+    <div className={cn(styles.card, seat === "a" ? styles.left : styles.right)}>
+      <span className={styles.badge}>Matched!</span>
+      <div className={styles.photo}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={alt}
-          width={720}
-          height={900}
-          loading="eager"
-          decoding="async"
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-        {/* Bottom darken so the score-tag area below the frame stays clean
-            and the face has a clear focal point. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-12"
-          style={{
-            background:
-              "linear-gradient(to top, rgba(0,0,0,0.18), rgba(0,0,0,0))",
-          }}
-        />
-        <span
-          className={cn(
-            "absolute left-2 top-2 flex items-center gap-1 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.14em] shadow-[2px_2px_0_0_var(--charcoal)] sm:left-3 sm:top-3 sm:gap-1.5 sm:px-2 sm:text-[10px]",
-            seatText,
-          )}
-        >
-          <span className="h-1.5 w-1.5 rounded-full" style={{ background: seatColor }} />
-          {label}
-        </span>
-        <span
-          className="absolute right-2 top-2 rounded-full border-[2px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tabular text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)] sm:right-3 sm:top-3 sm:text-[10px]"
-          aria-label={`${time} remaining`}
-        >
-          {time}
-        </span>
+        <img src={src} alt={alt} width={720} height={900} loading="eager" decoding="async" />
+        <svg className={styles.cameraMark} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="4" y="4" width="16" height="16" rx="6" stroke="currentColor" strokeWidth="2.5" />
+          <path d="M9 12a3 3 0 0 0 6 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          <circle cx="9" cy="9" r="1" fill="currentColor" /><circle cx="15" cy="9" r="1" fill="currentColor" />
+        </svg>
       </div>
-
-      {/* Score bar — same treatment as the in-game footer */}
-      <div className="flex flex-col gap-1.5 rounded-xl border-[2px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-2.5 py-1.5 shadow-[2px_2px_0_0_var(--charcoal)]">
-        <div className="flex items-center justify-between font-mono text-[9px] font-bold uppercase tracking-[0.14em] sm:text-[10px]">
-          <span className={seatText}>{label}</span>
-          <span className="text-[var(--charcoal)]">
-            {score}<span className="text-[var(--on-surface-variant)]">/10</span>
-          </span>
-        </div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)]">
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${(Number(score) / 10) * 100}%`,
-              background: seatColor,
-            }}
-          />
+      <div className={styles.caption}>
+        <span>You both like {interest}</span>
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21S2 15 2 8.5C2 3 9 1.5 12 6c3-4.5 10-3 10 2.5C22 15 12 21 12 21Z" /></svg>
+      </div>
+      <div className={styles.score}>
+        <div className={styles.scoreLabel}><span>Score</span><strong>{score}%</strong></div>
+        <div className={styles.scoreTrack} aria-hidden="true">
+          <div className={styles.scoreFill} style={{ width: `${score}%` }} />
         </div>
       </div>
     </div>
