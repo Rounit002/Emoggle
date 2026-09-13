@@ -228,51 +228,98 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
       <DecoEmojis />
 
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-[1200px] flex-col px-4 py-6 sm:px-8 sm:py-10">
-        {/* Top bar — chunky charcoal underline */}
+        {/* Top bar — chunky charcoal underline.
+            One wrapping flex row whose items are re-ordered per
+            breakpoint, so each control stays a single DOM node rather
+            than a mobile copy plus a desktop copy.
+
+              phone   row 1: logo · theme toggle
+                      row 2: name capsule · online capsule
+              sm+     one nowrap row:
+                      logo · name · [links from md] · online · toggle
+
+            On a 375px screen the four items do not fit side by side —
+            the online capsule used to land on top of the name capsule
+            and cover its edit pencil — so the two capsules get a row
+            of their own underneath the wordmark. */}
         <header className="border-b-[3px] border-[var(--charcoal)]">
-          <div className="flex items-center justify-between pb-4 sm:pb-5">
-            <div className="flex min-w-0 items-center gap-3">
-              <Logo size="md" />
-              {isNameHydrated && name && (
-                <button
-                  type="button"
-                  onClick={handleEditName}
-                  aria-label="Edit your name"
-                  title="Edit your name"
-                  className="inline-flex max-w-[160px] items-center gap-1.5 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-2.5 py-1 text-[11px] font-bold text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)] transition-transform active:translate-y-0.5 active:shadow-none sm:max-w-none sm:text-xs"
-                >
-                  <User size={12} />
-                  <span className="truncate">{name}</span>
-                  {country?.flag && (
-                    <span aria-hidden className="text-sm leading-none">
-                      {country.flag}
-                    </span>
-                  )}
-                  <Edit size={12} />
-                </button>
-              )}
-            </div>
-            <nav className="flex items-center gap-4 text-sm font-bold text-[var(--charcoal)] sm:gap-6">
-              <a href="/how-it-works" className="hidden hover:underline sm:inline">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5 pb-3 sm:flex-nowrap sm:gap-x-4 sm:pb-5">
+            <Logo size="md" className="order-1 shrink-0" />
+
+            {/* Ends the logo row on phones, ends the whole bar from sm
+                up. `ml-auto` only applies on mobile, where it is the
+                sole other item on row 1; from sm up the spacer below
+                does the pushing instead. */}
+            <ThemeToggle
+              size="sm"
+              className="order-2 ml-auto shrink-0 sm:order-6 sm:ml-0"
+            />
+
+            {/* Zero-height, full-width flex item: the line break that
+                drops the capsules below the logo on phones. Rendered
+                only when there is a capsule to drop, so an anonymous
+                user with the signaling server down doesn't get an
+                empty second row's worth of gap. */}
+            {(onlineCount !== null || (isNameHydrated && name)) && (
+              <span aria-hidden className="order-3 h-0 basis-full sm:hidden" />
+            )}
+
+            {isNameHydrated && name && (
+              <button
+                type="button"
+                onClick={handleEditName}
+                aria-label="Edit your name"
+                title="Edit your name"
+                className="order-4 inline-flex h-7 min-w-0 max-w-[60%] shrink items-center gap-1.5 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-2.5 text-[11px] font-bold text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)] transition-transform active:translate-y-0.5 active:shadow-none sm:order-2 sm:h-auto sm:max-w-[200px] sm:py-1 sm:text-xs"
+              >
+                <User size={12} className="shrink-0" />
+                <span className="truncate">{name}</span>
+                {country?.flag && (
+                  <span aria-hidden className="shrink-0 text-sm leading-none">
+                    {country.flag}
+                  </span>
+                )}
+                <Edit size={12} className="shrink-0" />
+              </button>
+            )}
+
+            {/* Holds the right-hand group against the right edge from
+                sm up. A grow spacer rather than `ml-auto` on the first
+                right-hand item, because both the links and the online
+                capsule are conditional — an auto margin on either one
+                leaves the group floating mid-bar when it is absent. */}
+            <span aria-hidden className="hidden grow sm:order-3 sm:block" />
+
+            {/* The text links only appear from `md`. In the sm–md band
+                the bar is a single nowrap row with no room for them
+                beside both capsules — they used to cope by wrapping
+                each label onto two lines, which made the header 24px
+                taller there than at any other width. They stay
+                reachable on phones through the footer nav. */}
+            <nav className="order-5 hidden shrink-0 items-center gap-6 whitespace-nowrap text-sm font-bold text-[var(--charcoal)] sm:order-4 md:flex">
+              <a href="/how-it-works" className="hover:underline">
                 How to play
               </a>
-              <a href="/history" className="hidden hover:underline sm:inline">
+              <a href="/history" className="hover:underline">
                 History
               </a>
-              <a href="/faq" className="hidden hover:underline sm:inline">
+              <a href="/faq" className="hover:underline">
                 Feedback
               </a>
-              {onlineCount !== null && (
-                <Pill tone="purple">
-                  {/* The dot breathes on a 2.5s cycle. The "N
-                      online" text next to it stays still — only
-                      the dot moves, per the spec. */}
-                  <PulseDot className="h-1.5 w-1.5 rounded-full bg-[var(--off-white)]" />
-                  {onlineCount} online
-                </Pill>
-              )}
-              <ThemeToggle size="sm" />
             </nav>
+
+            {onlineCount !== null && (
+              <Pill
+                tone="purple"
+                className="order-6 h-7 shrink-0 whitespace-nowrap sm:order-5 sm:h-auto"
+              >
+                {/* The dot breathes on a 2.5s cycle. The "N
+                    online" text next to it stays still — only
+                    the dot moves, per the spec. */}
+                <PulseDot className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--off-white)]" />
+                {onlineCount} online
+              </Pill>
+            )}
           </div>
         </header>
 
@@ -339,10 +386,17 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
               initial={{ y: 10, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ duration: 0.4, delay: 0.26 }}
-              className="mt-5 flex flex-col items-center gap-3 sm:mt-8 lg:items-start"
+              className="mt-5 flex w-full flex-col items-center gap-3 sm:mt-8 sm:w-auto lg:items-start"
             >
+              {/* The one thing a phone visitor is here to tap, so on
+                  mobile it stretches to the column instead of sitting
+                  as a 160px pill in the middle of a 375px screen.
+                  Capped at 320px so it keeps the sticker proportions
+                  rather than becoming a banner. */}
               <Button
                 size="lg"
+                block
+                className="max-w-[320px] sm:w-auto"
                 onClick={() => setModePickerOpen(true)}
                 iconLeft={<Camera size={18} />}
               >
@@ -442,7 +496,13 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
 
                   <div className="flex w-full items-center justify-between text-xs font-bold text-[var(--ink-muted)]">
                     <span className="uppercase tracking-[0.18em]">{mode.badge}</span>
-                    <span className="opacity-0 transition-opacity group-hover:opacity-100">
+                    {/* Reveal-on-hover is a pointer affordance — a
+                        touch device never fires it, so on phones the
+                        card's only "this is tappable" cue was the
+                        press-squash you get after committing. Shown
+                        outright below sm; still a hover reveal on
+                        pointer-sized screens. */}
+                    <span className="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                       {i < 2 ? "Play →" : "Unlock →"}
                     </span>
                   </div>

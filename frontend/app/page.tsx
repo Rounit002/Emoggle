@@ -206,15 +206,31 @@ export default function Home() {
         aria-label="About Emoggle"
         className="border-t-[3px] border-[var(--charcoal)] px-4 py-6 sm:px-5 sm:py-8"
       >
-        <div className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-4 gap-y-3 text-sm font-bold text-[var(--charcoal)] sm:gap-x-6">
+        <div className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-4 gap-y-1 text-sm font-bold text-[var(--charcoal)] sm:gap-x-6 sm:gap-y-3">
           <Logo size="sm" />
-          <Link className="hover:underline" href="/how-it-works">How it works</Link>
-          <Link className="hover:underline" href="/about">About</Link>
-          <Link className="hover:underline" href="/faq">FAQ</Link>
-          <Link className="hover:underline" href="/history">History</Link>
-          <Link className="hover:underline" href="/privacy">Privacy</Link>
-          <Link className="hover:underline" href="/terms">Terms</Link>
-          <Link className="hover:underline" href="/contact">Contact</Link>
+          {/* These wrap to three rows on a phone, and from `md` down
+              they are also the only route to How it works / History /
+              FAQ — the header drops its own copies of those links at
+              that width. A bare inline link is a ~20px tall target;
+              `min-h-11` gives each one a full 44px without changing
+              how the row reads. */}
+          {[
+            ["/how-it-works", "How it works"],
+            ["/about", "About"],
+            ["/faq", "FAQ"],
+            ["/history", "History"],
+            ["/privacy", "Privacy"],
+            ["/terms", "Terms"],
+            ["/contact", "Contact"],
+          ].map(([href, label]) => (
+            <Link
+              key={href}
+              className="inline-flex min-h-11 items-center hover:underline"
+              href={href}
+            >
+              {label}
+            </Link>
+          ))}
           <span className="ml-auto" />
           <ThemeToggle size="sm" />
         </div>
