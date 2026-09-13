@@ -46,3 +46,25 @@
   .left:hover { transform:rotate(-2deg); }
   .right:hover { transform:translateY(12px) rotate(2deg); }
 }
+
+/* Dark preview surfaces retain the same layout and raised card treatment. */
+:global([data-theme="dark"]) .preview { color:var(--on-surface); }
+:global([data-theme="dark"]) .left { --card-accent:#e99aae; }
+:global([data-theme="dark"]) .right { --card-accent:#b59ae8; }
+:global([data-theme="dark"]) .card {
+  background:linear-gradient(145deg,#2c2639,#241f30);
+  box-shadow:6px 6px 0 #09070e,10px 14px 20px #09070e66,inset 0 2px 0 #ffffff0d;
+}
+:global([data-theme="dark"]) .badge { color:#21182e; }
+:global([data-theme="dark"]) .caption,
+:global([data-theme="dark"]) .score { color:var(--on-surface); }
+:global([data-theme="dark"]) .scoreTrack { background:#494054; }
+:global([data-theme="dark"]) .emoji { background:var(--yellow); border-color:#09070e; box-shadow:2px 2px 0 #09070e; }
+:global([data-theme="dark"]) .sunburst i { background:var(--yellow); }
+:global([data-theme="dark"]) .cameraMark { color:var(--yellow); }
+@media (hover:hover) and (pointer:fine) {
+  :global([data-theme="dark"]) .card:hover { box-shadow:8px 10px 0 #09070e,12px 20px 24px #09070e77,inset 0 2px 0 #ffffff0d; }
+}
+@media (max-width:400px) {
+  :global([data-theme="dark"]) .card { box-shadow:4px 5px 0 #09070e,7px 10px 14px #09070e66,inset 0 2px 0 #ffffff0d; }
+}

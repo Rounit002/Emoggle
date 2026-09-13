@@ -548,53 +548,32 @@ a:focus-visible,
 .info-content ul { list-style-type: disc; }
 .info-content ol { list-style-type: decimal; }
 
-/* =========================================================
-   Dark theme — "Jet Black Party Night"
-   ---------------------------------------------------------
-   Pure jet-black page surface with a short neutral grey ramp for
-   the cards that sit on it. The brand accents (yellow / purple /
-   pink) stay fully saturated so they read as light-emitting chips
-   against the black, and the ink + sticker shadow flip to a warm
-   off-white so the same card language still reads.
-
-   The one rule that matters: anything FILLED with a brand accent
-   keeps dark ink. The accents don't get darker in this theme, so
-   the ink on them must not get lighter. That's what the
-   `.on-accent` / `.on-accent-inverse` scopes above are for —
-   the tokens below never need to know about it.
-
-   Activated by setting data-theme="dark" on <html> from the
-   pre-paint boot script (public/theme-boot.js, loaded
-   beforeInteractive in layout.tsx).
-   ========================================================= */
-
+/* Dark theme: plum-charcoal surface layers with softened party accents.
+   Scoped to the existing theme attribute so light-mode tokens stay intact.
+   Accent text continues to use the shared on-accent scopes. */
 [data-theme="dark"] {
   color-scheme: dark;
 
-  /* Surface — jet black page, with a tight neutral ramp above it so
-     stacked cards stay distinguishable without going muddy grey. */
-  --surface:           #000000;
-  --surface-dim:       #000000;
-  --surface-bright:    #1c1c1c;
-  --surface-container-lowest: #000000;
-  --surface-container-low:    #0a0a0a;
-  --surface-container:        #111111;
-  --surface-container-high:   #1a1a1a;
-  --surface-container-highest:#242424;
-  --on-surface:        #f4f1ea;
-  --on-surface-variant:#bdb7ab;
-  --inverse-surface:   #f4f1ea;
-  --inverse-on-surface:#000000;
-  --outline:           #8f8a7f;
-  --outline-variant:   #2e2e2e;
-  --surface-tint:      #ffe173;
-  --surface-variant:   #1a1a1a;
+  --surface:           #17141f;
+  --surface-dim:       #131019;
+  --surface-bright:    #36303f;
+  --surface-container-lowest: #110e17;
+  --surface-container-low:    #1d1927;
+  --surface-container:        #241f30;
+  --surface-container-high:   #2c2639;
+  --surface-container-highest:#352e43;
+  --on-surface:        #eee9f5;
+  --on-surface-variant:#bbb2ca;
+  --inverse-surface:   #eee9f5;
+  --inverse-on-surface:#17141f;
+  --outline:           #91839f;
+  --outline-variant:   #494054;
+  --surface-tint:      #bca6f5;
+  --surface-variant:   #2c2639;
 
-  /* Primary — yellow stays loud; it's the main light source on the
-     black page. */
-  --primary:                #ffe173;
+  --primary:                #f4d982;
   --on-primary:             #221b00;
-  --primary-container:      #ffd93d;
+  --primary-container:      #f1ce68;
   --on-primary-container:   #4a3a00;
   --inverse-primary:        #705d00;
   --primary-fixed:          #ffe173;
@@ -602,83 +581,59 @@ a:focus-visible,
   --on-primary-fixed:       #221b00;
   --on-primary-fixed-variant:#554500;
 
-  /* Secondary — purple, held a shade deeper than the light theme
-     (#6f5fea -> #6454dd) so the white ink it carries clears 4.5:1
-     instead of 4.67:1 with no headroom. Still plenty vivid on black
-     at 3.85:1 against the page. */
-  --secondary:                #b6a8ff;
+  --secondary:                #c5aff5;
   --on-secondary:             #1c1656;
-  --secondary-container:      #6454dd;
+  --secondary-container:      #7560c5;
   --on-secondary-container:   #ffffff;
   --secondary-fixed:          #e4dfff;
   --secondary-fixed-dim:      #c6bfff;
   --on-secondary-fixed:       #160066;
   --on-secondary-fixed-variant:#4029ba;
 
-  /* Tertiary — pink stays coral, just a touch warmer. */
-  --tertiary:                #ffb3b0;
+  --tertiary:                #f0b1c1;
   --on-tertiary:             #5b0a0e;
-  --tertiary-container:      #ff8e89;
-  --on-tertiary-container:   #4a060a;
+  --tertiary-container:      #e99aae;
+  --on-tertiary-container:   #421b2b;
   --tertiary-fixed:          #ffdad8;
   --tertiary-fixed-dim:      #ffb3b0;
   --on-tertiary-fixed:       #410006;
   --on-tertiary-fixed-variant:#8c1520;
 
-  /* Error — softer for dark mode, still readable. */
   --error:                #ff8a80;
   --on-error:             #4a0606;
   --error-container:      #5b1a1a;
   --on-error-container:   #ffdad6;
 
-  /* Friendly aliases — flipped: charcoal becomes off-white ink,
-     off-white becomes the jet-black surface, etc. We keep the names
-     the same so component classes like `border-[var(--charcoal)]`
-     work in both themes.
+  --charcoal:        #eee9f5;
+  --off-white:       #17141f;
+  --off-white-2:     #241f30;
+  --yellow:          #f1ce68;
+  --yellow-deep:     #f4d982;
+  --purple:          #7560c5;
+  --purple-deep:     #c5aff5;
+  --pink:            #e99aae;
+  --pink-deep:       #f0b1c1;
 
-     The three accent fills deliberately do NOT get darker here —
-     they're the light source. Text printed on them is handled by
-     the `.on-accent` scopes, not by these tokens. */
-  --charcoal:        #f4f1ea;   /* off-white ink */
-  --off-white:       #000000;   /* jet black page surface */
-  --off-white-2:     #111111;   /* card surface */
-  --yellow:          #ffd93d;
-  --yellow-deep:     #ffe173;   /* yellow ink ON the dark page */
-  --purple:          #6454dd;   /* deep enough that white ink clears 4.5:1 */
-  --purple-deep:     #b6a8ff;   /* purple ink ON the dark page */
-  --pink:            #ff8e89;
-  --pink-deep:       #ffb3b0;   /* pink ink ON the dark page */
+  --purple-container:  #302640;
+  --pink-container:    #3b2533;
+  --yellow-container:  #383020;
 
-  /* Tinted accent surfaces — used by the "tinted" icon buttons. */
-  --purple-container:  #1e1840;
-  --pink-container:    #3a1210;
-  --yellow-container:  #2c2408;
-
-  /* Hover shades. Held deeper than the resting fill (same direction
-     as the light theme) so the dark ink on these buttons keeps its
-     contrast while hovered. */
-  --yellow-hover:  #f5c800;
-  --purple-hover:  #5644d0;
-  --pink-hover:    #ff736d;
+  --yellow-hover:  #e6bd50;
+  --purple-hover:  #6650b4;
+  --pink-hover:    #df869e;
   --error-hover:   #ff6f63;
 
-  /* Semantic ink swap — components that use these will auto-flip. */
-  --ink:             #f4f1ea;
-  --ink-muted:       #bdb7ab;
-  --ink-inverse:     #000000;
+  --ink:             #eee9f5;
+  --ink-muted:       #bbb2ca;
+  --ink-inverse:     #17141f;
 
-  /* Tinted ink — dark-mode equivalents of the opacity modifiers
-     used in the light theme. */
-  --ink-soft:        rgba(244, 241, 234, 0.38);
-  --ink-faint:       rgba(244, 241, 234, 0.16);
-  --ink-line:        rgba(244, 241, 234, 0.18);
+  --ink-soft:        rgba(238, 233, 245, 0.48);
+  --ink-faint:       rgba(238, 233, 245, 0.16);
+  --ink-line:        rgba(197, 175, 245, 0.22);
   --ink-overlay:     rgba(0, 0, 0, 0.72);
 
-  /* Sticker shadow — off-white on jet black so the same 4px offset
-     still reads as "stuck on the table". Held a shade below the ink
-     so a page full of cards doesn't turn into a glare of outlines. */
-  --ink-shadow:      #d8d3c6;
-  --ink-shadow-rgb:  216, 211, 198;
+  --ink-shadow:      #09070e;
+  --ink-shadow-rgb:  9, 7, 14;
 }
 
 /* ---------------------------------------------------------
@@ -688,7 +643,7 @@ a:focus-visible,
    Composited over the off-white page it lightens the chip while
    the dark label stays put, so the label still reads. Composited
    over jet black it darkens chip AND label by the same factor,
-   and the label sinks into the fill — measured 2.1:1 to 3.6:1 on
+   and the label sinks into the fill â€” measured 2.1:1 to 3.6:1 on
    the filled buttons.
 
    So in this theme a disabled accent button stops being a dimmed
@@ -699,7 +654,7 @@ a:focus-visible,
    `.on-error` is only a marker for this rule: the error fill flips
    the other way round (dark red + white ink in the light theme,
    light red + dark ink here), so --on-error already handles its
-   resting state — but its disabled state collapses the same way. */
+   resting state â€” but its disabled state collapses the same way. */
 [data-theme="dark"] .on-accent:disabled,
 [data-theme="dark"] .on-accent-inverse:disabled,
 [data-theme="dark"] .on-error:disabled,

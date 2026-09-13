@@ -11,13 +11,14 @@ import {
 } from "react";
 
 export type ThemeMode = "light" | "dark";
-export type ThemeSource = "system" | "manual";
+export type ThemeSource = "default" | "system" | "manual";
 
 interface ThemeContextValue {
   /** The mode currently applied to <html data-theme=...>. */
   mode: ThemeMode;
   /**
-   * Where the mode is coming from. "system" means we follow
+   * Where the mode is coming from. "default" uses light mode.
+   * "system" means we follow
    * `prefers-color-scheme`; "manual" means the user explicitly
    * chose via the toggle and the choice is persisted.
    */
@@ -78,7 +79,7 @@ function applyToDom(mode: ThemeMode) {
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>("light");
-  const [source, setSource] = useState<ThemeSource>("system");
+  const [source, setSource] = useState<ThemeSource>("default");
 
   // Read whatever the inline boot script decided, so React state
   // matches the DOM on first hydration. This is the no-flash bridge.
@@ -89,10 +90,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setSource(stored.source);
       applyToDom(stored.mode);
     } else {
-      const sys = getSystemMode();
-      setModeState(sys);
-      setSource("system");
-      applyToDom(sys);
+      setModeState("light");
+      setSource("default");
+      applyToDom("light");
     }
   }, []);
 
