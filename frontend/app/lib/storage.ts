@@ -25,6 +25,8 @@
  *    forward, so existing users keep their history.
  */
 
+import { isInappropriateName } from "./nameModeration";
+
 const STORAGE_KEYS = {
   name: "emoggle_user_name",
   matchHistory: "emoggle_match_history",
@@ -223,6 +225,7 @@ export function validateName(raw: string): string | null {
   if (trimmed.length > NAME_MAX_LENGTH) return null;
   // Reject control characters and most punctuation-only inputs.
   if (/[\u0000-\u001F\u007F]/.test(trimmed)) return null;
+  if (isInappropriateName(trimmed)) return null;
   return trimmed;
 }
 
@@ -230,6 +233,7 @@ export function getName(): string | null {
   const raw = safeGet(STORAGE_KEYS.name);
   if (!raw) return null;
   const validated = validateName(raw);
+  if (!validated) safeRemove(STORAGE_KEYS.name);
   return validated;
 }
 

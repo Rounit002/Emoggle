@@ -24,6 +24,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Button, User, X, cn } from "../ui";
 import { NAME_MAX_LENGTH, validateName } from "../lib/storage";
+import { isInappropriateName, NAME_MODERATION_ERROR } from "../lib/nameModeration";
 
 interface NameEntryModalProps {
   open: boolean;
@@ -48,6 +49,7 @@ export function NameEntryModal({
 }: NameEntryModalProps) {
   const [value, setValue] = useState(currentName ?? "");
   const [touched, setTouched] = useState(false);
+  const [rejectedName, setRejectedName] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
   const reduceMotion = useReducedMotion();
@@ -60,6 +62,7 @@ export function NameEntryModal({
       // Reset form state when a fresh dialog session opens.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setValue(currentName ?? "");
+      setRejectedName(false);
       setTouched(false);
       // Focus the input after the modal mount animation lands.
       const timer = window.setTimeout(() => inputRef.current?.focus(), 60);
@@ -115,11 +118,12 @@ export function NameEntryModal({
   const cleaned = validateName(value);
   const isValid = cleaned !== null;
   const isDirty = cleaned !== (currentName ?? null);
-  const canSubmit = isValid && isDirty;
+  const canSubmit = isValid && isDirty && !rejectedName;
 
   const trimmedLength = value.trim().length;
-  const showError = touched && !isValid && value.length > 0;
-  const helperText = !isValid && value.length > 0
+  const inappropriate = rejectedName || isInappropriateName(value);
+  const showError = inappropriate || (touched && !isValid && value.length > 0);
+  const helperText = inappropriate ? NAME_MODERATION_ERROR : !isValid && value.length > 0
     ? trimmedLength === 0
       ? "Pick something — even one letter is fine."
       : value.length > NAME_MAX_LENGTH
@@ -130,7 +134,7 @@ export function NameEntryModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    if (!cleaned) return;
+    if (!cleaned || rejectedName) return;
     onSubmit(cleaned);
   };
 
@@ -202,7 +206,14 @@ export function NameEntryModal({
                 ref={inputRef}
                 type="text"
                 value={value}
-                onChange={(e) => setValue(e.target.value)}
+                onChange={(e) => {
+                  if (isInappropriateName(e.target.value)) {
+                    setRejectedName(true);
+                    return;
+                  }
+                  setRejectedName(false);
+                  setValue(e.target.value);
+                }}
                 onBlur={() => setTouched(true)}
                 maxLength={NAME_MAX_LENGTH + 8 /* allow typing over the cap, then validate */}
                 placeholder="e.g. Sarah"
@@ -210,6 +221,7 @@ export function NameEntryModal({
                 autoCorrect="off"
                 spellCheck={false}
                 aria-invalid={showError || undefined}
+                aria-describedby="name-entry-help"
                 className={cn(
                   "h-14 w-full rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white)] px-4 text-base font-bold text-[var(--charcoal)] shadow-[3px_3px_0_0_var(--charcoal)]",
                   "placeholder:font-normal placeholder:text-[var(--ink-muted)]",
@@ -218,6 +230,8 @@ export function NameEntryModal({
                 )}
               />
               <span
+                id="name-entry-help"
+                aria-live="polite"
                 className={cn(
                   "text-xs",
                   showError ? "text-[var(--pink-deep)]" : "text-[var(--on-surface-variant)]",

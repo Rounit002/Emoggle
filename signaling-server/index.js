@@ -13,6 +13,7 @@ console.log("[ENV] DATABASE_URL set:", !!process.env.DATABASE_URL);
 console.log("[ENV] FRONTEND_URL:", process.env.FRONTEND_URL);
 
 const express = require("express");
+const { isInappropriateName, NAME_MODERATION_ERROR } = require("./nameModeration");
 const http = require("http");
 const crypto = require("crypto");
 const { Server } = require("socket.io");
@@ -263,6 +264,10 @@ function readDisplayName(value) {
   const raw = readBoundedString(value, 20);
   if (!raw) return null;
   if (/[\u0000-\u001F\u007F]/.test(raw)) return null;
+  // Keep this guard inside the canonical server parser so every future
+  // display-name path receives moderation, even if its caller forgets to
+  // perform a separate check.
+  if (isInappropriateName(raw)) return null;
   return raw;
 }
 
@@ -1258,6 +1263,14 @@ io.on("connection", (socket) => {
     // in socketMeta (in-memory) for the duration of the session
     // and are discarded on disconnect.
     const displayName = readDisplayName(payload.name);
+    if (payload.name != null && (!displayName || isInappropriateName(payload.name))) {
+      return socket.emit("server_error", {
+        code: "INVALID_DISPLAY_NAME",
+        detail: isInappropriateName(payload.name)
+          ? NAME_MODERATION_ERROR
+          : "Invalid display name. Please choose another name (1–20 characters).",
+      });
+    }
     const clientCountry = readCountryLabel(payload.country);
     // Preferred wire format: a 2-letter ISO code. The receiving
     // client uses `isoFlag()` / `countryLabelFromCode()` to turn
