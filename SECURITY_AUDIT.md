@@ -4,6 +4,93 @@
 **Remediation pass:** 2026-08-10  
 **Scope:** `frontend/`, `signaling-server/`, `ai-judge/`, database schemas, dependency manifests, CI, and repository hygiene
 
+## 2026-09-15 pass — abuse resistance and dependency advisories
+
+Triggered by a report of automated traffic against the live site. Scope was the
+paths a bot actually drives: connection throttling, per-event limits, and
+anything in the dependency tree that turns ordinary traffic into an exploit.
+
+### Fixed
+
+**Forwarded-header spoofing defeated every per-IP socket limit.**
+`socketClientIp()` read the *leftmost* `X-Forwarded-For` entry. That entry is
+written by the client, not by the proxy — each proxy appends its view of the
+caller to the end of the list. Under the production default of one trusted hop,
+a caller sending `X-Forwarded-For: <random>` produced `<random>, <real IP>` and
+the server keyed its rate-limit state on `<random>`. Both socket abuse
+controls — the 30-handshakes-per-minute throttle and `MAX_CONNECTIONS_PER_IP` —
+were bypassable by varying one header, and because handshake verification runs
+a session lookup, the bypass reached the database. Hop counting now runs
+right-to-left, matching how Express resolves `req.ip` under `trust proxy`, and
+falls back to the socket peer address when the chain is short or the selected
+entry is not a well-formed address. Extracted to `signaling-server/clientIp.js`
+and covered by 13 regression tests in `test/clientIp.test.js`.
+
+**Unrecognised socket events were unmetered.** The per-event table had no
+catch-all, so `socket.emit("anything")` was decoded and dispatched for free. A
+global budget of 240 packets per 10s per socket now applies to every event name.
+
+**Rate-limited sockets stayed connected.** A rejected packet returned an error
+and left the socket open, so a client that ignores errors could keep paying the
+cost indefinitely. Twenty violations now close the connection.
+
+**Unauthenticated routes outside `/api` had no ceiling.** `/`, `/health` and
+`/ready` — the cheapest paths to flood — were unlimited. A global limiter of 300
+requests per minute per IP now covers every HTTP path, well above real browser
+and platform-health-check usage.
+
+**Expired sessions were only swept at startup.** A long-running process kept
+every anonymous session it ever issued, which is storage a session-spamming bot
+can grow on demand. An hourly sweep now runs against the existing
+`idx_sessions_expires_at` index.
+
+**Handshake bookkeeping was unbounded.** The per-IP attempt map is now capped at
+50,000 addresses, shedding new arrivals when the periodic prune falls behind.
+
+### Dependency advisories cleared
+
+| Component | Advisory | Resolution |
+|---|---|---|
+| frontend | Next.js unauthenticated RCE on Windows-hosted servers (GHSA-p293-qw3h-jr36) — **critical** | `next` 16.3.0 → 16.3.5 |
+| frontend | Next.js RCE in the Image Optimization API via AVIF (GHSA-2xp9-vwfh-vxw4) — **critical** | same upgrade |
+| frontend | `sharp` libheif vulnerabilities (GHSA-rgj7-g3m4-5g8c) — high | transitive upgrade |
+| frontend (dev) | `extract-zip` symlink path traversal and arbitrary file write | `puppeteer-core` → 25.11.0 |
+| frontend (dev) | `js-yaml` CPU exhaustion via empty merge sources | transitive upgrade |
+| signaling-server | `qs` denial of service and array-limit bypass (GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx) | `express` 4.22.2 → 4.22.3 |
+
+`npm audit` reports zero vulnerabilities in both Node components. The Python
+service was already on pinned current releases and needed no change.
+
+### Verification
+
+- Signaling unit tests: 28 passed (13 new).
+- Signaling end-to-end matchmaking smoke test: passed.
+- Frontend production build on Next.js 16.3.5: passed, TypeScript clean, all routes.
+- `npm audit` frontend and signaling-server: 0 vulnerabilities.
+
+### Still open after this pass
+
+1. **TURN credentials are shipped to browsers.** `NEXT_PUBLIC_TURN_USERNAME` and
+   `NEXT_PUBLIC_TURN_CREDENTIAL` are static values embedded in client bundles, so
+   anyone can extract them and relay their own traffic through the TURN server at
+   your expense. This is the most likely remaining lever for a motivated abuser
+   and it cannot be fixed in application code alone: it needs an endpoint that
+   mints short-lived HMAC credentials per session, which most managed TURN
+   providers support.
+2. **Rate-limit state is per-process.** Every limiter here is in-memory, so the
+   effective budget multiplies by the instance count. Move to a shared store
+   before scaling horizontally.
+3. **Edge protections are not application code.** A volumetric flood should be
+   absorbed before it reaches the origin. Put the signaling server behind a
+   proxy with WAF and bot management rather than relying on these limits alone,
+   and confirm `TRUST_PROXY_HOPS` matches the real number of proxies once you
+   do — the hop-counting fix above depends on that value being accurate.
+4. **Orphaned anonymous users persist.** Session rows are now swept, but the
+   `users` row created alongside each one is not. Pruning needs a retention
+   decision first, since it discards ELO for anyone who returns.
+
+---
+
 ## Executive conclusion
 
 The high-risk application flaws found in the initial review have been remediated in the working tree. Anonymous users now receive authenticated server-side sessions, Socket.IO identity is derived from those sessions, user-specific APIs no longer accept a user ID from the browser, premium endpoints are server-authorized, the AI judge is private behind the signaling service, and known dependency advisories were reduced to zero in all three application components.

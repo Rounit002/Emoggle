@@ -6,6 +6,12 @@
  */
 import puppeteer from "puppeteer-core";
 
+// Puppeteer types page-level errors as `unknown`, because a page can reject
+// with any value, not only an Error.
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const BASE = process.env.VERIFY_BASE ?? "http://localhost:3000";
 
@@ -24,7 +30,7 @@ async function main() {
   });
   try {
     const page = await browser.newPage();
-    page.on("pageerror", (err: Error) => console.error("[pageerror]", err.message));
+    page.on("pageerror", (err: unknown) => console.error("[pageerror]", errorText(err)));
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
     await page.goto(`${BASE}/`, { waitUntil: "networkidle2", timeout: 30000 });
     // Enter the duel arena.

@@ -17,6 +17,12 @@ import puppeteer from "puppeteer-core";
 import { writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+// Puppeteer types page-level errors as `unknown`, because a page can reject
+// with any value, not only an Error.
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const BASE = process.env.VERIFY_BASE ?? "http://localhost:3000";
 const SCORECARD_TEST_PATH = "/verify-scorecard";
@@ -39,7 +45,7 @@ async function main() {
   });
   try {
     const page = await browser.newPage();
-    page.on("pageerror", (err: Error) => console.error("[pageerror]", err.message));
+    page.on("pageerror", (err: unknown) => console.error("[pageerror]", errorText(err)));
     page.on("console", (msg) => {
       const t = msg.type();
       if (t === "error" || t === "warn") {

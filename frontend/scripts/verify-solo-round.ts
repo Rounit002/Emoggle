@@ -18,6 +18,12 @@
  */
 import puppeteer, { type Page } from "puppeteer-core";
 
+// Puppeteer types page-level errors as `unknown`, because a page can reject
+// with any value, not only an Error.
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const BASE = process.env.VERIFY_BASE ?? "http://localhost:3000";
 /** Round length plus room for model warm-up on a cold profile. */
@@ -72,7 +78,7 @@ async function main() {
   try {
     const page = await browser.newPage();
     const pageErrors: string[] = [];
-    page.on("pageerror", (err: Error) => pageErrors.push(err.message));
+    page.on("pageerror", (err: unknown) => pageErrors.push(errorText(err)));
     await page.setViewport({ width: 1280, height: 900 });
     const context = browser.defaultBrowserContext();
     await context.overridePermissions(BASE, ["camera", "microphone"]);

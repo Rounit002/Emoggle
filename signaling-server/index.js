@@ -30,6 +30,7 @@ const {
   verifyToken,
   verifySocketToken,
 } = require("./middleware/verifyToken");
+const { resolveClientIp } = require("./clientIp");
 const {
   buildMatchResultPayloads,
   clampScore,
@@ -82,6 +83,19 @@ const sessionLimiter = rateLimit({
   message: { detail: "Too many session requests. Please try again later." },
 });
 
+// Covers every HTTP path, not just /api — the unauthenticated root, /health
+// and /ready probes are the cheapest thing on the server to hammer and were
+// the only routes with no ceiling at all. The budget is well clear of what a
+// real browser session or a platform health check uses, so it only bites a
+// scripted flood.
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { detail: "Too many requests, please try again later." },
+});
+
 const defaultOrigins = [
   "http://localhost:3000",
   "https://emoggle.vercel.app",
@@ -106,6 +120,7 @@ app.use(
   })
 );
 app.use(cookieParser());
+app.use(globalLimiter);
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -403,14 +418,6 @@ function calculateMatchElo(player1Elo, player2Elo, player1Score, player2Score) {
     player1: { ...player1, tier: tierForElo(player1.newElo), outcome: player1Outcome },
     player2: { ...player2, tier: tierForElo(player2.newElo), outcome: player2Outcome },
   };
-}
-
-function cleanIp(ip) {
-  if (!ip) return null;
-  let s = typeof ip === "string" ? ip : String(ip);
-  if (s.startsWith("::ffff:")) s = s.slice(7);
-  if (s === "::1") return "127.0.0.1";
-  return s;
 }
 
 function isoFlag(code) {
@@ -1251,6 +1258,18 @@ const SOCKET_EVENT_LIMITS = {
   change_emoji: [8, 30_000],
   time_sync: [40, 60_000],
 };
+// Ceiling across every event name, including ones absent from the table
+// above. Without it an unrecognised event is free: Socket.IO still decodes
+// the packet and runs the dispatch, so a flood of `socket.emit("x")` costs
+// real work while passing straight through the per-event rules.
+const SOCKET_PACKET_BUDGET = [240, 10_000];
+// Rejecting a packet only surfaces an error to the caller; the socket stays
+// open, so a client that never backs off can keep paying that cost forever.
+// Close the connection once it is clear nobody is listening to the 429s.
+const SOCKET_MAX_VIOLATIONS = 20;
+// Ceiling on distinct addresses tracked for handshake throttling, so a
+// wide-but-shallow flood cannot grow the map faster than it is pruned.
+const MAX_TRACKED_IPS = 50_000;
 
 const socketAttemptCleanup = setInterval(() => {
   const cutoff = Date.now() - 60_000;
@@ -1263,13 +1282,11 @@ const socketAttemptCleanup = setInterval(() => {
 socketAttemptCleanup.unref();
 
 function socketClientIp(socket) {
-  const direct = cleanIp(socket.request?.socket?.remoteAddress || socket.handshake?.address || "unknown");
-  if (Number(app.get("trust proxy")) > 0) {
-    const forwarded = socket.handshake?.headers?.["x-forwarded-for"];
-    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-    if (typeof first === "string" && first.length <= 256) return cleanIp(first.split(",")[0].trim()) || direct;
-  }
-  return direct || "unknown";
+  return resolveClientIp({
+    direct: socket.request?.socket?.remoteAddress || socket.handshake?.address || null,
+    forwardedHeader: socket.handshake?.headers?.["x-forwarded-for"],
+    trustProxyHops: app.get("trust proxy"),
+  });
 }
 
 io.use((socket, next) => {
@@ -1277,6 +1294,11 @@ io.use((socket, next) => {
   const now = Date.now();
   const attempts = (socketAttemptsByIp.get(ip) || []).filter((ts) => now - ts < 60_000);
   if (attempts.length >= 30) return next(new Error("Too many connection attempts"));
+  if (!socketAttemptsByIp.has(ip) && socketAttemptsByIp.size >= MAX_TRACKED_IPS) {
+    // The periodic sweep has not caught up with the arrival rate. Shed the
+    // new address rather than letting the bookkeeping outgrow the traffic.
+    return next(new Error("Server is busy, please retry"));
+  }
   attempts.push(now);
   socketAttemptsByIp.set(ip, attempts);
   return next();
@@ -1301,13 +1323,31 @@ io.on("connection", (socket) => {
   activeSocketByUser.set(socket.user.id, socket.id);
 
   const eventWindows = new Map();
+  let packetTimestamps = [];
+  let rateViolations = 0;
+
+  function rejectPacket(next, detail) {
+    rateViolations += 1;
+    if (rateViolations >= SOCKET_MAX_VIOLATIONS) {
+      socket.emit("server_error", { detail: "Too many messages. Connection closed." });
+      socket.disconnect(true);
+    }
+    return next(new Error(detail));
+  }
+
   socket.use(([event], next) => {
+    const now = Date.now();
+
+    const [packetMax, packetWindowMs] = SOCKET_PACKET_BUDGET;
+    packetTimestamps = packetTimestamps.filter((ts) => now - ts < packetWindowMs);
+    if (packetTimestamps.length >= packetMax) return rejectPacket(next, "Too many messages");
+    packetTimestamps.push(now);
+
     const rule = SOCKET_EVENT_LIMITS[event];
     if (!rule) return next();
     const [max, windowMs] = rule;
-    const now = Date.now();
     const timestamps = (eventWindows.get(event) || []).filter((ts) => now - ts < windowMs);
-    if (timestamps.length >= max) return next(new Error(`Rate limit exceeded for ${event}`));
+    if (timestamps.length >= max) return rejectPacket(next, `Rate limit exceeded for ${event}`);
     timestamps.push(now);
     eventWindows.set(event, timestamps);
     return next();
@@ -1696,6 +1736,29 @@ process.on("SIGTERM", async () => {
   });
 });
 
+/*
+ * Expired sessions were only cleared during schema initialization, so a
+ * long-running process accumulated every anonymous session it ever handed
+ * out. That is storage a session-spamming bot can grow on demand and the
+ * process never gives back until it restarts. Sweep on a timer instead; the
+ * `idx_sessions_expires_at` index makes each pass cheap.
+ */
+const SESSION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
+function startExpiredSessionSweep() {
+  const sweep = async () => {
+    try {
+      const { rowCount } = await pool.query(`DELETE FROM sessions WHERE expires_at <= NOW()`);
+      if (rowCount > 0) console.log(`[DB] Swept ${rowCount} expired session(s)`);
+    } catch (err) {
+      // A failed sweep is not fatal — the next tick retries.
+      console.warn("[DB] Expired session sweep failed:", err.message);
+    }
+  };
+  const timer = setInterval(sweep, SESSION_SWEEP_INTERVAL_MS);
+  timer.unref();
+}
+
 const PORT = process.env.PORT || 3001;
 
 // Initialize schema then start server (skip DB if env missing)
@@ -1711,6 +1774,7 @@ if (!process.env.DATABASE_URL) {
     .then(() => {
       dbAvailable = true;
       dbWarningShown = false;
+      startExpiredSessionSweep();
       server.listen(PORT, () =>
         console.log(`[OK] Signaling server running on :${PORT} — database connected`)
       );
