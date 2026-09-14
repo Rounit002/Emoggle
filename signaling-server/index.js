@@ -127,11 +127,20 @@ const EMOJI_GAME_MODE = "emoji";
 const ROUND_COUNTDOWN_SEC = 3;
 const MATCH_DURATION_SEC = 10;
 const CELEBRITY_AFFECTS_ELO = process.env.CELEBRITY_AFFECTS_ELO === "true";
-// Absolute grace period after the server-owned scan deadline. Results
-// normally finalize immediately after both submissions; this deadline
-// only prevents a missing/disconnected client submission from leaving
-// the other player waiting forever.
-const SCORE_SUBMISSION_GRACE_MS = 3_000;
+// Absolute grace period after the published scan deadline. Each
+// client starts its own 10-second window when the "go" packet
+// (`emoji_locked`) reaches it, so an honest submission lands one
+// network hop after this deadline — the grace has to cover that
+// delivery before the fallback scoring kicks in. Results normally
+// finalize the moment both submissions arrive; this deadline only
+// stops a missing or disconnected client from leaving the other
+// player waiting forever.
+const SCORE_SUBMISSION_GRACE_MS = 4_000;
+// How far before the published scan deadline a submission is still
+// accepted. A client anchored on its own "go" packet always lands
+// at or after the deadline, so this only absorbs clock-offset
+// estimation error and socket jitter from an early-firing client.
+const SCORE_SUBMISSION_EARLY_MS = 2_000;
 const DEFAULT_ELO = 1000;
 const ELO_K = 32;
 const RANKED_ELO_ENABLED = process.env.ENABLE_RANKED_ELO === "true";
@@ -1002,6 +1011,18 @@ async function startMatch(socket, partner) {
   socket.join(roomId);
   partnerSocket.join(roomId);
 
+  // ── Round schedule: one absolute timeline, computed once ──
+  // The countdown deadline is shared: both clients translate it
+  // into their own clock (see `app/lib/serverClock.ts`) and count
+  // 3-2-1 together. The scan window published here is what the
+  // server itself scores against — each client runs its own
+  // 10-second window from the moment the "go" packet reaches it,
+  // so a slow link costs a later finish, never a shorter round.
+  const roundStartedAt = Date.now();
+  const countdownEndsAt = roundStartedAt + ROUND_COUNTDOWN_SEC * 1000;
+  const scanStartsAt = countdownEndsAt;
+  const scanEndsAt = scanStartsAt + MATCH_DURATION_SEC * 1000;
+
   activeMatches.set(matchId, {
     roomId,
     player1SocketId: socket.id,
@@ -1014,8 +1035,11 @@ async function startMatch(socket, partner) {
     finalizationTimerId: null,
     scores: {},
     liveScores: {},
-    scanStartedAt: null,
-    scanEndsAt: null,
+    // Set upfront (not when the countdown fires) so the score
+    // window guards validate against the same timeline the
+    // clients were handed at match start.
+    scanStartedAt: scanStartsAt,
+    scanEndsAt,
     resultSent: false,
     // The emoji stays mutable until the round actually starts.
     // Once the scan timer begins we set emojiLocked=true so the
@@ -1057,6 +1081,21 @@ async function startMatch(socket, partner) {
   // prefer the code and derive the flag locally — that way a
   // sender with a broken display string can't make the partner
   // see "IN" where they should see 🇮🇳.
+  // The shared timeline travels with the match payload. `serverTime`
+  // is stamped per-emit so a client that has not completed a
+  // `time_sync` handshake can still derive the schedule from the
+  // one-way delta (target - serverTime) instead of trusting its own
+  // (possibly wrong) device clock.
+  const schedulePayload = () => ({
+    serverTime: Date.now(),
+    roundStartedAt,
+    countdownEndsAt,
+    scanStartsAt,
+    scanEndsAt,
+    countdownSec: ROUND_COUNTDOWN_SEC,
+    duration: MATCH_DURATION_SEC,
+  });
+
   socket.emit("match_started", {
     matchId,
     partnerPeerId: meta2.peerId,
@@ -1065,8 +1104,8 @@ async function startMatch(socket, partner) {
     partnerName: meta2.displayName ?? null,
     role: "receiver",
     emoji,
-    duration: MATCH_DURATION_SEC,
     celebrity: celebrityPayload,
+    ...schedulePayload(),
   });
   partnerSocket.emit("match_started", {
     matchId,
@@ -1076,8 +1115,8 @@ async function startMatch(socket, partner) {
     partnerName: meta1.displayName ?? null,
     role: "caller",
     emoji,
-    duration: MATCH_DURATION_SEC,
     celebrity: celebrityPayload,
+    ...schedulePayload(),
   });
 
   console.log(
@@ -1085,33 +1124,60 @@ async function startMatch(socket, partner) {
       (celebrity ? ` target=${celebrity.id} (${celebrity.name})` : ` emoji=${emoji}`)
   );
 
-  // Start a short synchronized pre-round countdown. The browser owns the 10s scan timer.
-  let remaining = ROUND_COUNTDOWN_SEC;
-  io.to(roomId).emit("countdown_tick", { count: remaining });
-  const timerId = setInterval(() => {
-    remaining--;
-    io.to(roomId).emit("countdown_tick", { count: remaining });
+  // Pre-round countdown. The tick is derived from the absolute
+  // `countdownEndsAt` on every pass rather than by decrementing a
+  // counter, so a busy event loop can never make one room's
+  // countdown run long. Clients render their countdown from the
+  // schedule too — these ticks are a redundant nudge, not the
+  // source of truth. When it reaches zero the `emoji_locked`
+  // broadcast is the round's "go": each client starts its own
+  // 10-second scan window the moment that packet lands, so nobody
+  // plays a short round because of their link.
+  let lastCount = null;
+  const emitTick = (count) => {
+    lastCount = count;
+    io.to(roomId).emit("countdown_tick", {
+      matchId,
+      count,
+      ...schedulePayload(),
+    });
+  };
+  emitTick(ROUND_COUNTDOWN_SEC);
 
-    if (remaining <= 0) {
-      clearInterval(timerId);
-      const active = activeMatches.get(matchId);
-      if (active) {
-        active.timerId = null;
-        // The scan window is open — the emoji is locked. Either
-        // client that tries to change it now gets a silent no-op.
-        active.emojiLocked = true;
-        active.scanStartedAt = Date.now();
-        active.scanEndsAt = active.scanStartedAt + MATCH_DURATION_SEC * 1000;
-        active.finalizationTimerId = setTimeout(() => {
+  const timerId = setInterval(() => {
+    const now = Date.now();
+    const count = Math.max(0, Math.ceil((countdownEndsAt - now) / 1000));
+    if (count !== lastCount) emitTick(count);
+
+    if (now < countdownEndsAt) return;
+
+    clearInterval(timerId);
+    const active = activeMatches.get(matchId);
+    if (active) {
+      active.timerId = null;
+      // The scan window is open — the emoji is locked. Either
+      // client that tries to change it now gets a silent no-op.
+      active.emojiLocked = true;
+      if (lastCount !== 0) emitTick(0);
+      // Finalization is pinned to the absolute deadline that was
+      // published at match start, so the fallback fires the same
+      // distance after the scan window no matter how late this
+      // interval happened to run.
+      active.finalizationTimerId = setTimeout(
+        () => {
           void finalizeMatchResult(matchId, { fillMissing: true }).catch((err) => {
             console.error(`[SCORE] Deadline finalization failed for ${matchId}:`, err.message);
           });
-        }, MATCH_DURATION_SEC * 1000 + SCORE_SUBMISSION_GRACE_MS);
-        io.to(roomId).emit("emoji_locked", { matchId });
-      }
-      console.log(`[T] Match ${matchId} scan started (emoji locked)`);
+        },
+        Math.max(0, scanEndsAt + SCORE_SUBMISSION_GRACE_MS - Date.now()),
+      );
+      io.to(roomId).emit("emoji_locked", {
+        matchId,
+        ...schedulePayload(),
+      });
     }
-  }, 1000);
+    console.log(`[T] Match ${matchId} scan started (emoji locked)`);
+  }, 200);
 
   const activeMatch = activeMatches.get(matchId);
   if (activeMatch) activeMatch.timerId = timerId;
@@ -1183,6 +1249,7 @@ const SOCKET_EVENT_LIMITS = {
   live_score: [120, 15_000],
   submit_score: [3, 30_000],
   change_emoji: [8, 30_000],
+  time_sync: [40, 60_000],
 };
 
 const socketAttemptCleanup = setInterval(() => {
@@ -1247,6 +1314,25 @@ io.on("connection", (socket) => {
   });
 
   console.log(`[+] Connected: ${socket.id}`);
+
+  /*
+   * Clock handshake. The client sends its own send-timestamp and we
+   * echo it back alongside server time; the client halves the
+   * round-trip to estimate the offset between the two clocks. Every
+   * round-timing event on the wire is an absolute server timestamp,
+   * so this handshake is what lets a phone whose system clock is
+   * minutes off still stop its round on the same instant as the
+   * desktop it is playing against. Stateless and match-independent.
+   */
+  socket.on("time_sync", (payload, ack) => {
+    const clientSent =
+      isPlainObject(payload) && Number.isFinite(payload.clientSent) ? payload.clientSent : null;
+    const response = { clientSent, serverTime: Date.now() };
+    if (typeof ack === "function") return ack(response);
+    // Older clients without ack support still get a reply they can
+    // listen for.
+    socket.emit("time_sync_response", response);
+  });
 
   socket.on("join_queue", async (payload) => {
     if (!isPlainObject(payload)) return socket.emit("server_error", { detail: "Invalid queue request." });
@@ -1423,7 +1509,18 @@ io.on("connection", (socket) => {
     if (!existing || typeof payload.score !== "number" || !Number.isFinite(payload.score)) return;
     const match = activeMatches.get(existing.matchId);
     const now = Date.now();
-    if (!match?.scanStartedAt || !match.scanEndsAt || now < match.scanStartedAt || now > match.scanEndsAt + 1_500) return;
+    // The tail of a late-anchored client's window arrives after the
+    // published deadline; those samples still belong to the round
+    // and back the fallback score, so accept them for as long as a
+    // submission would be accepted.
+    if (
+      !match?.scanStartedAt ||
+      !match.scanEndsAt ||
+      now < match.scanStartedAt ||
+      now > match.scanEndsAt + SCORE_SUBMISSION_GRACE_MS
+    ) {
+      return;
+    }
     const normalizedScore = clampScore(payload.score);
     const samples = match.liveScores[socket.id] || [];
     if (samples.length < 150) samples.push(normalizedScore);
@@ -1471,8 +1568,16 @@ io.on("connection", (socket) => {
     const match = activeMatches.get(existing.matchId);
     if (!match) return;
     const now = Date.now();
-    if (!match.scanStartedAt || !match.scanEndsAt || now < match.scanEndsAt - 1_500 || now > match.scanEndsAt + SCORE_SUBMISSION_GRACE_MS) {
-      return socket.emit("server_error", { detail: "Score submitted outside the round window." });
+    if (
+      !match.scanStartedAt ||
+      !match.scanEndsAt ||
+      now < match.scanEndsAt - SCORE_SUBMISSION_EARLY_MS ||
+      now > match.scanEndsAt + SCORE_SUBMISSION_GRACE_MS
+    ) {
+      // Round-level, not connection-level: the deadline finalizer
+      // still produces a result for this player, so this must not
+      // put the client into its fatal `server_error` state.
+      return socket.emit("score_rejected", { reason: "outside_window" });
     }
     if (Object.hasOwn(match.scores, socket.id)) return;
 
@@ -1488,7 +1593,7 @@ io.on("connection", (socket) => {
       ? Number(clampScore(payload.score).toFixed(1))
       : submittedRoundScore(samples, payload.score);
     if (normalizedScore === null || typeof normalizedScore !== "number" || !Number.isFinite(normalizedScore)) {
-      return socket.emit("server_error", { detail: "Not enough score samples were received." });
+      return socket.emit("score_rejected", { reason: "insufficient_samples" });
     }
     match.scores[socket.id] = normalizedScore;
     socket.to(existing.roomId).emit("partner_score", { score: normalizedScore });

@@ -5,6 +5,13 @@ import { io, Socket } from "socket.io-client";
 import Peer, { MediaConnection } from "peerjs";
 import { UserProfile } from "../context/UserProfileContext";
 import type { CelebrityTarget } from "../lib/celebrityScoring";
+import {
+  ServerClock,
+  buildRoundSchedule,
+  scheduleChanged,
+  type RoundSchedule,
+  type RoundSchedulePayload,
+} from "../lib/serverClock";
 
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
@@ -71,7 +78,23 @@ export interface MatchmakingState {
   remoteStream: MediaStream | null;
   localPeerId: string | null;
   partnerPeerId: string | null;
+  /**
+   * Raw `countdown_tick` value from the server (3, 2, 1, 0).
+   * The arenas render their countdown from `roundSchedule`
+   * instead — this stays as the unprocessed server signal.
+   */
   countdown: number | null;
+  /**
+   * The round's phase boundaries as absolute local-clock
+   * timestamps. The countdown deadline comes from the server's
+   * shared schedule; the 10s scan window is measured from the
+   * moment this device received the "go" packet, so a slow link
+   * costs a later finish rather than a shorter round. Driving the
+   * arena off these instead of a counting interval is what keeps a
+   * phone and a desktop on the same beat. Null outside an active
+   * round.
+   */
+  roundSchedule: RoundSchedule | null;
   partnerScore: number | null;
   partnerLiveScore: number | null;
   matchResult: MatchResult | null;
@@ -187,6 +210,7 @@ export function useMatchmaking(
   const streamTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stoppedRef = useRef(false);
   const currentMatchIdRef = useRef<string | null>(null);
+  const serverClockRef = useRef<ServerClock | null>(null);
 
   // Keep the latest player name + country in refs so the socket
   // event listeners (which capture the value at registration
@@ -216,6 +240,7 @@ export function useMatchmaking(
   const [localPeerId, setLocalPeerId] = useState<string | null>(null);
   const [partnerPeerId, setPartnerPeerId] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [roundSchedule, setRoundSchedule] = useState<RoundSchedule | null>(null);
   const [partnerScore, setPartnerScore] = useState<number | null>(null);
   const [partnerLiveScore, setPartnerLiveScore] = useState<number | null>(null);
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
@@ -283,6 +308,7 @@ export function useMatchmaking(
     setRemoteStreamSynced(null);
     setPartnerPeerId(null);
     setCountdown(null);
+    setRoundSchedule(null);
     setPartnerScore(null);
     setPartnerLiveScore(null);
     setMatchResult(null);
@@ -392,7 +418,42 @@ export function useMatchmaking(
       });
       socketRef.current = socket;
 
+      // One clock per connection. Sync starts immediately so the
+      // offset is settled well before the first match_started
+      // arrives.
+      const serverClock = new ServerClock();
+      serverClockRef.current = serverClock;
+
+      /*
+       * Local timestamp at which this device received the server's
+       * "go" packet for the current round, or null while the round
+       * has not started yet. The 10-second scan window is measured
+       * from here, so a player whose packet arrived late still gets
+       * the whole window rather than the tail of someone else's.
+       */
+      let goAnchor: number | null = null;
+
+      /**
+       * Adopt (or refine) the round timeline carried by a server
+       * event. Every round event repeats the schedule, so a client
+       * that missed `match_started` still converges on the same
+       * countdown as its opponent. Once `goAnchor` is set it pins
+       * the scan window; the server's own scan times are only the
+       * prediction used before the "go" packet lands.
+       */
+      const applySchedule = (payload: RoundSchedulePayload, matchId: string | null) => {
+        const next = buildRoundSchedule(payload, serverClock, matchId, Date.now(), goAnchor);
+        setRoundSchedule((previous) => (scheduleChanged(previous, next) ? next : previous));
+      };
+
+      /** The round is go: start this device's timer from right now. */
+      const startScanWindow = (payload: RoundSchedulePayload) => {
+        if (goAnchor === null) goAnchor = Date.now();
+        applySchedule(payload, currentMatchIdRef.current);
+      };
+
       socket.on("connect", () => {
+        serverClock.attach(socket);
         socket.emit("join_queue", buildJoinPayload(id));
         setStatus("waiting");
       });
@@ -433,16 +494,7 @@ export function useMatchmaking(
       });
 
       const handleMatchStarted = (
-        {
-          matchId,
-          partnerPeerId: ppId,
-          role,
-          emoji,
-          partnerCountry: pc,
-          partnerCountryCode: pcc,
-          partnerName: pn,
-          celebrity,
-        }: {
+        payload: {
           matchId?: string;
           partnerPeerId: string;
           role: string;
@@ -451,8 +503,19 @@ export function useMatchmaking(
           partnerCountryCode?: string | null;
           partnerName?: string | null;
           celebrity?: CelebrityTarget;
-        }
+        } & RoundSchedulePayload
       ) => {
+          const {
+            matchId,
+            partnerPeerId: ppId,
+            role,
+            emoji,
+            partnerCountry: pc,
+            partnerCountryCode: pcc,
+            partnerName: pn,
+            celebrity,
+            ...schedule
+          } = payload;
           stoppedRef.current = false;
           callRef.current?.close();
           callRef.current = null;
@@ -477,6 +540,11 @@ export function useMatchmaking(
           const nextMatchId = typeof matchId === "string" && matchId ? matchId : null;
           currentMatchIdRef.current = nextMatchId;
           setCurrentMatchId(nextMatchId);
+          // A new round: forget the previous round's "go" packet and
+          // adopt the server's countdown timeline before anything
+          // renders.
+          goAnchor = null;
+          applySchedule(schedule, nextMatchId);
           setStatus("matched");
           startStreamTimeout();
 
@@ -490,8 +558,17 @@ export function useMatchmaking(
       socket.on("match_found", handleMatchStarted);
 
       /* ── 3. Handle countdown sync from server ── */
-      socket.on("countdown_tick", ({ count }: { count: number }) => {
+      // The tick is a redundant nudge: it re-publishes the schedule
+      // so a dropped or delayed `match_started` can't leave one
+      // screen counting on its own timeline.
+      socket.on("countdown_tick", ({ count, ...schedule }: { count: number } & RoundSchedulePayload) => {
+        if (schedule.matchId && schedule.matchId !== currentMatchIdRef.current) return;
         setCountdown(count);
+        // A zero tick is sent at the same instant as the "go"
+        // packet, so it stands in as the start signal if it happens
+        // to be delivered first.
+        if (count <= 0) startScanWindow(schedule);
+        else applySchedule(schedule, currentMatchIdRef.current);
       });
 
       socket.on("scores_ready", ({ partnerScore: ps }: { myScore: number; partnerScore: number }) => {
@@ -547,11 +624,23 @@ export function useMatchmaking(
         }
       });
 
-      // Fired by the server the instant the scan window opens.
-      // The "change emoji" control on both clients goes dim at
-      // exactly the same moment.
-      socket.on("emoji_locked", () => {
+      // The "go" packet, fired the instant the server opens the
+      // scan window. This device's 10-second timer starts on
+      // arrival — not on a shared deadline — so a slow link costs a
+      // later finish, never a shorter round. It also dims the
+      // "change emoji" control.
+      socket.on("emoji_locked", (payload: RoundSchedulePayload = {}) => {
+        if (payload.matchId && payload.matchId !== currentMatchIdRef.current) return;
         setEmojiLocked(true);
+        startScanWindow(payload);
+      });
+
+      // A score that missed the window is a round-level outcome, not
+      // a connection failure — the server's deadline finalizer still
+      // produces a result, so this must never flip the UI into its
+      // fatal error state.
+      socket.on("score_rejected", ({ reason }: { reason?: string }) => {
+        console.warn("[Signaling] Score not counted:", reason || "unknown");
       });
 
       socket.on("match_skipped", () => {
@@ -618,6 +707,8 @@ export function useMatchmaking(
 
     return () => {
       clearStreamTimeout();
+      serverClockRef.current?.dispose();
+      serverClockRef.current = null;
       callRef.current?.close();
       pendingCallRef.current?.close();
       pendingCallRef.current = null;
@@ -693,6 +784,7 @@ export function useMatchmaking(
     localPeerId,
     partnerPeerId,
     countdown,
+    roundSchedule,
     partnerScore,
     partnerLiveScore,
     matchResult,

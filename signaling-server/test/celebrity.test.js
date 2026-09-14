@@ -169,6 +169,13 @@ async function run() {
 
     const [payloadA, payloadB] = await Promise.all([matchA, matchB]);
 
+    // Subscribe before the 3s countdown can elapse, so the checks
+    // below never race the "go" broadcast. Each client records when
+    // the packet reached IT — that receipt, not the published
+    // deadline, is where its own 10-second window starts.
+    const goA = waitFor(sockA, "emoji_locked").then((p) => ({ ...p, receivedAt: Date.now() }));
+    const goB = waitFor(sockB, "emoji_locked").then((p) => ({ ...p, receivedAt: Date.now() }));
+
     if (payloadA.matchId !== payloadB.matchId) {
       throw new Error(
         `Match ids differ: ${payloadA.matchId} vs ${payloadB.matchId}`
@@ -199,24 +206,95 @@ async function run() {
       `[smoke] matched with celebrity ${payloadA.celebrity.name} (id=${payloadA.celebrity.id}) — matchId=${payloadA.matchId}`
     );
 
-    // Wait for the countdown to reach 0.
-    const deadline = Date.now() + 12_000;
-    while (Date.now() < deadline) {
-      const tA = await new Promise((res) => {
-        const handler = (p) => {
-          sockA.off("countdown_tick", handler);
-          res(p);
-        };
-        sockA.on("countdown_tick", handler);
-      });
-      if (tA.count <= 0) break;
+    // ── The shared round clock ──
+    // Both players must be handed the SAME absolute phase
+    // boundaries. This is what keeps a phone and a desktop on the
+    // same beat: each client translates these into its own clock
+    // and times the round off them instead of starting a local
+    // 10-second interval whenever its own "go" packet happened to
+    // arrive.
+    for (const field of ["serverTime", "countdownEndsAt", "scanStartsAt", "scanEndsAt"]) {
+      for (const [label, payload] of [["A", payloadA], ["B", payloadB]]) {
+        if (typeof payload[field] !== "number" || !Number.isFinite(payload[field])) {
+          throw new Error(`match_started for ${label} is missing ${field}`);
+        }
+      }
+      if (field !== "serverTime" && payloadA[field] !== payloadB[field]) {
+        throw new Error(
+          `Players got different ${field}: ${payloadA[field]} vs ${payloadB[field]}`
+        );
+      }
     }
-    await new Promise((r) => setTimeout(r, 200));
-    console.log("[smoke] countdown reached 0");
+    if (payloadA.scanStartsAt !== payloadA.countdownEndsAt) {
+      throw new Error("The scan window must open exactly when the countdown ends");
+    }
+    if (payloadA.scanEndsAt - payloadA.scanStartsAt !== payloadA.duration * 1000) {
+      throw new Error(
+        `Scan window is ${payloadA.scanEndsAt - payloadA.scanStartsAt}ms, expected ${payloadA.duration * 1000}ms`
+      );
+    }
 
-    // Final scores are accepted near the end of the server-owned 10-second
-    // scan window, matching what the browser scorer does in production.
-    await new Promise((r) => setTimeout(r, 8_600));
+    // The clock handshake clients use to convert those timestamps
+    // into their own (possibly badly-set) device clock.
+    const syncReply = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("time_sync never answered")), 5_000);
+      sockA.emit("time_sync", { clientSent: Date.now() }, (reply) => {
+        clearTimeout(timer);
+        resolve(reply);
+      });
+    });
+    if (typeof syncReply?.serverTime !== "number") {
+      throw new Error(`time_sync returned no server time: ${JSON.stringify(syncReply)}`);
+    }
+    console.log("[smoke] round schedule identical for both players, time_sync OK ✓");
+
+    // Both clients are sent the same "go", carrying the same
+    // published deadline.
+    const [lockA, lockB] = await Promise.all([goA, goB]);
+    if (lockA.scanEndsAt !== lockB.scanEndsAt || lockA.scanEndsAt !== payloadA.scanEndsAt) {
+      throw new Error(
+        `emoji_locked moved the deadline: ${lockA.scanEndsAt} / ${lockB.scanEndsAt} vs ${payloadA.scanEndsAt}`
+      );
+    }
+    if (lockA.receivedAt < payloadA.countdownEndsAt - 250) {
+      throw new Error("The go packet arrived before the countdown finished");
+    }
+    console.log("[smoke] go packet delivered to both players ✓");
+
+    // A submission outside the window is a ROUND-level rejection,
+    // never a connection-level `server_error`. The client keeps
+    // playing and the server's deadline still scores the round for
+    // it; a fatal error here used to drop the whole arena into its
+    // error state. Fired now, with the window just opened, so it is
+    // comfortably outside the accepted end-of-round band.
+    const earlyVerdict = await new Promise((resolve) => {
+      const done = (verdict) => {
+        sockA.off("score_rejected", onRejected);
+        sockA.off("server_error", onFatal);
+        resolve(verdict);
+      };
+      const onRejected = ({ reason }) => done({ kind: "rejected", reason });
+      const onFatal = ({ detail }) => done({ kind: "fatal", detail });
+      sockA.on("score_rejected", onRejected);
+      sockA.on("server_error", onFatal);
+      sockA.emit("submit_score", { score: 9.9 });
+      setTimeout(() => done({ kind: "silent" }), 2_000);
+    });
+    if (earlyVerdict.kind !== "rejected" || earlyVerdict.reason !== "outside_window") {
+      throw new Error(
+        `An early submission must be a non-fatal score_rejected, got ${JSON.stringify(earlyVerdict)}`
+      );
+    }
+    console.log("[smoke] out-of-window submission rejected without a fatal error ✓");
+
+    // Submit the way a browser now does: a full round measured from
+    // this client's own receipt of the go packet. Landing after the
+    // published deadline is expected and must still be counted.
+    const ownWindowEndsAt = lockA.receivedAt + payloadA.duration * 1000;
+    await new Promise((r) => setTimeout(r, Math.max(0, ownWindowEndsAt - Date.now())));
+    if (Date.now() < payloadA.scanEndsAt) {
+      throw new Error("A client-anchored window cannot close before the published deadline");
+    }
 
     // Submit scores: B is the higher score, so B should win.
     const scoreA = 6.4;

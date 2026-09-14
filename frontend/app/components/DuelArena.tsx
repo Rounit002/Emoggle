@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import ChatBox from "./ChatBox";
 import { useMatchmaking } from "../hooks/useMatchmaking";
+import { useRoundClock } from "../hooks/useRoundClock";
 import { useLocalCamera, type LocalCameraStatus } from "../hooks/useLocalCamera";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
 import { isValidScoreSample, useStableScoreSampler } from "../hooks/useStableScoreSampler";
@@ -121,7 +122,6 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
   } = useLocalCamera({ audio: true });
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [phase, setPhase] = useState<AppPhase>("lobby");
-  const [roundSeconds, setRoundSeconds] = useState(ROUND_SECONDS);
   const [finalScore, setFinalScore] = useState<number | null>(null);
   const [searchSession, setSearchSession] = useState(0);
   const [noOneFound, setNoOneFound] = useState(false);
@@ -178,7 +178,7 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
   const {
     status,
     remoteStream,
-    countdown,
+    roundSchedule,
     partnerLiveScore,
     matchResult,
     emojiPrompt,
@@ -257,7 +257,6 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
   useEffect(() => {
     if (status === "matched") {
       setPhase("dueling");
-      setRoundSeconds(ROUND_SECONDS);
       setFinalScore(null);
       setPartnerRank(DEFAULT_RANK);
       resetScoreSampling();
@@ -268,7 +267,6 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
   useEffect(() => {
     if (status === "waiting" || status === "idle" || status === "connecting" || status === "stopped") {
       setPhase("lobby");
-      setRoundSeconds(ROUND_SECONDS);
       setFinalScore(null);
       resetScoreSampling();
       submittedRef.current = false;
@@ -284,19 +282,6 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     const timer = setTimeout(() => setNoOneFound(true), 6000);
     return () => clearTimeout(timer);
   }, [status, searchSession]);
-
-  useEffect(() => {
-    if (countdown === null) return;
-    if (countdown > 0) {
-      setPhase("countdown");
-    } else {
-      setRoundSeconds(ROUND_SECONDS);
-      setFinalScore(null);
-      resetScoreSampling();
-      submittedRef.current = false;
-      setPhase("playing");
-    }
-  }, [countdown, resetScoreSampling]);
 
   useEffect(() => {
     if (!matchResult) return;
@@ -370,19 +355,58 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     setPhase("results");
   }, [getCurrentScoreSamples, stopScoreSampling, submitLiveScore, submitScore]);
 
+  /*
+   * The round is timed against a deadline, not counted down.
+   *
+   * The window opens when this device receives the server's "go"
+   * packet and closes `ROUND_SECONDS` later on the wall clock,
+   * rechecked on every tick. A phone whose timers are throttled
+   * therefore still stops ten real seconds after its own start,
+   * rather than stretching ten 1-second ticks into twelve seconds
+   * and leaving this screen mid-round while the opponent is already
+   * looking at the final score.
+   */
+  const { phase: clockPhase, countdownValue, secondsLeft } = useRoundClock({
+    schedule: roundSchedule,
+    active: status === "matched",
+    onScanEnd: finalizeLocalRound,
+  });
+
+  const roundSeconds = secondsLeft ?? ROUND_SECONDS;
+
+  // Mirror the clock onto the arena's phase. The scan-window entry
+  // is keyed on the match so the sampler resets exactly once per
+  // round even though the clock re-evaluates ten times a second.
+  const roundStartedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (phase !== "playing") return;
-    let secondsLeft = ROUND_SECONDS;
-    const timer = window.setInterval(() => {
-      secondsLeft -= 1;
-      setRoundSeconds(Math.max(0, secondsLeft));
-      if (secondsLeft <= 0) {
-        window.clearInterval(timer);
-        finalizeLocalRound();
-      }
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [finalizeLocalRound, phase]);
+    if (clockPhase === "countdown") {
+      setPhase("countdown");
+      return;
+    }
+    if (clockPhase !== "playing" || !roundSchedule) return;
+    const roundKey = currentMatchId ?? String(roundSchedule.scanStartsAt);
+    if (roundStartedForRef.current === roundKey) return;
+    roundStartedForRef.current = roundKey;
+    setFinalScore(null);
+    resetScoreSampling();
+    submittedRef.current = false;
+    setPhase("playing");
+  }, [clockPhase, currentMatchId, resetScoreSampling, roundSchedule]);
+
+  /*
+   * The server has scored the round — both submissions arrived, or
+   * its deadline passed and it scored from the live samples. There
+   * is nothing left to play for, so close the local round now
+   * instead of running on to the end of this device's own window.
+   * Without this, a client whose "go" packet was badly delayed
+   * would still be playing while its opponent already had the final
+   * score on screen. Idempotent: a round that already finalized
+   * locally is unaffected.
+   */
+  useEffect(() => {
+    if (!matchResult) return;
+    finalizeLocalRound();
+  }, [finalizeLocalRound, matchResult]);
 
   const resolvedFinalScore = matchResult?.myScore ?? finalScore;
   const resolvedPartnerScore = matchResult?.partnerScore ?? null;
@@ -513,7 +537,7 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
             scoreA={mySeat === "a" ? (phase === "results" ? resolvedFinalScore : liveScore) : (phase === "results" ? resolvedPartnerScore : partnerLiveScore)}
             scoreB={mySeat === "a" ? (phase === "results" ? resolvedPartnerScore : partnerLiveScore) : (phase === "results" ? resolvedFinalScore : liveScore)}
             secondsLeft={phase === "playing" ? roundSeconds : null}
-            emojiLocked={emojiLocked}
+            emojiLocked={emojiLocked || clockPhase === "playing" || clockPhase === "ended"}
             onRequestChangeEmoji={requestChangeEmoji}
           />
 
@@ -591,8 +615,8 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
 
       {/* Countdown — full-bleed, single spring-in per digit */}
       <AnimatePresence>
-        {phase === "countdown" && countdown !== null && (
-          <Countdown count={countdown} />
+        {phase === "countdown" && countdownValue !== null && (
+          <Countdown count={countdownValue} />
         )}
       </AnimatePresence>
 

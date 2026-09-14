@@ -35,6 +35,7 @@ import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
 import { useMatchmaking, type MatchResult } from "../hooks/useMatchmaking";
 import { useLocalCamera } from "../hooks/useLocalCamera";
+import { useRoundClock } from "../hooks/useRoundClock";
 import { useCelebrityExpressionScorer } from "../hooks/useCelebrityExpressionScorer";
 import { useStableScoreSampler, isValidScoreSample } from "../hooks/useStableScoreSampler";
 import {
@@ -125,7 +126,6 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
     retry: retryCamera,
   } = useLocalCamera({ audio: true });
   const [phase, setPhase] = useState<AppPhase>("lobby");
-  const [roundSeconds, setRoundSeconds] = useState(ROUND_SECONDS);
   const [finalScore, setFinalScore] = useState<number | null>(null);
   const [imageLoadError, setImageLoadError] = useState(false);
 
@@ -144,7 +144,7 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
   const {
     status,
     remoteStream,
-    countdown,
+    roundSchedule,
     partnerLiveScore,
     matchResult,
     currentCelebrity,
@@ -246,7 +246,6 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
       setFinalScore(null);
       setImageLoadError(false);
       setPhase("matched");
-      setRoundSeconds(ROUND_SECONDS);
     }
   }, [status, currentMatchId]);
 
@@ -263,23 +262,8 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
       setFinalScore(null);
       setImageLoadError(false);
       setPhase("lobby");
-      setRoundSeconds(ROUND_SECONDS);
     }
   }, [status]);
-
-  /* Phase transitions driven by the server-controlled countdown. */
-  useEffect(() => {
-    if (countdown === null) return;
-    if (countdown > 0) {
-      setPhase("countdown");
-    } else {
-      peakAccumulatorRef.current = createPeakAccumulator();
-      submittedRef.current = false;
-      setFinalScore(null);
-      startScoreSampling();
-      setPhase("playing");
-    }
-  }, [countdown, startScoreSampling]);
 
   /* Stop the sampler when we leave the playing phase. */
   useEffect(() => {
@@ -319,22 +303,52 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
     setPhase("results");
   }, [getCurrentScoreSamples, stopScoreSampling, submitLiveScore, submitScore]);
 
-  /* 10s client-side scan timer. The server fires
-   * `emoji_locked` to mark the open, then waits for the submission
-   * or the grace deadline. */
+  /* The scan window opens when `emoji_locked` — the server's "go"
+   * packet — reaches this device, and closes ROUND_SECONDS later on
+   * the wall clock rather than after ten counted interval ticks. A
+   * throttled phone therefore still plays a real ten seconds and
+   * finishes alongside its opponent instead of seconds behind. */
+  const { phase: clockPhase, countdownValue, secondsLeft } = useRoundClock({
+    schedule: roundSchedule,
+    active: status === "matched",
+    onScanEnd: finalizeLocalRound,
+  });
+
+  const roundSeconds = secondsLeft ?? ROUND_SECONDS;
+
+  /* Mirror the shared clock onto the arena's phase, entering the
+   * scan window exactly once per match. */
+  const roundStartedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (phase !== "playing") return;
-    let secondsLeft = ROUND_SECONDS;
-    const timer = window.setInterval(() => {
-      secondsLeft -= 1;
-      setRoundSeconds(Math.max(0, secondsLeft));
-      if (secondsLeft <= 0) {
-        window.clearInterval(timer);
-        finalizeLocalRound();
-      }
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [finalizeLocalRound, phase]);
+    if (clockPhase === "countdown") {
+      setPhase("countdown");
+      return;
+    }
+    if (clockPhase !== "playing" || !roundSchedule) return;
+    const roundKey = currentMatchId ?? String(roundSchedule.scanStartsAt);
+    if (roundStartedForRef.current === roundKey) return;
+    roundStartedForRef.current = roundKey;
+    peakAccumulatorRef.current = createPeakAccumulator();
+    submittedRef.current = false;
+    setFinalScore(null);
+    startScoreSampling();
+    setPhase("playing");
+  }, [clockPhase, currentMatchId, roundSchedule, startScoreSampling]);
+
+  /*
+   * The server has scored the round — both submissions arrived, or
+   * its deadline passed and it scored from the live samples. There
+   * is nothing left to play for, so close the local round now
+   * instead of running on to the end of this device's own window.
+   * Without this, a client whose "go" packet was badly delayed
+   * would still be playing while its opponent already had the final
+   * score on screen. Idempotent: a round that already finalized
+   * locally is unaffected.
+   */
+  useEffect(() => {
+    if (!matchResult) return;
+    finalizeLocalRound();
+  }, [finalizeLocalRound, matchResult]);
 
   const handleRetry = useCallback(() => {
     resetScoreSampling();
@@ -472,8 +486,8 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
       </main>
 
       <AnimatePresence>
-        {phase === "countdown" && countdown !== null && (
-          <Countdown count={countdown} />
+        {phase === "countdown" && countdownValue !== null && (
+          <Countdown count={countdownValue} />
         )}
       </AnimatePresence>
 

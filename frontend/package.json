@@ -11,6 +11,7 @@
     "test:sampler": "tsx scripts/test-sampler.ts",
     "test:country": "tsx scripts/test-country.ts",
     "verify:scorecard": "tsx scripts/verify-scorecard.ts",
+    "verify:round-sync": "tsx scripts/verify-round-sync.ts",
     "verify:mode-picker": "tsx scripts/verify-mode-picker.ts"
   },
   "dependencies": {
