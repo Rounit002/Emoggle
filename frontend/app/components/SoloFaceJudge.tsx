@@ -6,6 +6,8 @@ import VideoPanel from "./VideoPanel";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
 import { useLocalCamera } from "../hooks/useLocalCamera";
 import { isValidScoreSample, useStableScoreSampler } from "../hooks/useStableScoreSampler";
+import { useRoundClock } from "../hooks/useRoundClock";
+import type { RoundSchedule } from "../lib/serverClock";
 import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
 import {
@@ -75,7 +77,6 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const [phase, setPhase] = useState<SoloPhase>("ready");
   const [emojiPrompt, setEmojiPrompt] = useState(() => pickEmoji());
-  const [roundSeconds, setRoundSeconds] = useState(ROUND_SECONDS);
   const [finalScore, setFinalScore] = useState<number | null>(null);
   const [history, setHistory] = useState<SoloHistoryEntry[]>([]);
   const {
@@ -108,7 +109,19 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
   // uses, so solo and duel rounds share identical scoring
   // semantics: a deterministic time-driven mean over the full
   // 10 seconds, ignoring no-face / loading / error frames.
-  const sampler = useStableScoreSampler(
+  // Bind the sampler's STABLE callbacks, never the object it
+  // returns. That object carries the live sample state, so it is a
+  // new reference on every render — using it as an effect
+  // dependency tore the round timer down and rebuilt it faster than
+  // it could ever fire once the face detector started re-rendering
+  // this component, which is what left solo rounds running forever.
+  const {
+    start: startSampling,
+    stop: stopSampling,
+    reset: resetSampling,
+    getCurrent: getCurrentSamples,
+    peak: samplePeak,
+  } = useStableScoreSampler(
     () => {
       const exp = expressionRef.current;
       if (!exp) return null;
@@ -122,37 +135,58 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
 
   useEffect(() => {
     if (phase === "playing") {
-      sampler.start();
+      startSampling();
     } else {
-      sampler.stop();
+      stopSampling();
     }
-  }, [phase, sampler]);
+  }, [phase, startSampling, stopSampling]);
 
-  useEffect(() => {
-    if (phase !== "playing") return;
-    const timer = window.setInterval(() => {
-      setRoundSeconds((seconds) => {
-        if (seconds <= 1) {
-          window.clearInterval(timer);
-          sampler.stop();
-          const snapshot = sampler.getCurrent();
-          const score = Number((snapshot.sampleCount > 0 ? snapshot.average : 0).toFixed(1));
-          setFinalScore(score);
-          const entry: SoloHistoryEntry = { emoji: emojiPrompt, score, ts: Date.now() };
-          const next = appendSoloHistory(entry);
-          setHistory(next);
-          // Refresh aggregate stats so the homepage/history page
-          // see this attempt immediately. Pulling from the just-
-          // written list avoids a re-read of localStorage.
-          setStoredStats(computeStats(getMatchHistory(), next));
-          setPhase("results");
-          return 0;
-        }
-        return seconds - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [phase, emojiPrompt, sampler]);
+  /*
+   * The round is bounded by an absolute deadline rather than ten
+   * counted interval ticks — the same clock the duel arena runs on.
+   * Beyond surviving re-renders, it means a phone that throttles
+   * timers while running face detection still gets a real ten
+   * seconds instead of twelve or more.
+   */
+  const [roundStartedAt, setRoundStartedAt] = useState<number | null>(null);
+  const roundSchedule = useMemo<RoundSchedule | null>(() => {
+    if (roundStartedAt === null) return null;
+    // Solo has no opponent and no pre-round countdown, so the scan
+    // window opens the moment the player hits start.
+    return {
+      matchId: null,
+      countdownEndsAt: roundStartedAt,
+      scanStartsAt: roundStartedAt,
+      scanEndsAt: roundStartedAt + ROUND_SECONDS * 1000,
+      durationSec: ROUND_SECONDS,
+      anchored: true,
+    };
+  }, [roundStartedAt]);
+
+  const finishedRef = useRef(false);
+  const finishRound = useCallback(() => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    stopSampling();
+    const snapshot = getCurrentSamples();
+    const score = Number((snapshot.sampleCount > 0 ? snapshot.average : 0).toFixed(1));
+    setFinalScore(score);
+    const entry: SoloHistoryEntry = { emoji: emojiPrompt, score, ts: Date.now() };
+    const next = appendSoloHistory(entry);
+    setHistory(next);
+    // Refresh aggregate stats so the homepage/history page see this
+    // attempt immediately. Pulling from the just-written list avoids
+    // a re-read of localStorage.
+    setStoredStats(computeStats(getMatchHistory(), next));
+    setPhase("results");
+  }, [emojiPrompt, getCurrentSamples, stopSampling]);
+
+  const { secondsLeft } = useRoundClock({
+    schedule: roundSchedule,
+    active: phase === "playing",
+    onScanEnd: finishRound,
+  });
+  const roundSeconds = secondsLeft ?? ROUND_SECONDS;
 
   const statusText = useMemo(() => {
     if (phase !== "playing") return "Solo scan";
@@ -167,17 +201,19 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
 
   const startRound = () => {
     if (localCameraStatus !== "ready") return;
-    sampler.reset();
+    resetSampling();
     setFinalScore(null);
-    setRoundSeconds(ROUND_SECONDS);
+    finishedRef.current = false;
+    setRoundStartedAt(Date.now());
     setPhase("playing");
   };
 
   const nextEmoji = () => {
     setEmojiPrompt((current) => pickEmoji(current));
-    sampler.reset();
+    resetSampling();
     setFinalScore(null);
-    setRoundSeconds(ROUND_SECONDS);
+    finishedRef.current = false;
+    setRoundStartedAt(null);
     setPhase("ready");
   };
 
@@ -303,9 +339,9 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
                 tone={phase === "results" ? (finalScore && finalScore >= 7 ? "purple" : finalScore && finalScore >= 5 ? "neutral" : "pink") : "neutral"}
                 animated
               />
-              {phase === "playing" && sampler.peak > 0 && (
+              {phase === "playing" && samplePeak > 0 && (
                 <span className="mt-1 font-mono tabular text-xs text-[var(--on-surface-variant)]">
-                  Best {formatScore(Number(sampler.peak.toFixed(1)))}/10
+                  Best {formatScore(Number(samplePeak.toFixed(1)))}/10
                 </span>
               )}
             </div>

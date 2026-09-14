@@ -30,6 +30,17 @@
  * Usage
  *  const { start, stop, average, sampleCount, peak } = useStableScoreSampler();
  *  useEffect(() => { if (phase === "playing") start(); else stop(); }, [phase]);
+ *
+ * Effect dependencies — read this before using the return value
+ *  The returned object carries the live sample state, so it is a
+ *  NEW reference on every render by design. Destructure the
+ *  callbacks (`start`, `stop`, `reset`, `getCurrent` — each one
+ *  referentially stable) and depend on those. Putting the whole
+ *  object in a dependency array re-runs that effect on every
+ *  render, which silently breaks anything holding a timer: the
+ *  solo round's 1-second interval was torn down and rebuilt faster
+ *  than it could fire once the face detector started re-rendering
+ *  the component, so the round never ended.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
