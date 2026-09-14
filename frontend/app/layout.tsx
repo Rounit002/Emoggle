@@ -69,7 +69,15 @@ export const metadata: Metadata = {
     },
   },
   verification: {
-    google: "hPfEmfCTnZis0AtlNL2yV2pKpN5DCstjANbwEwim0UQ",
+    // Both tokens stay here permanently. Google unverifies a
+    // property as soon as its tag disappears from the page, so a
+    // newly added property is listed alongside the existing one
+    // rather than replacing it; the array renders one
+    // google-site-verification meta tag per token.
+    google: [
+      "hPfEmfCTnZis0AtlNL2yV2pKpN5DCstjANbwEwim0UQ",
+      "cQWcokUyNK88bP2beY9LkEc_t6e_3p-DeCS2f3Ih_EI",
+    ],
     other: {
       ...(process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION
         ? { "msvalidate.01": process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION }

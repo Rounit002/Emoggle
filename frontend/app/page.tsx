@@ -7,6 +7,8 @@ import { frequentlyAskedQuestions, siteConfig } from "./lib/site";
 import { Logo, ThemeToggle } from "./ui";
 
 export const metadata: Metadata = {
+  title: "Free Emoji Face-Matching Webcam Game",
+  description: siteConfig.description,
   alternates: { canonical: "/" },
   openGraph: { url: "/" },
 };

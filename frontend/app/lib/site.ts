@@ -1,9 +1,10 @@
 export const siteConfig = {
   name: "Emoggle",
   alternateNames: ["Emogul", "Omogul", "Emogle", "Emoogle"],
-  url:
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ??
-    "https://emoggle.vercel.app",
+  // Keep every canonical URL and sitemap entry on the verified apex host.
+  // A stale deployment environment variable previously emitted vercel.app
+  // URLs into the production sitemap, which Search Console rejected.
+  url: "https://emoggle.com",
   title: "Emoggle: Emoji Face-Matching Webcam Game",
   description:
     "Match emoji expressions in live webcam duels with strangers or play solo. Emoggle is a free browser face-expression game—no download needed.",
