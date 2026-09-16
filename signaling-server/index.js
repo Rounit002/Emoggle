@@ -14,6 +14,7 @@ console.log("[ENV] FRONTEND_URL:", process.env.FRONTEND_URL);
 
 const express = require("express");
 const { isInappropriateName, NAME_MODERATION_ERROR } = require("./nameModeration");
+const { readFaceVector, computeFaceSync, variantSeedFromMatchId } = require("./faceSync");
 const http = require("http");
 const crypto = require("crypto");
 const { Server } = require("socket.io");
@@ -156,6 +157,29 @@ const SCORE_SUBMISSION_GRACE_MS = 4_000;
 // at or after the deadline, so this only absorbs clock-offset
 // estimation error and socket jitter from an early-firing client.
 const SCORE_SUBMISSION_EARLY_MS = 2_000;
+
+/*
+ * FaceSync lead-in.
+ *
+ * FaceSync runs between the match connecting and the 3-2-1
+ * countdown, so the round timeline does not start until it has
+ * resolved one way or the other. That keeps the existing countdown
+ * and scan logic completely untouched — it just begins later.
+ *
+ * Both players report once per match: either a geometry vector, or
+ * that they have nothing to offer (camera off, no face, MediaPipe
+ * unavailable). Reporting "unavailable" is what keeps the failure
+ * path short: the moment both sides have reported, the window ends,
+ * so a pair who cannot do FaceSync waits a second or two rather
+ * than the full collection window.
+ *
+ * COLLECT is the hard ceiling and sits above the client's own
+ * give-up timer, so an honest client always reports before the
+ * server stops waiting. REVEAL is the pause after a result is
+ * published, covering the count-up animation and the hold.
+ */
+const FACE_SYNC_COLLECT_MS = 7_000;
+const FACE_SYNC_REVEAL_MS = 3_800;
 const DEFAULT_ELO = 1000;
 const ELO_K = 32;
 const RANKED_ELO_ENABLED = process.env.ENABLE_RANKED_ELO === "true";
@@ -773,6 +797,16 @@ function clearMatchState(matchId) {
     clearTimeout(match.finalizationTimerId);
     match.finalizationTimerId = null;
   }
+  if (match.faceSyncTimerId) {
+    clearTimeout(match.faceSyncTimerId);
+    match.faceSyncTimerId = null;
+  }
+  // Facial geometry never outlives the match it was sent for, so
+  // it goes here rather than waiting for the object to be
+  // collected. Skipping to a new stranger genuinely discards the
+  // previous one's data.
+  if (match.faceSyncReports) match.faceSyncReports.clear();
+  match.resolveFaceSync = null;
 
   const sockets = [match.player1SocketId, match.player2SocketId];
 
@@ -1018,15 +1052,23 @@ async function startMatch(socket, partner) {
   socket.join(roomId);
   partnerSocket.join(roomId);
 
-  // ── Round schedule: one absolute timeline, computed once ──
+  // ── Round schedule: one absolute timeline ──
   // The countdown deadline is shared: both clients translate it
   // into their own clock (see `app/lib/serverClock.ts`) and count
   // 3-2-1 together. The scan window published here is what the
   // server itself scores against — each client runs its own
   // 10-second window from the moment the "go" packet reaches it,
   // so a slow link costs a later finish, never a shorter round.
+  //
+  // The FaceSync lead-in sits in front of all of it. The timeline
+  // published at match start assumes the worst case (nobody
+  // reports, the collection window runs out); the real countdown
+  // deadline is republished the moment FaceSync resolves, and the
+  // clients adopt it through the same schedule-refinement path
+  // every countdown tick already uses.
   const roundStartedAt = Date.now();
-  const countdownEndsAt = roundStartedAt + ROUND_COUNTDOWN_SEC * 1000;
+  const faceSyncEndsAt = roundStartedAt + FACE_SYNC_COLLECT_MS;
+  const countdownEndsAt = faceSyncEndsAt + ROUND_COUNTDOWN_SEC * 1000;
   const scanStartsAt = countdownEndsAt;
   const scanEndsAt = scanStartsAt + MATCH_DURATION_SEC * 1000;
 
@@ -1040,13 +1082,31 @@ async function startMatch(socket, partner) {
     player2Elo: meta2.elo ?? DEFAULT_ELO,
     timerId: null,
     finalizationTimerId: null,
+    faceSyncTimerId: null,
     scores: {},
     liveScores: {},
     // Set upfront (not when the countdown fires) so the score
     // window guards validate against the same timeline the
-    // clients were handed at match start.
+    // clients were handed at match start. Both move once when the
+    // FaceSync lead-in resolves and the countdown actually begins.
+    countdownEndsAt,
     scanStartedAt: scanStartsAt,
     scanEndsAt,
+    faceSyncEndsAt,
+    /*
+     * FaceSync state. `reports` holds each player's one-shot
+     * submission, keyed by socket id: a validated geometry vector,
+     * or null when they told us they have nothing.
+     *
+     * These vectors are the only facial data the server ever
+     * touches. They live here, on an in-memory match object, for
+     * the few seconds the lead-in lasts; they are never written to
+     * the database, never logged, and go away with the match. They
+     * are ~20 distance ratios, not images and not the landmark
+     * mesh — nobody can be identified or reconstructed from one.
+     */
+    faceSyncReports: new Map(),
+    faceSyncResolved: false,
     resultSent: false,
     // The emoji stays mutable until the round actually starts.
     // Once the scan timer begins we set emojiLocked=true so the
@@ -1093,15 +1153,23 @@ async function startMatch(socket, partner) {
   // `time_sync` handshake can still derive the schedule from the
   // one-way delta (target - serverTime) instead of trusting its own
   // (possibly wrong) device clock.
-  const schedulePayload = () => ({
-    serverTime: Date.now(),
-    roundStartedAt,
-    countdownEndsAt,
-    scanStartsAt,
-    scanEndsAt,
-    countdownSec: ROUND_COUNTDOWN_SEC,
-    duration: MATCH_DURATION_SEC,
-  });
+  // Reads the live match object rather than closing over the
+  // values computed above, because the FaceSync lead-in moves the
+  // countdown once it resolves and every later emit has to carry
+  // the corrected timeline.
+  const schedulePayload = () => {
+    const current = activeMatches.get(matchId);
+    return {
+      serverTime: Date.now(),
+      roundStartedAt,
+      countdownEndsAt: current?.countdownEndsAt ?? countdownEndsAt,
+      scanStartsAt: current?.scanStartedAt ?? scanStartsAt,
+      scanEndsAt: current?.scanEndsAt ?? scanEndsAt,
+      faceSyncEndsAt: current?.faceSyncEndsAt ?? faceSyncEndsAt,
+      countdownSec: ROUND_COUNTDOWN_SEC,
+      duration: MATCH_DURATION_SEC,
+    };
+  };
 
   socket.emit("match_started", {
     matchId,
@@ -1140,54 +1208,146 @@ async function startMatch(socket, partner) {
   // broadcast is the round's "go": each client starts its own
   // 10-second scan window the moment that packet lands, so nobody
   // plays a short round because of their link.
-  let lastCount = null;
-  const emitTick = (count) => {
-    lastCount = count;
-    io.to(roomId).emit("countdown_tick", {
-      matchId,
-      count,
-      ...schedulePayload(),
-    });
-  };
-  emitTick(ROUND_COUNTDOWN_SEC);
-
-  const timerId = setInterval(() => {
-    const now = Date.now();
-    const count = Math.max(0, Math.ceil((countdownEndsAt - now) / 1000));
-    if (count !== lastCount) emitTick(count);
-
-    if (now < countdownEndsAt) return;
-
-    clearInterval(timerId);
+  //
+  // Unchanged apart from when it is armed: `beginCountdown` runs
+  // once the FaceSync lead-in has resolved, and rebases the
+  // timeline onto that moment so the countdown is always a real
+  // three seconds rather than whatever the lead-in left over.
+  const beginCountdown = () => {
     const active = activeMatches.get(matchId);
-    if (active) {
-      active.timerId = null;
+    if (!active || active.timerId) return;
+
+    const startedAt = Date.now();
+    active.countdownEndsAt = startedAt + ROUND_COUNTDOWN_SEC * 1000;
+    active.scanStartedAt = active.countdownEndsAt;
+    active.scanEndsAt = active.scanStartedAt + MATCH_DURATION_SEC * 1000;
+    active.faceSyncEndsAt = startedAt;
+
+    let lastCount = null;
+    const emitTick = (count) => {
+      lastCount = count;
+      io.to(roomId).emit("countdown_tick", {
+        matchId,
+        count,
+        ...schedulePayload(),
+      });
+    };
+    emitTick(ROUND_COUNTDOWN_SEC);
+
+    const timerId = setInterval(() => {
+      const now = Date.now();
+      const current = activeMatches.get(matchId);
+      if (!current) {
+        clearInterval(timerId);
+        return;
+      }
+      const deadline = current.countdownEndsAt;
+      const count = Math.max(0, Math.ceil((deadline - now) / 1000));
+      if (count !== lastCount) emitTick(count);
+
+      if (now < deadline) return;
+
+      clearInterval(timerId);
+      current.timerId = null;
       // The scan window is open — the emoji is locked. Either
       // client that tries to change it now gets a silent no-op.
-      active.emojiLocked = true;
+      current.emojiLocked = true;
       if (lastCount !== 0) emitTick(0);
       // Finalization is pinned to the absolute deadline that was
-      // published at match start, so the fallback fires the same
+      // published to the clients, so the fallback fires the same
       // distance after the scan window no matter how late this
       // interval happened to run.
-      active.finalizationTimerId = setTimeout(
+      current.finalizationTimerId = setTimeout(
         () => {
           void finalizeMatchResult(matchId, { fillMissing: true }).catch((err) => {
             console.error(`[SCORE] Deadline finalization failed for ${matchId}:`, err.message);
           });
         },
-        Math.max(0, scanEndsAt + SCORE_SUBMISSION_GRACE_MS - Date.now()),
+        Math.max(0, current.scanEndsAt + SCORE_SUBMISSION_GRACE_MS - Date.now()),
       );
       io.to(roomId).emit("emoji_locked", {
         matchId,
         ...schedulePayload(),
       });
-    }
-    console.log(`[T] Match ${matchId} scan started (emoji locked)`);
-  }, 200);
+      console.log(`[T] Match ${matchId} scan started (emoji locked)`);
+    }, 200);
 
-  const activeMatch = activeMatches.get(matchId);
-  if (activeMatch) activeMatch.timerId = timerId;
+    active.timerId = timerId;
+  };
+
+  /*
+   * Close the FaceSync lead-in and start the round.
+   *
+   * Called from three places: both players have reported, the
+   * collection window expired, or the match ended underneath us.
+   * Idempotent via `faceSyncResolved`, because the first two can
+   * race — a report landing in the same tick as the deadline.
+   *
+   * When a result exists the countdown is held back by REVEAL so
+   * the number has time to animate and sit. When it does not, the
+   * countdown starts immediately: a pair who cannot do FaceSync
+   * must not be charged any dead time for it.
+   */
+  const resolveFaceSync = (reason) => {
+    const active = activeMatches.get(matchId);
+    if (!active || active.faceSyncResolved) return;
+    active.faceSyncResolved = true;
+
+    if (active.faceSyncTimerId) {
+      clearTimeout(active.faceSyncTimerId);
+      active.faceSyncTimerId = null;
+    }
+
+    const reports = active.faceSyncReports;
+    const vectorA = reports.get(active.player1SocketId) ?? null;
+    const vectorB = reports.get(active.player2SocketId) ?? null;
+    const result =
+      vectorA && vectorB
+        ? computeFaceSync(vectorA, vectorB, variantSeedFromMatchId(matchId))
+        : null;
+
+    // Drop the geometry the instant it has been used. Nothing
+    // downstream needs it and it should not outlive the
+    // calculation.
+    reports.clear();
+
+    if (result) {
+      io.to(roomId).emit("face_sync_result", {
+        matchId,
+        score: result.score,
+        category: result.category,
+        variant: result.variant,
+        ...schedulePayload(),
+      });
+      // Deliberately logs the band and not the number, so a
+      // production log never carries anything per-pair.
+      console.log(`[FS] Match ${matchId} face sync -> ${result.category}`);
+      active.faceSyncTimerId = setTimeout(() => {
+        const still = activeMatches.get(matchId);
+        if (still) still.faceSyncTimerId = null;
+        beginCountdown();
+      }, FACE_SYNC_REVEAL_MS);
+      return;
+    }
+
+    io.to(roomId).emit("face_sync_skipped", { matchId, ...schedulePayload() });
+    console.log(`[FS] Match ${matchId} face sync skipped (${reason})`);
+    beginCountdown();
+  };
+
+  const startedMatch = activeMatches.get(matchId);
+  if (startedMatch) {
+    startedMatch.resolveFaceSync = resolveFaceSync;
+    startedMatch.faceSyncTimerId = setTimeout(
+      () => {
+        const still = activeMatches.get(matchId);
+        if (still) still.faceSyncTimerId = null;
+        resolveFaceSync("collection window expired");
+      },
+      FACE_SYNC_COLLECT_MS,
+    );
+  }
+
   return true;
 }
 
@@ -1253,6 +1413,9 @@ const SOCKET_EVENT_LIMITS = {
   chat_message: [20, 10_000],
   typing: [20, 10_000],
   report_player: [3, 60_000],
+  // One report per match, and only the first is ever read. The
+  // allowance covers a client retrying across a few quick skips.
+  face_sync_sample: [8, 60_000],
   live_score: [120, 15_000],
   submit_score: [3, 30_000],
   change_emoji: [8, 30_000],
@@ -1541,6 +1704,52 @@ io.on("connection", (socket) => {
       warnDbFallback(err);
       console.error(`[MOD] report persistence failed for match=${existing.matchId}`);
     }
+  });
+
+  /*
+   * FaceSync: one report per player per match.
+   *
+   * The payload is either `{ vector: number[20] }` — normalized
+   * facial geometry measured from that player's OWN camera — or
+   * `{ unavailable: true }`, meaning they have nothing to offer
+   * (camera off, no face found, MediaPipe failed). Both are
+   * treated the same way structurally; only the second one can
+   * never produce a result.
+   *
+   * Everything about the sender is taken from the server's own
+   * match state rather than the payload. A client cannot name the
+   * match it is reporting into, cannot report on behalf of the
+   * other player, and cannot send a score — only geometry, which
+   * the scorer then bounds. That leaves nothing to forge except a
+   * face shape, and forging one only changes a joke number in a
+   * round the forger is already in.
+   */
+  socket.on("face_sync_sample", (payload) => {
+    if (!isPlainObject(payload)) return;
+
+    const existing = getMatchBySocket(socket.id);
+    if (!existing) return;
+    const match = activeMatches.get(existing.matchId);
+    if (!match || match.faceSyncResolved) return;
+
+    // First report wins. A second one is either a buggy client or
+    // someone trying to walk the score around after seeing it.
+    if (match.faceSyncReports.has(socket.id)) return;
+
+    const vector = payload.unavailable === true ? null : readFaceVector(payload.vector);
+    if (vector === null && payload.unavailable !== true) {
+      // Malformed geometry. Record it as "nothing to offer" rather
+      // than ignoring it, so one broken client cannot hold the
+      // other in the lead-in until the window times out.
+      match.faceSyncReports.set(socket.id, null);
+    } else {
+      match.faceSyncReports.set(socket.id, vector);
+    }
+
+    const bothReported =
+      match.faceSyncReports.has(match.player1SocketId) &&
+      match.faceSyncReports.has(match.player2SocketId);
+    if (bothReported) match.resolveFaceSync?.("both players reported");
   });
 
   socket.on("live_score", (payload) => {

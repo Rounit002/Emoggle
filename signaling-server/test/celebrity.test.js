@@ -176,6 +176,14 @@ async function run() {
     const goA = waitFor(sockA, "emoji_locked").then((p) => ({ ...p, receivedAt: Date.now() }));
     const goB = waitFor(sockB, "emoji_locked").then((p) => ({ ...p, receivedAt: Date.now() }));
 
+    // The first countdown tick is where the round timeline is
+    // committed. Before it, the FaceSync lead-in is still running
+    // and the schedule carried by `match_started` is a worst-case
+    // placeholder that the server refines once the lead-in
+    // resolves. From this tick onwards the deadline is frozen.
+    const firstTickA = waitFor(sockA, "countdown_tick");
+    const firstTickB = waitFor(sockB, "countdown_tick");
+
     if (payloadA.matchId !== payloadB.matchId) {
       throw new Error(
         `Match ids differ: ${payloadA.matchId} vs ${payloadB.matchId}`
@@ -248,15 +256,38 @@ async function run() {
     }
     console.log("[smoke] round schedule identical for both players, time_sync OK ✓");
 
-    // Both clients are sent the same "go", carrying the same
-    // published deadline.
-    const [lockA, lockB] = await Promise.all([goA, goB]);
-    if (lockA.scanEndsAt !== lockB.scanEndsAt || lockA.scanEndsAt !== payloadA.scanEndsAt) {
+    // The committed timeline must be identical for both players,
+    // and must give the countdown its full length rather than
+    // whatever the FaceSync lead-in left over.
+    const [tickA, tickB] = await Promise.all([firstTickA, firstTickB]);
+    for (const field of ["countdownEndsAt", "scanStartsAt", "scanEndsAt"]) {
+      if (tickA[field] !== tickB[field]) {
+        throw new Error(
+          `Players got different ${field} on the first tick: ${tickA[field]} vs ${tickB[field]}`
+        );
+      }
+    }
+    if (tickA.scanStartsAt !== tickA.countdownEndsAt) {
+      throw new Error("The scan window must open exactly when the countdown ends");
+    }
+    if (tickA.scanEndsAt - tickA.scanStartsAt !== tickA.duration * 1000) {
       throw new Error(
-        `emoji_locked moved the deadline: ${lockA.scanEndsAt} / ${lockB.scanEndsAt} vs ${payloadA.scanEndsAt}`
+        `Committed scan window is ${tickA.scanEndsAt - tickA.scanStartsAt}ms, expected ${tickA.duration * 1000}ms`
       );
     }
-    if (lockA.receivedAt < payloadA.countdownEndsAt - 250) {
+    console.log("[smoke] round timeline committed identically for both players ✓");
+
+    // Both clients are sent the same "go", carrying the same
+    // committed deadline. Once the countdown has started the
+    // deadline is frozen: moving it here would desync the two
+    // devices mid-round.
+    const [lockA, lockB] = await Promise.all([goA, goB]);
+    if (lockA.scanEndsAt !== lockB.scanEndsAt || lockA.scanEndsAt !== tickA.scanEndsAt) {
+      throw new Error(
+        `emoji_locked moved the deadline: ${lockA.scanEndsAt} / ${lockB.scanEndsAt} vs ${tickA.scanEndsAt}`
+      );
+    }
+    if (lockA.receivedAt < tickA.countdownEndsAt - 250) {
       throw new Error("The go packet arrived before the countdown finished");
     }
     console.log("[smoke] go packet delivered to both players ✓");
