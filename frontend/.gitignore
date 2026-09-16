@@ -42,3 +42,6 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+
+# Verification screenshots written by scripts/verify-facesync-e2e.ts
+.tmp-facesync/

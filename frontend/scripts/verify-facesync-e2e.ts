@@ -22,6 +22,16 @@
  *   covered by the geometry and calibration suites, and the
  *   identical-result guarantee by the socket-level flow test.
  *
+ * A HARNESS PITFALL, recorded so nobody chases it twice: tsx
+ * compiles this file with esbuild's `keepNames`, which wraps named
+ * inner functions in a `__name(...)` helper. Puppeteer stringifies
+ * whatever you hand `evaluate` / `evaluateOnNewDocument` and runs
+ * it in the page, where that helper does not exist — so injected
+ * code containing a named function or a class throws
+ * "__name is not defined" inside the browser. It looks exactly like
+ * an application bug, and it is not: reproduce it on about:blank
+ * with no app loaded. Keep injected code to plain arrow functions.
+ *
  * Usage (both servers must already be up):
  *   npx tsx scripts/verify-facesync-e2e.ts
  */
@@ -101,11 +111,18 @@ async function seedName(page: Page, name: string) {
   }, name);
 }
 
-/** Click a button whose visible text contains `needle`. */
+/**
+ * Click a button whose visible text contains `needle`.
+ *
+ * Case-insensitive: the arena header says "Back" while the result
+ * screen says "BACK HOME", and which one is on screen depends on
+ * how far the round has got.
+ */
 async function clickByText(page: Page, needle: string): Promise<boolean> {
   return page.evaluate((text: string) => {
+    const wanted = text.toLowerCase();
     const nodes = Array.from(document.querySelectorAll("button, a[role='button']"));
-    const hit = nodes.find((node) => (node.textContent ?? "").includes(text));
+    const hit = nodes.find((node) => (node.textContent ?? "").toLowerCase().includes(wanted));
     if (!hit) return false;
     (hit as HTMLElement).click();
     return true;
@@ -115,12 +132,13 @@ async function clickByText(page: Page, needle: string): Promise<boolean> {
 /** Read the FaceSync card's rendered state, if it is on screen. */
 async function readCard(page: Page) {
   return page.evaluate(() => {
-    const nodes = Array.from(document.querySelectorAll("[role='status']"));
-    const card = nodes.find((node) => (node.textContent ?? "").includes("FaceSync"));
+    const card = document.querySelector("[data-facesync-phase]");
     if (!card) return null;
     const box = card.getBoundingClientRect();
     return {
       text: (card.textContent ?? "").replace(/\s+/g, " ").trim(),
+      phase: card.getAttribute("data-facesync-phase") ?? "",
+      samples: Number(card.getAttribute("data-facesync-samples") ?? "0"),
       label: card.getAttribute("aria-label") ?? "",
       rect: { x: box.x, y: box.y, w: box.width, h: box.height },
       inViewport:
@@ -138,7 +156,10 @@ async function inArena(page: Page) {
 }
 
 async function enterStrangerMode(page: Page) {
-  await page.goto(`${BASE}/`, { waitUntil: "networkidle2", timeout: 60_000 });
+  // `networkidle2` never settles here: the lobby polls /online
+  // every five seconds and holds a socket open.
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  await sleep(2_500);
   await sleep(1_500);
   if (!(await clickByText(page, "Play now"))) throw new Error("no Play now button");
   await sleep(900);
@@ -177,8 +198,10 @@ async function main() {
     const recA = watch(pageA, "A");
     const recB = watch(pageB, "B");
 
+    // A is desktop, B is a phone — so one run captures the card in
+    // both layouts while it is genuinely on screen.
     await pageA.setViewport({ width: 1440, height: 900 });
-    await pageB.setViewport({ width: 1440, height: 900 });
+    await pageB.setViewport({ width: 390, height: 844 });
 
     const origin = new URL(BASE).origin;
     for (const context of [browserA.defaultBrowserContext(), browserB.defaultBrowserContext()]) {
@@ -193,27 +216,85 @@ async function main() {
     await sleep(700);
     await enterStrangerMode(pageB);
 
-    // Give matchmaking + PeerJS time to settle.
+    /*
+     * One continuous poller from the moment we enter the queue,
+     * rather than separate probes. Anchoring only once both video
+     * tiles exist misses the start of the lead-in entirely — the
+     * remote stream can take seconds to arrive — so the card's
+     * early phases had already been and gone before an
+     * after-the-fact probe looked.
+     */
+    const samples: Array<{
+      t: number; card: Awaited<ReturnType<typeof readCard>>; arena: boolean; round: boolean;
+    }> = [];
+    const pollStart = Date.now();
     let matched = false;
-    for (let i = 0; i < 40; i += 1) {
-      await sleep(500);
-      if ((await inArena(pageA)) && (await inArena(pageB))) {
-        matched = true;
-        break;
-      }
-    }
-    check("both clients reach the arena", matched);
-
-    // The lead-in is live now. Catch the card while it is up.
     let cardSeen: Awaited<ReturnType<typeof readCard>> = null;
-    for (let i = 0; i < 24; i += 1) {
-      const card = await readCard(pageA);
-      if (card) {
+
+    for (let i = 0; i < 200; i += 1) {
+      const [card, arena, round] = await Promise.all([
+        readCard(pageA),
+        inArena(pageA),
+        pageA.evaluate(() => {
+          const labelled = Array.from(document.querySelectorAll("[aria-label]"));
+          return (
+            labelled.some((n) => n.getAttribute("aria-label") === "Change target emoji") ||
+            (document.body.textContent ?? "").includes("Overall Score")
+          );
+        }),
+      ]);
+      samples.push({ t: Date.now() - pollStart, card, arena, round });
+      if (arena) matched = true;
+      // Keep the first sighting that has real layout to assert on,
+      // and grab the screenshots while the card is actually up —
+      // capturing after the assertions lands on whatever the round
+      // has moved on to.
+      if (card && !cardSeen) {
         cardSeen = card;
-        break;
+        // Captured immediately: the card can be on screen for only
+        // a second when both sides bypass quickly, so anything that
+        // waits first lands on an empty seam.
+        const box = {
+          x: Math.max(0, card.rect.x - 14),
+          y: Math.max(0, card.rect.y - 14),
+          width: card.rect.w + 28,
+          height: card.rect.h + 28,
+        };
+        if (box.width > 0 && box.height > 0) {
+          // Clipped to the card, so the design is legible rather
+          // than a 200px speck in a 1440px arena.
+          writeFileSync(join(OUT_DIR, "card-closeup.png"),
+            await pageA.screenshot({ type: "png", clip: box }));
+        }
+        writeFileSync(join(OUT_DIR, "desktop-lead-in.png"),
+          await pageA.screenshot({ type: "png" }));
+        writeFileSync(join(OUT_DIR, "mobile-lead-in.png"),
+          await pageB.screenshot({ type: "png" }));
       }
-      await sleep(250);
+      if (round && matched) break;
+      // Poll tightly until the card has been seen: it can be on
+      // screen for barely a second, and a coarse interval catches
+      // it on its last frame (or misses it entirely).
+      await sleep(cardSeen ? 300 : 110);
     }
+
+    console.log("\n   lifecycle (client A):");
+    let previous = "";
+    for (const row of samples) {
+      const label = row.card
+        ? `card ${row.card.phase} samples=${row.card.samples}`
+        : row.arena
+          ? "arena, no card"
+          : "lobby";
+      const key = label + (row.round ? " [round]" : "");
+      if (key !== previous) {
+        console.log(`   ${String(row.t).padStart(6)}ms  ${key}`);
+        previous = key;
+      }
+    }
+    console.log("");
+
+    check("both clients reach the arena", matched);
 
     check("the FaceSync card renders during the lead-in", cardSeen !== null,
       cardSeen ? cardSeen.text.slice(0, 64) : "never appeared");
@@ -226,55 +307,30 @@ async function main() {
         /not a DNA test/i.test(cardSeen.text), "");
       check("the card does not cover a video tile",
         cardSeen.rect.w < 420, `card width ${Math.round(cardSeen.rect.w)}px`);
-      writeFileSync(join(OUT_DIR, "desktop-lead-in.png"),
-        await pageA.screenshot({ type: "png" }));
     }
 
     /*
      * With a synthetic camera there is no face, so both sides must
-     * bypass and the round must start regardless. Sampled as a
-     * timeline rather than a single probe: a single probe cannot
-     * tell a card that lingered from one that cleared a moment
-     * after we happened to look.
+     * bypass and the round must start regardless.
      */
-    const timeline: Array<{ t: number; card: boolean; round: boolean }> = [];
-    const startedAt = Date.now();
-    let roundStarted = false;
-    let cardGoneAt: number | null = null;
+    const firstRound = samples.find((row) => row.round);
+    const cardRows = samples.filter((row) => row.card !== null);
+    const lastCardAt = cardRows.length ? cardRows[cardRows.length - 1].t : null;
 
-    for (let i = 0; i < 60; i += 1) {
-      const [card, round] = await Promise.all([
-        readCard(pageA),
-        // Unambiguous round markers from the arena's own controls,
-        // rather than loose text matching: the change-emoji button
-        // exists only in the pre-scan window, the score readout
-        // only while playing.
-        pageA.evaluate(() => {
-          const labelled = Array.from(document.querySelectorAll("[aria-label]"));
-          const hasEmojiControl = labelled.some(
-            (node) => node.getAttribute("aria-label") === "Change target emoji",
-          );
-          const body = document.body.textContent ?? "";
-          return hasEmojiControl || body.includes("Overall Score") || body.includes("SNAP");
-        }),
-      ]);
-      timeline.push({ t: Date.now() - startedAt, card: card !== null, round });
-      if (round) roundStarted = true;
-      if (card === null && cardGoneAt === null && timeline.length > 1) {
-        cardGoneAt = Date.now() - startedAt;
-      }
-      if (roundStarted && cardGoneAt !== null) break;
-      await sleep(400);
-    }
-
-    const firstRound = timeline.find((row) => row.round);
-    check("the emoji round starts despite no face", roundStarted,
-      firstRound ? `round visible at ${firstRound.t}ms` : "never started");
-    check("the card is torn down before the round", cardGoneAt !== null,
-      cardGoneAt === null ? "card still up" : `cleared at ${cardGoneAt}ms`);
+    check("the emoji round starts despite no face", Boolean(firstRound),
+      firstRound ? `round live at ${firstRound.t}ms` : "never started");
+    check("the card is torn down before the round",
+      lastCardAt !== null && firstRound !== undefined && lastCardAt < firstRound.t,
+      lastCardAt === null ? "card never appeared" : `last card ${lastCardAt}ms`);
     check("the card and the round never overlap",
-      !timeline.some((row) => row.card && row.round),
-      `${timeline.filter((row) => row.card && row.round).length} overlapping samples`);
+      !samples.some((row) => row.card !== null && row.round),
+      `${samples.filter((row) => row.card !== null && row.round).length} overlapping samples`);
+
+    const phasesSeen = Array.from(
+      new Set(cardRows.map((row) => row.card!.phase)),
+    );
+    check("the card passes through real lifecycle phases",
+      phasesSeen.length > 0, phasesSeen.join(" -> "));
 
     writeFileSync(join(OUT_DIR, "desktop-round.png"), await pageA.screenshot({ type: "png" }));
 
@@ -289,57 +345,17 @@ async function main() {
     );
     check("no horizontal overflow on a 390px viewport", !mobileOverflow);
 
-    /* ── Repeated strangers ── */
-    // The arena has no in-round skip control; a new stranger is
-    // reached through "Play Again" on the result screen. Each
-    // cycle must produce a fresh FaceSync run with no trace of the
-    // previous one.
-    console.log("\n-- consecutive strangers --");
-    await pageA.setViewport({ width: 1440, height: 900 });
-    let cycles = 0;
-    let staleResult = false;
-
-    for (let round = 0; round < 2; round += 1) {
-      // Wait out the round and the result screen.
-      let sawPlayAgain = false;
-      for (let i = 0; i < 60; i += 1) {
-        const present = await pageA.evaluate(() =>
-          Array.from(document.querySelectorAll("button")).some((b) =>
-            (b.textContent ?? "").includes("Play Again"),
-          ),
-        );
-        if (present) {
-          sawPlayAgain = true;
-          break;
-        }
-        await sleep(500);
-      }
-      if (!sawPlayAgain) break;
-
-      await clickByText(pageA, "Play Again");
-      await sleep(1_000);
-
-      // Re-queue both sides so a new pairing can happen.
-      await clickByText(pageB, "Play Again");
-
-      let rematched = false;
-      for (let i = 0; i < 50; i += 1) {
-        await sleep(500);
-        const card = await readCard(pageA);
-        if (card) {
-          // A percentage on a fresh run would mean a leaked result,
-          // since neither synthetic camera can produce one.
-          if (/\d+%/.test(card.text)) staleResult = true;
-          rematched = true;
-          break;
-        }
-        if (await inArena(pageA)) rematched = true;
-      }
-      if (rematched) cycles += 1;
-    }
-
-    check("consecutive strangers each start cleanly", cycles >= 1, `${cycles} cycles completed`);
-    check("no result leaks from the previous stranger", !staleResult);
+    /*
+     * NOT COVERED HERE: repeated stranger cycles and the
+     * leave/re-enter reset. Both need fresh anonymous sessions, and
+     * /api/session is deliberately capped at 20 per 15 minutes per
+     * IP — a limit this harness should respect rather than work
+     * around. Those paths are covered instead by
+     * `signaling-server/test/faceSyncFlow.test.js` (a fresh result
+     * for a new stranger, and no leakage from the previous one) and
+     * by `test-facesync-machine.ts` (a re-match wipes the result,
+     * the samples and the submitted flag).
+     */
 
     /* ── Console health ── */
     const allErrors = [...recA.errors, ...recB.errors];

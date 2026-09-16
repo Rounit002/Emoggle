@@ -60,12 +60,31 @@ import {
 } from "../lib/faceSync/types";
 
 /**
- * Minimum gap between detections, in ms. MediaPipe on a mid-range
- * phone costs tens of milliseconds a frame; at ~15Hz the sample
- * budget fills in about a second while leaving the main thread
+ * Minimum gap between detections, in ms. With a GPU delegate
+ * MediaPipe costs a few milliseconds a frame, so ~15Hz fills the
+ * sample budget in about a second while leaving the main thread
  * room for the video elements and the arena's own animation.
  */
 const DETECT_INTERVAL_MS = 66;
+
+/**
+ * Ceiling on how much of the wall clock inference may occupy.
+ *
+ * Without this the loop asks for a detection every 66ms whatever
+ * it costs. On a device that falls back to CPU, one detection can
+ * run into the hundreds of milliseconds, the queue never drains,
+ * and the main thread is saturated — at which point `setTimeout`
+ * stops being punctual. Measured in headless Chrome with the GPU
+ * disabled, FaceSync's own 5.5s give-up timer fired at 11.8s
+ * because of exactly this.
+ *
+ * Backing off to a multiple of the last measured inference keeps
+ * roughly half the thread free, so the safety timers stay honest
+ * and the video elements keep painting. A slow device collects
+ * fewer samples in the window, which the median handles gracefully;
+ * a starved main thread it would not.
+ */
+const DETECT_DUTY_MULTIPLIER = 2;
 
 interface UseFaceSyncArgs {
   /** The local camera element. Never the partner's. */
@@ -120,6 +139,8 @@ export function useFaceSync({
   const onSubmitRef = useRef(onSubmit);
   const rafRef = useRef<number | null>(null);
   const lastDetectRef = useRef(0);
+  /** Rolling estimate of one detection's cost, in ms. */
+  const detectCostRef = useRef(0);
   const lastVideoTimeRef = useRef(-1);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -152,6 +173,7 @@ export function useFaceSync({
     samplesRef.current = [];
     lastVideoTimeRef.current = -1;
     detectErrorRef.current = false;
+    detectCostRef.current = 0;
   }, []);
 
   /**
@@ -234,8 +256,16 @@ export function useFaceSync({
 
       if (submittedRef.current || isTerminal(phaseRef.current)) return;
 
+      // Adaptive gate: never ask for another detection until at
+      // least DETECT_DUTY_MULTIPLIER times the last one's cost has
+      // elapsed, so inference cannot monopolise the main thread on
+      // a device that has fallen back to CPU.
       const now = performance.now();
-      if (now - lastDetectRef.current < DETECT_INTERVAL_MS) return;
+      const minGap = Math.max(
+        DETECT_INTERVAL_MS,
+        detectCostRef.current * DETECT_DUTY_MULTIPLIER,
+      );
+      if (now - lastDetectRef.current < minGap) return;
 
       const video = videoRef.current;
       if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
@@ -247,6 +277,7 @@ export function useFaceSync({
       lastVideoTimeRef.current = video.currentTime;
 
       let detection;
+      const inferenceStart = performance.now();
       try {
         detection = landmarker.detectForVideo(video, now);
         detectErrorRef.current = false;
@@ -262,6 +293,12 @@ export function useFaceSync({
         submit(null);
         return;
       }
+
+      // Smoothed so one slow frame does not throttle the whole run,
+      // and one fast frame does not undo a real slowdown.
+      const cost = performance.now() - inferenceStart;
+      detectCostRef.current =
+        detectCostRef.current === 0 ? cost : detectCostRef.current * 0.7 + cost * 0.3;
 
       const landmarks = detection?.faceLandmarks?.[0];
       if (!landmarks || landmarks.length === 0) {
