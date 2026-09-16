@@ -1066,8 +1066,18 @@ async function startMatch(socket, partner) {
   // deadline is republished the moment FaceSync resolves, and the
   // clients adopt it through the same schedule-refinement path
   // every countdown tick already uses.
+  /*
+   * FaceSync rides on the emoji duel only. The celebrity arena
+   * shares this matchmaking pipeline but renders its own screen and
+   * never reports geometry, so opening a lead-in for it would stall
+   * every celebrity round for the full collection window with
+   * nothing on screen. Celebrity matches keep their exact previous
+   * timeline.
+   */
+  const faceSyncEnabled = gameMode === EMOJI_GAME_MODE;
+
   const roundStartedAt = Date.now();
-  const faceSyncEndsAt = roundStartedAt + FACE_SYNC_COLLECT_MS;
+  const faceSyncEndsAt = roundStartedAt + (faceSyncEnabled ? FACE_SYNC_COLLECT_MS : 0);
   const countdownEndsAt = faceSyncEndsAt + ROUND_COUNTDOWN_SEC * 1000;
   const scanStartsAt = countdownEndsAt;
   const scanEndsAt = scanStartsAt + MATCH_DURATION_SEC * 1000;
@@ -1342,6 +1352,17 @@ async function startMatch(socket, partner) {
   const startedMatch = activeMatches.get(matchId);
   if (startedMatch) {
     startedMatch.resolveFaceSync = resolveFaceSync;
+  }
+
+  if (!faceSyncEnabled) {
+    // No lead-in for this mode: straight into the countdown, exactly
+    // as before FaceSync existed.
+    if (startedMatch) startedMatch.faceSyncResolved = true;
+    beginCountdown();
+    return true;
+  }
+
+  if (startedMatch) {
     startedMatch.faceSyncTimerId = setTimeout(
       () => {
         const still = activeMatches.get(matchId);

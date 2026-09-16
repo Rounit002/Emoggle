@@ -138,16 +138,21 @@ async function connectPooled(index = cursor++) {
 }
 
 /** Pair two clients and return them mid-FaceSync-lead-in. */
-async function pair() {
+async function pair(gameMode) {
   const sockA = await connectPooled();
   const sockB = await connectPooled();
 
   const matchA = waitFor(sockA, "match_started");
   const matchB = waitFor(sockB, "match_started");
   const waitingA = waitFor(sockA, "waiting");
-  sockA.emit("join_queue", { peerId: `peer-${randomUUID()}` });
+  const join = (socket) =>
+    socket.emit("join_queue", {
+      peerId: `peer-${randomUUID()}`,
+      ...(gameMode ? { gameMode } : {}),
+    });
+  join(sockA);
   await waitingA;
-  sockB.emit("join_queue", { peerId: `peer-${randomUUID()}` });
+  join(sockB);
 
   const [startedA, startedB] = await Promise.all([matchA, matchB]);
   return { sockA, sockB, startedA, startedB };
@@ -455,7 +460,31 @@ async function run() {
       close(sockA, sockB, sockC);
     }
 
-    /* ── 10. Partner leaves mid-lead-in ── */
+    /* ── 10. Celebrity mode must not pay for a feature it lacks ── */
+    console.log("\ncelebrity rounds skip the lead-in entirely");
+    {
+      const { sockA, sockB, startedA } = await pair("celebrity");
+      const startedAt = Date.now();
+
+      check("celebrity match_started has no lead-in",
+        startedA.faceSyncEndsAt === startedA.roundStartedAt,
+        `lead-in ${startedA.faceSyncEndsAt - startedA.roundStartedAt}ms`);
+
+      // The celebrity arena never reports geometry, so a lead-in
+      // here would stall every round for the full collection
+      // window with nothing on screen.
+      const tick = await waitFor(sockA, "countdown_tick", 6_000);
+      check("the celebrity countdown starts immediately",
+        tick.receivedAt - startedAt < 1_500,
+        `${tick.receivedAt - startedAt}ms after match_started`);
+
+      const stray = await waitForMaybe(sockA, "face_sync_result", 1_000);
+      check("celebrity rounds get no FaceSync result", stray === null);
+
+      close(sockA, sockB);
+    }
+
+    /* ── 11. Partner leaves mid-lead-in ── */
     console.log("\npartner disconnects during the lead-in");
     {
       const { sockA, sockB } = await pair();
