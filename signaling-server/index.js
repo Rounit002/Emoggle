@@ -1319,9 +1319,13 @@ async function startMatch(socket, partner) {
         variant: result.variant,
         ...schedulePayload(),
       });
-      // Deliberately logs the band and not the number, so a
-      // production log never carries anything per-pair.
-      console.log(`[FS] Match ${matchId} face sync -> ${result.category}`);
+      // Logs that it resolved and nothing about the outcome. Even
+      // the band is a per-pair similarity signal, and the match row
+      // in the database carries both player ids — so a band in the
+      // log is joinable back to two people. Calibrating against
+      // real traffic should use deliberate aggregate telemetry,
+      // not log mining.
+      console.log(`[FS] Match ${matchId} face sync resolved`);
       active.faceSyncTimerId = setTimeout(() => {
         const still = activeMatches.get(matchId);
         if (still) still.faceSyncTimerId = null;

@@ -211,10 +211,20 @@ export function useFaceSync({
     dispatch({ type: "FAIL", failure: "landmarker_unavailable" });
   }, [landmarkerStatus, matchId, submit, dispatch]);
 
-  /* ── Detection loop ── */
+  /*
+   * Detection loop.
+   *
+   * `state.submitted` is in the dependency list on purpose: once
+   * this device has published its geometry there is nothing left to
+   * measure, and re-running the effect tears the loop down for
+   * real. Leaving a rAF spinning on an early return would be
+   * cheap per frame but still wakes the compositor every frame of
+   * a ten-second round, which is exactly the kind of thing that
+   * drains a phone.
+   */
   useEffect(() => {
     if (!matchId || !landmarker || landmarkerStatus !== "ready") return;
-    if (submittedRef.current) return;
+    if (submittedRef.current || state.submitted) return;
 
     let cancelled = false;
 
@@ -310,7 +320,7 @@ export function useFaceSync({
         rafRef.current = null;
       }
     };
-  }, [matchId, landmarker, landmarkerStatus, videoRef, submit, dispatch]);
+  }, [matchId, landmarker, landmarkerStatus, videoRef, submit, dispatch, state.submitted]);
 
   /* ── Server verdict ── */
   useEffect(() => {

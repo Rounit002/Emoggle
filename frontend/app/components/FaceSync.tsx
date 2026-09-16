@@ -131,6 +131,15 @@ export default function FaceSync({
         "sm:max-w-[200px] sm:gap-2 sm:rounded-3xl sm:border-[4px] sm:px-4 sm:py-4",
         "sm:shadow-[6px_6px_0_0_var(--charcoal)]",
       )}
+      /*
+       * Lifecycle phase, exposed for diagnostics and end-to-end
+       * tests — the same trick `ShareScoreCard` uses to make its
+       * state readable from outside React. Carries a phase name
+       * and nothing else: no geometry, no landmarks, and the score
+       * only once it is already on screen in large type.
+       */
+      data-facesync-phase={phase}
+      data-facesync-samples={sampleCount}
       role="status"
       aria-live="polite"
       aria-label={
