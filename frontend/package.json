@@ -13,7 +13,9 @@
     "verify:scorecard": "tsx scripts/verify-scorecard.ts",
     "verify:round-sync": "tsx scripts/verify-round-sync.ts",
     "verify:solo-round": "tsx scripts/verify-solo-round.ts",
-    "verify:mode-picker": "tsx scripts/verify-mode-picker.ts"
+    "verify:mode-picker": "tsx scripts/verify-mode-picker.ts",
+    "test:facesync": "tsx scripts/test-facesync-machine.ts",
+    "test:facesync-geometry": "tsx scripts/test-facesync-geometry.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",
