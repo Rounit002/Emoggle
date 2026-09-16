@@ -152,9 +152,11 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
   const roundSchedule = useMemo<RoundSchedule | null>(() => {
     if (roundStartedAt === null) return null;
     // Solo has no opponent and no pre-round countdown, so the scan
-    // window opens the moment the player hits start.
+    // window opens the moment the player hits start. FaceSync needs
+    // two faces, so its lead-in is already over here too.
     return {
       matchId: null,
+      faceSyncEndsAt: roundStartedAt,
       countdownEndsAt: roundStartedAt,
       scanStartsAt: roundStartedAt,
       scanEndsAt: roundStartedAt + ROUND_SECONDS * 1000,

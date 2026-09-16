@@ -123,9 +123,18 @@ export const INITIAL_FACE_SYNC_STATE: FaceSyncState = {
 export const MIN_SAMPLES = 14;
 /** Stop sampling here — more frames stop improving the median. */
 export const MAX_SAMPLES = 40;
-/** Hard ceiling on the whole run, from `waiting_for_faces` to a
- *  result. Past this we bypass into the emoji round. Must stay
- *  comfortably under the server's own window. */
-export const FACE_SYNC_TIMEOUT_MS = 9_000;
+/**
+ * Hard ceiling on local collection, from `waiting_for_faces` to
+ * publishing something.
+ *
+ * This MUST stay comfortably under the server's own collection
+ * window (`FACE_SYNC_COLLECT_MS`, 7s). The fast bypass depends on
+ * an honest client always reporting — even if only to say it has
+ * nothing — before the server gives up waiting. If this timer were
+ * the longer of the two, a player with no camera would hold their
+ * partner in the lead-in for the full server window instead of
+ * releasing it in milliseconds.
+ */
+export const FACE_SYNC_TIMEOUT_MS = 5_500;
 /** How long the revealed number stays up before the round starts. */
 export const RESULT_HOLD_MS = 2_600;

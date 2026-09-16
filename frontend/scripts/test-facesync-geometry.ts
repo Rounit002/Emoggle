@@ -76,8 +76,8 @@ const BASE: FaceModel = {
   0: [0, 52, 32],        // upper lip top
 };
 
-/** Apply per-axis multipliers to a region, producing a new face. */
-function variant(changes: Partial<Record<number, Point3>>): FaceModel {
+/** Override selected landmarks, producing a new face. */
+function variant(changes: Record<number, Point3>): FaceModel {
   return { ...BASE, ...changes };
 }
 

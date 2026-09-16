@@ -23,7 +23,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RoundSchedule } from "../lib/serverClock";
 
-export type RoundClockPhase = "idle" | "countdown" | "playing" | "ended";
+export type RoundClockPhase = "idle" | "facesync" | "countdown" | "playing" | "ended";
 
 export interface RoundClockState {
   phase: RoundClockPhase;
@@ -39,11 +39,21 @@ const TICK_MS = 100;
 const SNAP_HOLD_MS = 350;
 
 const IDLE_STATE: RoundClockState = { phase: "idle", countdownValue: null, secondsLeft: null };
-/** A round exists but has not been evaluated yet — always starts in the countdown. */
-const PENDING_STATE: RoundClockState = { phase: "countdown", countdownValue: null, secondsLeft: null };
+/** A round exists but has not been evaluated yet. A fresh schedule
+ *  always opens in the FaceSync lead-in, which renders no digit —
+ *  so this is the same neutral frame the old pre-countdown state
+ *  produced, under the phase the round actually starts in. */
+const PENDING_STATE: RoundClockState = { phase: "facesync", countdownValue: null, secondsLeft: null };
 
 function evaluate(schedule: RoundSchedule | null, now: number): RoundClockState {
   if (!schedule) return IDLE_STATE;
+
+  // The FaceSync lead-in sits in front of the round. It renders no
+  // digit: the countdown has not started, and showing "7" here
+  // would be both wrong and alarming. FaceSync draws its own UI.
+  if (now < schedule.faceSyncEndsAt) {
+    return { phase: "facesync", countdownValue: null, secondsLeft: null };
+  }
 
   if (now < schedule.countdownEndsAt) {
     const countdownValue = Math.max(1, Math.ceil((schedule.countdownEndsAt - now) / 1000));

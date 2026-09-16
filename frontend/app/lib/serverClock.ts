@@ -36,6 +36,17 @@ import type { Socket } from "socket.io-client";
 /** Round boundaries, already translated into the local clock. */
 export interface RoundSchedule {
   matchId: string | null;
+  /**
+   * Local-clock ms when the FaceSync lead-in ends and the round's
+   * own timeline begins. Equal to `countdownEndsAt` minus the
+   * countdown length once the lead-in has resolved.
+   *
+   * The value published at match start is a worst-case placeholder
+   * — the server does not yet know how long the lead-in will take.
+   * It is corrected the moment FaceSync resolves, through the same
+   * refinement path the countdown ticks already use.
+   */
+  faceSyncEndsAt: number;
   /** Local-clock ms when the pre-round countdown ends. */
   countdownEndsAt: number;
   /**
@@ -57,6 +68,7 @@ export interface RoundSchedule {
 export interface RoundSchedulePayload {
   matchId?: string | null;
   serverTime?: number;
+  faceSyncEndsAt?: number;
   countdownEndsAt?: number;
   scanStartsAt?: number;
   scanEndsAt?: number;
@@ -210,8 +222,18 @@ export function buildRoundSchedule(
   // eat into the round.
   const countdownEndsAt = Math.min(predictedCountdownEnd, scanStartsAt);
 
+  // The lead-in ends a countdown's length before the countdown
+  // does. Clamped so it can never sit past the countdown deadline:
+  // an older server omits the field entirely, and a corrected
+  // timeline may arrive after the lead-in has already passed.
+  const rawFaceSyncEnd =
+    typeof payload?.faceSyncEndsAt === "number" && Number.isFinite(payload.faceSyncEndsAt)
+      ? clock.toLocal(payload.faceSyncEndsAt, packetServerTime, receivedAt)
+      : countdownEndsAt - countdownSec * 1000;
+
   return {
     matchId,
+    faceSyncEndsAt: Math.min(rawFaceSyncEnd, countdownEndsAt),
     countdownEndsAt,
     scanStartsAt,
     // Every device gets the same amount of time on the clock,
@@ -238,6 +260,7 @@ export function scheduleChanged(
   // worth adopting, however small the correction.
   if (current.anchored !== next.anchored) return true;
   return (
+    Math.abs(current.faceSyncEndsAt - next.faceSyncEndsAt) > toleranceMs ||
     Math.abs(current.countdownEndsAt - next.countdownEndsAt) > toleranceMs ||
     Math.abs(current.scanStartsAt - next.scanStartsAt) > toleranceMs ||
     Math.abs(current.scanEndsAt - next.scanEndsAt) > toleranceMs

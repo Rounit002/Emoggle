@@ -5,6 +5,11 @@ import { io, Socket } from "socket.io-client";
 import Peer, { MediaConnection } from "peerjs";
 import { UserProfile } from "../context/UserProfileContext";
 import type { CelebrityTarget } from "../lib/celebrityScoring";
+import type {
+  FaceSyncCategory,
+  FaceSyncResult,
+  FaceVector,
+} from "../lib/faceSync/types";
 import {
   ServerClock,
   buildRoundSchedule,
@@ -143,6 +148,21 @@ export interface MatchmakingState {
    * need this instead.
    */
   currentMatchId: string | null;
+  /**
+   * The authoritative FaceSync result for the current match, or
+   * null before it lands. Computed once by the server from both
+   * players' geometry, so both clients hold the same object.
+   */
+  faceSyncResult: FaceSyncResult | null;
+  /**
+   * The match id FaceSync was bypassed for. Set when the server
+   * says no result is coming — one side had no face, or the
+   * collection window ran out — so the arena can drop straight
+   * into the emoji round.
+   */
+  faceSyncSkippedFor: string | null;
+  /** Publish this device's geometry, or null for "nothing to offer". */
+  sendFaceSyncSample: (vector: FaceVector | null) => void;
   submitScore: (score: number) => void;
   submitLiveScore: (score: number) => void;
   skipUser: () => void;
@@ -253,6 +273,8 @@ export function useMatchmaking(
   const [partnerCountry, setPartnerCountry] = useState<string | null>(null);
   const [partnerCountryCode, setPartnerCountryCode] = useState<string | null>(null);
   const [currentMatchId, setCurrentMatchId] = useState<string | null>(null);
+  const [faceSyncResult, setFaceSyncResult] = useState<FaceSyncResult | null>(null);
+  const [faceSyncSkippedFor, setFaceSyncSkippedFor] = useState<string | null>(null);
 
   useEffect(() => {
     profileRef.current = profile;
@@ -320,6 +342,8 @@ export function useMatchmaking(
     setPartnerName(null);
     setPartnerCountry(null);
     setPartnerCountryCode(null);
+    setFaceSyncResult(null);
+    setFaceSyncSkippedFor(null);
     currentMatchIdRef.current = null;
     setCurrentMatchId(null);
   }, [clearStreamTimeout, setRemoteStreamSynced]);
@@ -534,6 +558,12 @@ export function useMatchmaking(
           setMatchResult(null);
           setCurrentCelebrity(celebrity ?? null);
           setMessages([]);
+          // A new stranger must never inherit the previous one's
+          // number, even when the two matches arrive back to back
+          // with no reset in between (which is exactly what
+          // `skip_user` produces).
+          setFaceSyncResult(null);
+          setFaceSyncSkippedFor(null);
           setPartnerName(typeof pn === "string" && pn ? pn : null);
           setPartnerCountry(pc ?? null);
           setPartnerCountryCode(typeof pcc === "string" && pcc ? pcc.toUpperCase() : null);
@@ -569,6 +599,47 @@ export function useMatchmaking(
         // to be delivered first.
         if (count <= 0) startScanWindow(schedule);
         else applySchedule(schedule, currentMatchIdRef.current);
+      });
+
+          /*
+       * FaceSync. The server computes the similarity from both
+       * players' geometry and publishes one result, so there is
+       * nothing to reconcile here — just adopt it, after checking
+       * it belongs to the match we are actually in. Without that
+       * guard a result still in flight when the player skips would
+       * paint the previous stranger's number onto the new one.
+       *
+       * Both events also carry the corrected round timeline, since
+       * resolving the lead-in is what tells the server when the
+       * countdown really starts.
+       */
+      socket.on(
+        "face_sync_result",
+        ({
+          score,
+          category,
+          variant,
+          ...schedule
+        }: { score?: number; category?: string; variant?: number } & RoundSchedulePayload) => {
+          const matchId = currentMatchIdRef.current;
+          if (!matchId || (schedule.matchId && schedule.matchId !== matchId)) return;
+          if (typeof score !== "number" || !Number.isFinite(score)) return;
+          if (typeof category !== "string" || !category) return;
+          applySchedule(schedule, matchId);
+          setFaceSyncResult({
+            matchId,
+            score: Math.max(0, Math.min(100, Math.round(score))),
+            category: category as FaceSyncCategory,
+            variant: typeof variant === "number" && Number.isFinite(variant) ? variant : 0,
+          });
+        },
+      );
+
+      socket.on("face_sync_skipped", (schedule: RoundSchedulePayload) => {
+        const matchId = currentMatchIdRef.current;
+        if (!matchId || (schedule?.matchId && schedule.matchId !== matchId)) return;
+        applySchedule(schedule ?? {}, matchId);
+        setFaceSyncSkippedFor(matchId);
       });
 
       socket.on("scores_ready", ({ partnerScore: ps }: { myScore: number; partnerScore: number }) => {
@@ -720,6 +791,21 @@ export function useMatchmaking(
     };
   }, [sessionToken, answerCall, placeCall, resetMatchState, startStreamTimeout, clearStreamTimeout, setRemoteStreamSynced, buildJoinPayload]);
 
+  /**
+   * Publish this device's facial geometry for the current match,
+   * or `null` to say there is nothing to offer (no face, camera
+   * off, MediaPipe unavailable).
+   *
+   * Reporting the null case matters as much as the real one: it is
+   * what lets the server end the lead-in immediately instead of
+   * holding the partner until the collection window times out.
+   */
+  const sendFaceSyncSample = useCallback((vector: FaceVector | null) => {
+    const socket = socketRef.current;
+    if (!socket || !currentMatchIdRef.current) return;
+    socket.emit("face_sync_sample", vector ? { vector } : { unavailable: true });
+  }, []);
+
   const submitScore = useCallback((score: number) => {
     socketRef.current?.emit("submit_score", { score });
   }, []);
@@ -795,6 +881,9 @@ export function useMatchmaking(
     partnerCountry,
     partnerCountryCode,
     currentMatchId,
+    faceSyncResult,
+    faceSyncSkippedFor,
+    sendFaceSyncSample,
     submitScore,
     submitLiveScore,
     skipUser,

@@ -5,6 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import ChatBox from "./ChatBox";
 import { useMatchmaking } from "../hooks/useMatchmaking";
+import { useFaceSync } from "../hooks/useFaceSync";
+import FaceSync from "./FaceSync";
+import { MIN_SAMPLES } from "../lib/faceSync/types";
 import { useRoundClock } from "../hooks/useRoundClock";
 import { useLocalCamera, type LocalCameraStatus } from "../hooks/useLocalCamera";
 import { useExpressionScorer } from "../hooks/useExpressionScorer";
@@ -200,6 +203,9 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     sendTyping,
     reportPartner,
     currentMatchId,
+    faceSyncResult,
+    faceSyncSkippedFor,
+    sendFaceSyncSample,
   } = useMatchmaking(
     localStream,
     myName,
@@ -232,6 +238,39 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     phase === "playing",
     publishLiveScore,
   );
+
+  /*
+   * FaceSync runs in the gap between the stranger connecting and
+   * the countdown, on the same shared MediaPipe instance the
+   * expression scorer uses. The two never overlap: the scorer only
+   * infers while `phase === "playing"`, which is after the round
+   * has started, and FaceSync has always submitted and gone
+   * terminal by then.
+   *
+   * It reads the LOCAL webcam element, never the partner's tile.
+   * See the hook's header for why that is the only way both
+   * players can be shown the same number.
+   */
+  const faceSync = useFaceSync({
+    videoRef: webcamRef,
+    matchId: currentMatchId,
+    partnerPresent: Boolean(remoteStream),
+    result: faceSyncResult,
+    skippedFor: faceSyncSkippedFor,
+    onSubmit: sendFaceSyncSample,
+  });
+
+  // Which "scanning..." line to show. Derived from the match id so
+  // it is fixed for the whole run — re-rolling it on a re-render
+  // would make the card flicker between phrasings.
+  const faceSyncSeed = useMemo(() => {
+    if (!currentMatchId) return 0;
+    let hash = 0;
+    for (let i = 0; i < currentMatchId.length; i += 1) {
+      hash = (hash * 31 + currentMatchId.charCodeAt(i)) >>> 0;
+    }
+    return hash;
+  }, [currentMatchId]);
 
   // Keep the stable sampler pointed at the freshest scorer state.
   // Synced in an effect (not during render) so the React 19
@@ -533,6 +572,8 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
           {/* The seam */}
           <SeamColumn
             state={seamState}
+            faceSync={faceSync}
+            faceSyncSeed={faceSyncSeed}
             emoji={emojiPrompt}
             scoreA={mySeat === "a" ? (phase === "results" ? resolvedFinalScore : liveScore) : (phase === "results" ? resolvedPartnerScore : partnerLiveScore)}
             scoreB={mySeat === "a" ? (phase === "results" ? resolvedPartnerScore : partnerLiveScore) : (phase === "results" ? resolvedFinalScore : liveScore)}
@@ -824,6 +865,14 @@ function DuelColumn({
 
 interface SeamColumnProps {
   state: "idle" | "playing" | "revealing";
+  /**
+   * The FaceSync run for the current stranger. While it is visible
+   * it takes over the seam: same slot, same footprint, so the
+   * arena layout never reflows and neither face is covered.
+   */
+  faceSync: ReturnType<typeof useFaceSync>;
+  /** Seeds which scanning line shows. Stable for the match. */
+  faceSyncSeed: number;
   emoji: string | null;
   scoreA: number | null;
   scoreB: number | null;
@@ -852,6 +901,8 @@ const EMOJI_CHANGE_COOLDOWN_MS = 1500;
 
 function SeamColumn({
   state,
+  faceSync,
+  faceSyncSeed,
   emoji,
   scoreA,
   scoreB,
@@ -896,6 +947,20 @@ function SeamColumn({
         className="absolute left-1/2 top-3 bottom-3 hidden w-1 -translate-x-1/2 bg-[var(--charcoal)] sm:block"
       />
       <div className="relative z-10 flex w-full flex-row items-center justify-center sm:w-auto sm:flex-col sm:gap-0">
+        <AnimatePresence mode="wait" initial={false}>
+          {faceSync.visible && (
+            <FaceSync
+              key="facesync"
+              phase={faceSync.phase as "waiting_for_faces" | "scanning" | "calculating" | "showing_result"}
+              result={faceSync.result}
+              faceMissing={faceSync.localFaceMissing}
+              sampleCount={faceSync.sampleCount}
+              sampleTarget={MIN_SAMPLES}
+              variantSeed={faceSyncSeed}
+            />
+          )}
+        </AnimatePresence>
+        {!faceSync.visible && (
         <Seam
           state={state}
           scoreA={scoreA ?? null}
@@ -904,7 +969,8 @@ function SeamColumn({
           secondsLeft={secondsLeft}
           label={state === "playing" ? "Target" : undefined}
         />
-        {showChangeEmoji && (
+        )}
+        {!faceSync.visible && showChangeEmoji && (
           <button
             type="button"
             onClick={handleChangeEmoji}
