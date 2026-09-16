@@ -308,18 +308,32 @@ export function extractGeometry(
   const browToEye = Math.abs(eyeCentreY - browPeakY);
   const browArch = Math.abs(browInnerY - browPeakY);
 
-  // Where the features sit vertically, as fractions of the face —
-  // the proportions that read as "same face shape" at a glance.
+  /*
+   * Vertical proportions — the thing that reads as "same face
+   * shape" at a glance.
+   *
+   * These are measured against the CRANIAL span (forehead to the
+   * base of the nose) and never against the chin. The chin sits on
+   * the mandible: open your mouth and it swings down by a tenth of
+   * your face height, taking every chin-anchored ratio with it. An
+   * earlier version divided by forehead-to-chin and a gasp moved
+   * the score by thirty points, which is exactly the instability
+   * this feature cannot afford.
+   *
+   * The lower face still contributes, as its own low-weight
+   * feature, so jaw length is not thrown away entirely.
+   */
   const foreheadY = q(L.foreheadTop).y;
+  const noseBottomY = q(L.noseBottom).y;
   const chinY = q(L.chin).y;
-  const totalSpan = chinY - foreheadY;
-  const lowerSpan = chinY - eyeCentreY;
-  if (Math.abs(totalSpan) < 1e-6 || Math.abs(lowerSpan) < 1e-6) {
+  const cranialSpan = noseBottomY - foreheadY;
+  const upperSpan = eyeCentreY - foreheadY;
+  if (Math.abs(cranialSpan) < 1e-6 || Math.abs(upperSpan) < 1e-6) {
     return { ok: false, reason: "degenerate" };
   }
-  const upperFaceFrac = (eyeCentreY - foreheadY) / totalSpan;
-  const midFaceFrac = (q(L.noseBottom).y - eyeCentreY) / lowerSpan;
-  const mouthFrac = (q(L.lipTop).y - eyeCentreY) / lowerSpan;
+  const upperFaceFrac = upperSpan / cranialSpan;
+  const midFaceFrac = (noseBottomY - eyeCentreY) / upperSpan;
+  const lowerFaceRatio = (chinY - noseBottomY) / cranialSpan;
 
   const vector: FaceVector = [
     faceWidth,
@@ -341,7 +355,7 @@ export function extractGeometry(
     browArch,
     upperFaceFrac,
     midFaceFrac,
-    mouthFrac,
+    lowerFaceRatio,
   ];
 
   if (vector.length !== FACE_VECTOR_LENGTH) return { ok: false, reason: "degenerate" };

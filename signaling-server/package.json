@@ -10,7 +10,7 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "npm run test:unit && npm run test:matchmaking",
-    "test:unit": "node --test test/auth.test.js test/clientIp.test.js test/matchScore.test.js test/nameModeration.test.js",
+    "test:unit": "node --test test/auth.test.js test/clientIp.test.js test/matchScore.test.js test/nameModeration.test.js test/faceSync.test.js",
     "test:matchmaking": "node test/celebrity.test.js",
     "db:init": "node -e \"require('./db').initSchema().then(()=>process.exit(0)).catch(e=>{console.error(e);process.exit(1)})\""
   },
