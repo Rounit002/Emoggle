@@ -8,6 +8,11 @@
 .security-venv/
 .pip-audit-cache/
 
+# Local agent tooling. Untracked before this work started, so it
+# stays that way; drop this line if you do want the skills in the
+# repo.
+.claude/
+
 # Secrets and local configuration
 **/.env
 **/.env.*
