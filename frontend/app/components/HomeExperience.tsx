@@ -13,6 +13,7 @@ import { PlayerNameProvider } from "../context/PlayerNameContext";
 import { CountryProvider } from "../context/CountryContext";
 import { RevenueCatProvider } from "../context/RevenueCatContext";
 import { useSmoothScrollController } from "./SmoothScroll";
+import { useCoveredView } from "./home/useCoveredView";
 
 type View = "home" | "arena" | "solo" | "celebrity" | "facesync";
 type ModeId = "camera" | "solo" | "celebrity" | "facesync";
@@ -75,6 +76,11 @@ function HomeContent() {
     },
     [setSmoothScrollEnabled],
   );
+
+  // Same reasoning one layer up: an arena covers the landing page's
+  // doodle wallpaper completely, so there is nothing to gain from
+  // compositing it behind one.
+  useCoveredView(view !== "home");
 
   const handleSelect = useCallback(
     (mode: ModeId) => {

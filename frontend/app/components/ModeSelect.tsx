@@ -6,10 +6,7 @@ import { motion } from "framer-motion";
 import { useRevenueCat } from "../context/RevenueCatContext";
 import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
-import {
-  FloatingEmoji,
-  ScrollReveal,
-} from "./home/EmojiMotion";
+import { ScrollReveal } from "./home/EmojiMotion";
 import {
   Headline,
   PulseDot,
@@ -223,11 +220,11 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     setPendingMode(null);
   };
 
+  // No background fill on the wrapper: the page-level DoodleBackdrop
+  // paints the canvas and its two drifting doodle lanes behind this
+  // whole screen, and an opaque fill here would hide them.
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-[var(--off-white)]">
-      {/* Floating decorative emojis — the spec calls for these. */}
-      <DecoEmojis />
-
+    <div className="relative min-h-screen w-full overflow-hidden">
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-[1200px] flex-col px-4 py-6 sm:px-8 sm:py-10">
         {/* Top bar — chunky charcoal underline.
             One wrapping flex row whose items are re-ordered per
@@ -560,56 +557,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
         onSubmit={handleNameSubmit}
         onCancel={handleNameModalCancel}
       />
-    </div>
-  );
-}
-
-/**
- * Floating decorative emojis. Purely decorative (aria-hidden),
- * positioned absolutely around the page corners and edges. Each
- * one layers a slow vertical bob on top of an independent blink
- * cycle, with a randomized phase so the six emojis never bob or
- * blink in unison.
- *
- * Structure: the outer span owns the absolute positioning and the
- * static rotation tilt (so the sticker-language is preserved). The
- * inner FloatingEmoji handles the motion — it composes its own
- * vertical translateY on top of whatever transform the outer
- * span has, so the rotation and the bob coexist cleanly.
- */
-function DecoEmojis() {
-  const items: Array<{ emoji: string; style: React.CSSProperties; rotation: number }> = [
-    { emoji: "😜", style: { top: "8%", left: "5%" }, rotation: -4 },
-    { emoji: "😝", style: { top: "12%", right: "7%" }, rotation: 6 },
-    { emoji: "🤪", style: { top: "40%", left: "3%" }, rotation: -8 },
-    { emoji: "😛", style: { top: "55%", right: "4%" }, rotation: 5 },
-    { emoji: "🥳", style: { bottom: "20%", left: "6%" }, rotation: -10 },
-    { emoji: "🤩", style: { bottom: "16%", right: "8%" }, rotation: 7 },
-  ];
-  return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
-      {items.map((item, i) => (
-        <span
-          key={i}
-          className="absolute select-none text-3xl opacity-50 sm:text-4xl"
-          style={{
-            ...item.style,
-            transform: `rotate(${item.rotation}deg)`,
-          }}
-        >
-          {/* Slight per-element variation in the bob distance and
-              duration so the six emojis feel hand-placed rather
-              than mechanical. BlinkingEmoji randomizes its own
-              interval on first render, so no two share a
-              schedule. */}
-          <FloatingEmoji
-            floatAmount={3 + (i % 3)}
-            floatDuration={8 + (i % 3) * 1.2}
-          >
-            <WebEmoji emoji={item.emoji} />
-          </FloatingEmoji>
-        </span>
-      ))}
     </div>
   );
 }

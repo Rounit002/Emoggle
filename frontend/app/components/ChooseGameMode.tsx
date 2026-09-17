@@ -39,6 +39,8 @@ import {
   X,
   cn,
 } from "../ui";
+import DoodleBackdrop from "./home/DoodleBackdrop";
+import { useCoveredView } from "./home/useCoveredView";
 
 export type GameMode = "camera" | "solo" | "celebrity" | "facesync";
 
@@ -141,6 +143,11 @@ export function ChooseGameMode({
   const firstOptionRef = useRef<HTMLButtonElement | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
 
+  // While the picker is up it covers the landing page completely and
+  // carries its own copy of the wallpaper, so the page-level backdrop
+  // can stand down.
+  useCoveredView(open);
+
   const handleClose = useCallback(() => {
     if (isSelecting) return;
     onClose();
@@ -213,10 +220,13 @@ export function ChooseGameMode({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: reduceMotion ? 0 : 0.18 }}
-          // Opaque off-white so the home page underneath is
-          // completely hidden. Safe-area padding so notches
-          // and home indicators don't crowd the cards.
-          className="fixed inset-0 z-[90] flex flex-col bg-[var(--off-white)]"
+          // Opaque canvas so the home page underneath is completely
+          // hidden — the doodle backdrop below then re-lays the same
+          // drifting wallpaper on top of it, so opening the picker
+          // reads as a stack push rather than a scene change.
+          // Safe-area padding so notches and home indicators don't
+          // crowd the cards.
+          className="fixed inset-0 z-[90] flex flex-col bg-[var(--canvas)]"
           style={{
             paddingTop: "max(1rem, env(safe-area-inset-top))",
             paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
@@ -228,8 +238,10 @@ export function ChooseGameMode({
           aria-label="Choose a game mode"
           aria-busy={isSelecting}
         >
+          <DoodleBackdrop inOverlay />
+
           {/* Top bar — back chevron + title + close X */}
-          <div className="flex flex-none items-center justify-between gap-3">
+          <div className="relative z-10 flex flex-none items-center justify-between gap-3">
             <button
               type="button"
               onClick={handleClose}
@@ -269,7 +281,7 @@ export function ChooseGameMode({
               nothing over it. Same pattern as the chat log. */}
           <div
             data-lenis-prevent
-            className="mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            className="relative z-10 mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain"
           >
             <ul className="mx-auto flex w-full max-w-2xl flex-col gap-5 pb-6 sm:gap-6">
               {MODE_OPTIONS.map((option, index) => {
@@ -362,7 +374,7 @@ export function ChooseGameMode({
           {/* Footer — explicit "back home" link + tiny sparkline of
               reassurance. Both rows are below the cards so the
               user can always find a way out. */}
-          <div className="flex flex-none flex-col items-center gap-2 pt-2">
+          <div className="relative z-10 flex flex-none flex-col items-center gap-2 pt-2">
             <button
               type="button"
               onClick={handleClose}

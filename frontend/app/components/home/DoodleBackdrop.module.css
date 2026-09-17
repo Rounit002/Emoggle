@@ -1,0 +1,191 @@
+/* =========================================================
+   Doodle backdrop — the animated wallpaper behind the page.
+   ---------------------------------------------------------
+   Two diagonal lanes of OpenMoji doodles drift across a plain
+   canvas in opposite directions: lane "down" runs upper-left to
+   lower-right, lane "up" runs lower-left to upper-right.
+
+   Seamlessness comes from the classic duplicated-strip marquee:
+   every row holds two byte-identical strips side by side and
+   slides the pair by exactly one strip width on a linear
+   timeline. When the keyframe wraps, strip B is sitting pixel
+   for pixel where strip A was, so there is no jump, no reset
+   flash and no empty gap — just one uninterrupted flow.
+   ========================================================= */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  background: var(--canvas);
+  /* The rails deliberately overflow the viewport by a lot. Paint
+     containment keeps that overdraw from invalidating anything
+     outside this layer. */
+  contain: layout paint style;
+
+  /* One strip has to be at least as long as the viewport measured
+     along the lane's own axis. That projection is
+     `w·cos(angle) + h·sin(angle)`, which can never exceed `w + h`
+     — so this is a cheap upper bound that stays correct at every
+     viewport size and angle without measuring anything in JS. */
+  --strip: calc(100vw + 100vh);
+
+  /* Base doodle size. Every item scales its own multiplier off
+     this, so the whole field shrinks together on a phone. */
+  --unit: clamp(20px, 3vw, 42px);
+}
+
+/* Inside the "Play now" overlay. The overlay paints the canvas and
+   hides the home page itself, so this instance only draws doodles.
+   It stays at z-index 0 and the picker lifts its own three rows to
+   z-10 — a negative z-index would slot the wallpaper between the
+   overlay's background and its content, and that sandwich makes the
+   compositor promote every card that happens to sit over a moving
+   doodle. Plain stacking order is cheaper and easier to follow. */
+.backdrop.overlay {
+  background: transparent;
+}
+
+/* A camera arena or the mode picker covers the landing page with its
+   own opaque surface and wants the frame budget for itself.
+   `useCoveredView` raises this flag while one is up; taking the
+   page-level backdrop out of the page beats compositing eight tracks
+   nobody can see. The overlay's own instance is exempt — it is the
+   thing doing the covering. */
+:global(html[data-covered]) .backdrop:not(.overlay) {
+  display: none;
+}
+
+/* Each lane is the full viewport rotated about its centre, which
+   turns "slide along local +X" into "drift along the diagonal". */
+.lane {
+  position: absolute;
+  inset: 0;
+  transform: rotate(var(--angle));
+  transform-origin: 50% 50%;
+}
+
+/* The window of local X that is guaranteed to be covered at every
+   moment of the loop: one strip wide, centred on the lane. The
+   perpendicular offset spreads the rows across the diagonal. */
+.rail {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--strip);
+  height: 0;
+  margin-left: calc(var(--strip) / -2);
+  margin-top: var(--offset);
+}
+
+.track {
+  position: relative;
+  width: 100%;
+  height: 0;
+  animation: doodle-slide var(--duration) linear infinite;
+  /* Negative delay drops each row in mid-flight, so no two rows
+     share a phase and nothing has to "start" on first paint. */
+  animation-delay: var(--phase);
+  will-change: transform;
+}
+
+/* Percentages in a translate resolve against the element's own
+   width — which is exactly one strip. */
+@keyframes doodle-slide {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0;
+}
+
+/* The trailing clone. It carries identical children to the strip
+   above it — that identity is what makes the wrap invisible. */
+.strip + .strip {
+  left: 100%;
+}
+
+.item {
+  position: absolute;
+  top: 0;
+  left: calc(var(--i) * (100% / var(--count)));
+  width: var(--size);
+  height: var(--size);
+  margin-left: calc(var(--size) / -2);
+  margin-top: calc(var(--size) / -2);
+}
+
+.glyph {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Theme strength × per-item jitter. The theme half flips with
+     dark mode; the jitter half keeps the field from reading as one
+     flat sheet of stickers. */
+  opacity: calc(var(--doodle-opacity) * var(--fade));
+
+  /* Faces: OpenMoji's own yellow, taken down just enough to sit in a
+     background. No hue-rotate — that is the whole point of the split.
+     The filter is static, so each doodle rasterises once with it baked
+     in; only the transforms below are per-frame work. */
+  filter: saturate(var(--doodle-face-saturation))
+    brightness(var(--doodle-face-brightness));
+
+  animation: doodle-bob var(--bob-duration) ease-in-out infinite;
+  animation-delay: var(--bob-delay);
+}
+
+/* Icons: the pastel pass, in this order for a reason. Rotate the
+   artwork onto this item's own hue first, then pull the saturation
+   down and the lightness up, which is what "pastel" is. Running
+   saturate before hue-rotate would tint a colour that had already
+   gone grey. */
+.glyph.tinted {
+  filter: hue-rotate(var(--hue)) saturate(var(--doodle-saturation))
+    brightness(var(--doodle-brightness));
+}
+
+/* The bob is what stops the lanes reading as a conveyor belt: a
+   slow vertical sway plus a few degrees of rock, on top of the
+   item's own resting tilt. 0% and 100% match, so it loops as
+   cleanly as the slide does. Both strip copies get the same
+   duration and delay, which keeps a clone in phase with its
+   original through the wrap. */
+@keyframes doodle-bob {
+  0%,
+  100% {
+    transform: translate3d(0, calc(var(--bob) * -1), 0)
+      rotate(calc(var(--tilt) - var(--rock)));
+  }
+  50% {
+    transform: translate3d(0, var(--bob), 0)
+      rotate(calc(var(--tilt) + var(--rock)));
+  }
+}
+
+/* Reduced motion keeps the wallpaper, drops the movement. The
+   slide's resting state is `translate3d(0,0,0)`, which leaves
+   strip A filling the covered window — so the field stays evenly
+   spread rather than collapsing to one edge. */
+@media (prefers-reduced-motion: reduce) {
+  .track,
+  .glyph {
+    animation: none;
+  }
+
+  .glyph {
+    transform: rotate(var(--tilt));
+  }
+}

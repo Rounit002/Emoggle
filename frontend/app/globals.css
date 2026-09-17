@@ -84,6 +84,25 @@
   --pink:            #ffb3b0;   /* tertiary accent */
   --pink-deep:       #ae2f34;   /* deep pink for text/outline */
 
+  /* Wallpaper canvas — the clean sheet the animated doodle backdrop
+     paints itself onto. Deliberately a shade brighter than
+     --off-white: the doodles want pure white behind them so the
+     colour reads, while the chrome elsewhere keeps its warmer grey.
+     The rest are the colour pass, and the doodles come in two kinds.
+     Faces keep OpenMoji's yellow and only get taken down a little
+     (*-face-*), because a mint or lilac face stops reading as a face.
+     Every other icon is rotated onto its own hue and then washed out
+     — saturation down, lightness up — which is what makes it pastel
+     rather than primary. Dark mode keeps a touch more saturation and
+     does not lift the lightness, since pale-on-dark already reads as
+     soft, and prints the whole field fainter. */
+  --canvas:                 #ffffff;
+  --doodle-opacity:         0.44;
+  --doodle-saturation:      0.42;
+  --doodle-brightness:      1.16;
+  --doodle-face-saturation: 0.88;
+  --doodle-face-brightness: 1.06;
+
   /* Tinted accent surfaces — the soft wash behind a "tinted" icon
      button, as opposed to the solid --purple / --pink fill. */
   --purple-container:  #ece9ff;
@@ -607,6 +626,12 @@ a:focus-visible,
   --charcoal:        #eee9f5;
   --off-white:       #17141f;
   --off-white-2:     #241f30;
+  --canvas:                 #14111d;
+  --doodle-opacity:         0.3;
+  --doodle-saturation:      0.5;
+  --doodle-brightness:      0.96;
+  --doodle-face-saturation: 0.9;
+  --doodle-face-brightness: 0.94;
   --yellow:          #f1ce68;
   --yellow-deep:     #f4d982;
   --purple:          #7560c5;

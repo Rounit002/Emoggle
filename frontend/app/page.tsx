@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import HomeExperience from "./components/HomeExperience";
+import DoodleBackdrop from "./components/home/DoodleBackdrop";
 import { ScrollReveal } from "./components/home/EmojiMotion";
 import { Headline } from "./components/home/HeadlineMotion";
 import { frequentlyAskedQuestions, siteConfig } from "./lib/site";
@@ -55,188 +56,196 @@ export default function Home() {
   };
 
   return (
-    <main className="bg-[var(--off-white)] text-[var(--charcoal)]">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify(structuredData).replace(/</g, "\\u003c"),
-        }}
-      />
+    <>
+      {/* Fixed wallpaper. It sits outside <main> and below it in the
+          stacking order, so the doodles drift behind every section
+          without taking clicks or scroll from any of them. <main>
+          drops its own opaque fill and lets the canvas show. */}
+      <DoodleBackdrop />
 
-      <HomeExperience />
+      <main className="relative z-10 text-[var(--charcoal)]">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(structuredData).replace(/</g, "\\u003c"),
+          }}
+        />
 
-      <section
-        aria-labelledby="how-emoggle-works"
-        className="border-t-[3px] border-[var(--charcoal)] px-4 py-16 sm:px-5 sm:py-24"
-      >
-        <div className="mx-auto max-w-[1200px]">
-          <span className="on-accent inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
-            Play in your browser
-          </span>
-          <h2
-            id="how-emoggle-works"
-            className="mt-4 max-w-3xl font-display text-3xl font-bold tracking-tight text-[var(--charcoal)] sm:text-5xl"
-          >
-            <Headline
-              text="A face-expression game built around one shared emoji"
-              trigger="scroll"
-            />
-          </h2>
-          <p className="mt-5 max-w-3xl text-base leading-7 text-[var(--on-surface-variant)] sm:text-lg">
-            Emoggle is a casual webcam game where an emoji appears on screen
-            and players try to recreate its expression. Face landmarks are
-            analyzed in the browser to produce an expression score.
-          </p>
+        <HomeExperience />
 
-          <div className="mt-10 grid gap-5 sm:mt-12 sm:gap-6 md:grid-cols-2">
-            {/* ScrollReveal renders as <article> so the cards stay
-                semantic. A small stagger delay makes the two cards
-                ease in one after the other rather than snapping in
-                on the same tick. */}
-            <ScrollReveal
-              as="article"
-              id="multiplayer"
-              delay={0}
-              className="rounded-3xl border-[4px] border-[var(--purple-deep)] bg-[var(--off-white-2)] p-5 shadow-[6px_6px_0_0_var(--charcoal)] tilt-l-1 sm:p-7"
+        <section
+          aria-labelledby="how-emoggle-works"
+          className="border-t-[3px] border-[var(--charcoal)] px-4 py-16 sm:px-5 sm:py-24"
+        >
+          <div className="mx-auto max-w-[1200px]">
+            <span className="on-accent inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
+              Play in your browser
+            </span>
+            <h2
+              id="how-emoggle-works"
+              className="mt-4 max-w-3xl font-display text-3xl font-bold tracking-tight text-[var(--charcoal)] sm:text-5xl"
             >
-              <span className="on-accent-inverse inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--purple)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
-                Multiplayer mode
-              </span>
-              <h3 className="mt-3 font-display text-2xl font-bold tracking-tight text-[var(--charcoal)]">
-                <Headline text="Live emoji face duel" trigger="scroll" />
-              </h3>
-              <p className="mt-3 text-[15px] leading-relaxed text-[var(--on-surface-variant)]">
-                Get matched with another player, receive the same emoji prompt,
-                and compete for the closest facial-expression score in real
-                time.
-              </p>
-            </ScrollReveal>
+              <Headline
+                text="A face-expression game built around one shared emoji"
+                trigger="scroll"
+              />
+            </h2>
+            <p className="mt-5 max-w-3xl text-base leading-7 text-[var(--on-surface-variant)] sm:text-lg">
+              Emoggle is a casual webcam game where an emoji appears on screen
+              and players try to recreate its expression. Face landmarks are
+              analyzed in the browser to produce an expression score.
+            </p>
 
-            <ScrollReveal
-              as="article"
-              id="solo"
-              delay={0.08}
-              className="rounded-3xl border-[4px] border-[var(--pink-deep)] bg-[var(--off-white-2)] p-5 shadow-[6px_6px_0_0_var(--charcoal)] tilt-r-1 sm:p-7"
-            >
-              <span className="on-accent inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--pink)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
-                Solo mode
-              </span>
-              <h3 className="mt-3 font-display text-2xl font-bold tracking-tight text-[var(--charcoal)]">
-                <Headline text="Solo Emoji Scan" trigger="scroll" />
-              </h3>
-              <p className="mt-3 text-[15px] leading-relaxed text-[var(--on-surface-variant)]">
-                Practice by yourself, copy the emoji face, and get an instant
-                score without waiting for a partner.
-              </p>
-            </ScrollReveal>
-          </div>
-
-          <ol className="mt-10 grid gap-5 sm:mt-14 sm:grid-cols-3 sm:gap-6">
-            {[
-              ["1", "Allow camera access", "A webcam is used for live expression detection."],
-              ["2", "Copy the emoji", "Recreate the expression shown on screen."],
-              ["3", "Get your score", "See how closely your face matched the prompt."],
-            ].map(([number, title, description], i) => (
-              /* ScrollReveal renders as <li> so the surrounding <ol>
-                 stays semantically valid. The 0.08s stagger gives
-                 the three steps a gentle cascade — they slide in
-                 one after another instead of all at once. */
+            <div className="mt-10 grid gap-5 sm:mt-12 sm:gap-6 md:grid-cols-2">
+              {/* ScrollReveal renders as <article> so the cards stay
+                  semantic. A small stagger delay makes the two cards
+                  ease in one after the other rather than snapping in
+                  on the same tick. */}
               <ScrollReveal
-                as="li"
-                key={number}
-                delay={i * 0.08}
-                className={`rounded-3xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-5 shadow-[6px_6px_0_0_var(--charcoal)] sm:p-6 ${
-                  i === 0 ? "tilt-l-1" : i === 1 ? "tilt-0" : "tilt-r-1"
-                }`}
+                as="article"
+                id="multiplayer"
+                delay={0}
+                className="rounded-3xl border-[4px] border-[var(--purple-deep)] bg-[var(--off-white-2)] p-5 shadow-[6px_6px_0_0_var(--charcoal)] tilt-l-1 sm:p-7"
               >
-                <span className="on-accent inline-flex h-9 w-9 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] font-mono text-sm font-extrabold text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
-                  {number}
+                <span className="on-accent-inverse inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--purple)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
+                  Multiplayer mode
                 </span>
-                <h3 className="mt-5 font-display text-lg font-bold tracking-tight text-[var(--charcoal)]">
-                  <Headline text={title} trigger="scroll" />
+                <h3 className="mt-3 font-display text-2xl font-bold tracking-tight text-[var(--charcoal)]">
+                  <Headline text="Live emoji face duel" trigger="scroll" />
                 </h3>
-                <p className="mt-2 text-sm leading-6 text-[var(--on-surface-variant)]">
-                  {description}
+                <p className="mt-3 text-[15px] leading-relaxed text-[var(--on-surface-variant)]">
+                  Get matched with another player, receive the same emoji prompt,
+                  and compete for the closest facial-expression score in real
+                  time.
                 </p>
               </ScrollReveal>
-            ))}
-          </ol>
-        </div>
-      </section>
 
-      <section
-        aria-labelledby="frequently-asked-questions"
-        className="border-t-[3px] border-[var(--charcoal)] px-4 py-16 sm:px-5 sm:py-24"
-      >
-        <div className="mx-auto max-w-4xl">
-          <span className="on-accent inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
-            Quick answers
-          </span>
-          <h2
-            id="frequently-asked-questions"
-            className="mt-4 font-display text-3xl font-bold tracking-tight text-[var(--charcoal)] sm:text-5xl"
-          >
-            <Headline text="Frequently asked questions" trigger="scroll" />
-          </h2>
-          <div className="mt-8 divide-y-[2px] divide-[var(--ink-line)] rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] shadow-[6px_6px_0_0_var(--charcoal)] sm:mt-9">
-            {frequentlyAskedQuestions.slice(0, 4).map((item) => (
-              <details key={item.question} className="group px-4 py-4 sm:px-8 sm:py-5">
-                <summary className="cursor-pointer list-none pr-6 font-display text-base font-bold text-[var(--charcoal)] marker:hidden sm:pr-8 sm:text-lg">
-                  <span className="flex items-center justify-between gap-3">
-                    {item.question}
-                    <span className="on-accent inline-flex h-7 w-7 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] font-mono text-base font-bold text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)] transition-transform group-open:rotate-45">
-                      +
-                    </span>
-                  </span>
-                </summary>
-                <p className="mt-3 max-w-3xl text-[15px] leading-7 text-[var(--on-surface-variant)]">
-                  {item.answer}
+              <ScrollReveal
+                as="article"
+                id="solo"
+                delay={0.08}
+                className="rounded-3xl border-[4px] border-[var(--pink-deep)] bg-[var(--off-white-2)] p-5 shadow-[6px_6px_0_0_var(--charcoal)] tilt-r-1 sm:p-7"
+              >
+                <span className="on-accent inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--pink)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
+                  Solo mode
+                </span>
+                <h3 className="mt-3 font-display text-2xl font-bold tracking-tight text-[var(--charcoal)]">
+                  <Headline text="Solo Emoji Scan" trigger="scroll" />
+                </h3>
+                <p className="mt-3 text-[15px] leading-relaxed text-[var(--on-surface-variant)]">
+                  Practice by yourself, copy the emoji face, and get an instant
+                  score without waiting for a partner.
                 </p>
-              </details>
-            ))}
-          </div>
-          <Link
-            href="/faq"
-            className="mt-6 inline-flex h-12 items-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-5 text-sm font-bold text-[var(--charcoal)] shadow-[4px_4px_0_0_var(--ink-shadow)] transition-transform active:translate-y-1 active:shadow-none hover:bg-[var(--yellow)] hover:text-[var(--on-accent)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--charcoal)]"
-          >
-            Read all FAQs
-          </Link>
-        </div>
-      </section>
+              </ScrollReveal>
+            </div>
 
-      <nav
-        aria-label="About Emoggle"
-        className="border-t-[3px] border-[var(--charcoal)] px-4 py-6 sm:px-5 sm:py-8"
-      >
-        <div className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-4 gap-y-1 text-sm font-bold text-[var(--charcoal)] sm:gap-x-6 sm:gap-y-3">
-          <Logo size="sm" />
-          {/* These wrap to three rows on a phone, and from `md` down
-              they are also the only route to How it works / History /
-              FAQ — the header drops its own copies of those links at
-              that width. A bare inline link is a ~20px tall target;
-              `min-h-11` gives each one a full 44px without changing
-              how the row reads. */}
-          {[
-            ["/how-it-works", "How it works"],
-            ["/about", "About"],
-            ["/faq", "FAQ"],
-            ["/history", "History"],
-            ["/privacy", "Privacy"],
-            ["/terms", "Terms"],
-            ["/contact", "Contact"],
-          ].map(([href, label]) => (
-            <Link
-              key={href}
-              className="inline-flex min-h-11 items-center hover:underline"
-              href={href}
+            <ol className="mt-10 grid gap-5 sm:mt-14 sm:grid-cols-3 sm:gap-6">
+              {[
+                ["1", "Allow camera access", "A webcam is used for live expression detection."],
+                ["2", "Copy the emoji", "Recreate the expression shown on screen."],
+                ["3", "Get your score", "See how closely your face matched the prompt."],
+              ].map(([number, title, description], i) => (
+                /* ScrollReveal renders as <li> so the surrounding <ol>
+                   stays semantically valid. The 0.08s stagger gives
+                   the three steps a gentle cascade — they slide in
+                   one after another instead of all at once. */
+                <ScrollReveal
+                  as="li"
+                  key={number}
+                  delay={i * 0.08}
+                  className={`rounded-3xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-5 shadow-[6px_6px_0_0_var(--charcoal)] sm:p-6 ${
+                    i === 0 ? "tilt-l-1" : i === 1 ? "tilt-0" : "tilt-r-1"
+                  }`}
+                >
+                  <span className="on-accent inline-flex h-9 w-9 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] font-mono text-sm font-extrabold text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
+                    {number}
+                  </span>
+                  <h3 className="mt-5 font-display text-lg font-bold tracking-tight text-[var(--charcoal)]">
+                    <Headline text={title} trigger="scroll" />
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-[var(--on-surface-variant)]">
+                    {description}
+                  </p>
+                </ScrollReveal>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        <section
+          aria-labelledby="frequently-asked-questions"
+          className="border-t-[3px] border-[var(--charcoal)] px-4 py-16 sm:px-5 sm:py-24"
+        >
+          <div className="mx-auto max-w-4xl">
+            <span className="on-accent inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
+              Quick answers
+            </span>
+            <h2
+              id="frequently-asked-questions"
+              className="mt-4 font-display text-3xl font-bold tracking-tight text-[var(--charcoal)] sm:text-5xl"
             >
-              {label}
+              <Headline text="Frequently asked questions" trigger="scroll" />
+            </h2>
+            <div className="mt-8 divide-y-[2px] divide-[var(--ink-line)] rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] shadow-[6px_6px_0_0_var(--charcoal)] sm:mt-9">
+              {frequentlyAskedQuestions.slice(0, 4).map((item) => (
+                <details key={item.question} className="group px-4 py-4 sm:px-8 sm:py-5">
+                  <summary className="cursor-pointer list-none pr-6 font-display text-base font-bold text-[var(--charcoal)] marker:hidden sm:pr-8 sm:text-lg">
+                    <span className="flex items-center justify-between gap-3">
+                      {item.question}
+                      <span className="on-accent inline-flex h-7 w-7 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] font-mono text-base font-bold text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)] transition-transform group-open:rotate-45">
+                        +
+                      </span>
+                    </span>
+                  </summary>
+                  <p className="mt-3 max-w-3xl text-[15px] leading-7 text-[var(--on-surface-variant)]">
+                    {item.answer}
+                  </p>
+                </details>
+              ))}
+            </div>
+            <Link
+              href="/faq"
+              className="mt-6 inline-flex h-12 items-center rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-5 text-sm font-bold text-[var(--charcoal)] shadow-[4px_4px_0_0_var(--ink-shadow)] transition-transform active:translate-y-1 active:shadow-none hover:bg-[var(--yellow)] hover:text-[var(--on-accent)] focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--charcoal)]"
+            >
+              Read all FAQs
             </Link>
-          ))}
-          <span className="ml-auto" />
-          <ThemeToggle size="sm" />
-        </div>
-      </nav>
-    </main>
+          </div>
+        </section>
+
+        <nav
+          aria-label="About Emoggle"
+          className="border-t-[3px] border-[var(--charcoal)] px-4 py-6 sm:px-5 sm:py-8"
+        >
+          <div className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-4 gap-y-1 text-sm font-bold text-[var(--charcoal)] sm:gap-x-6 sm:gap-y-3">
+            <Logo size="sm" />
+            {/* These wrap to three rows on a phone, and from `md` down
+                they are also the only route to How it works / History /
+                FAQ — the header drops its own copies of those links at
+                that width. A bare inline link is a ~20px tall target;
+                `min-h-11` gives each one a full 44px without changing
+                how the row reads. */}
+            {[
+              ["/how-it-works", "How it works"],
+              ["/about", "About"],
+              ["/faq", "FAQ"],
+              ["/history", "History"],
+              ["/privacy", "Privacy"],
+              ["/terms", "Terms"],
+              ["/contact", "Contact"],
+            ].map(([href, label]) => (
+              <Link
+                key={href}
+                className="inline-flex min-h-11 items-center hover:underline"
+                href={href}
+              >
+                {label}
+              </Link>
+            ))}
+            <span className="ml-auto" />
+            <ThemeToggle size="sm" />
+          </div>
+        </nav>
+      </main>
+    </>
   );
 }
