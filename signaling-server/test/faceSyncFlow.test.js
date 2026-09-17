@@ -126,8 +126,34 @@ async function mintTokens(count) {
   }
 }
 
+/*
+ * Handshake pacing. The server also caps socket connection
+ * attempts at 30 per minute per IP — a third deliberate guard this
+ * harness works within rather than around. Enough scenarios and a
+ * long enough run will otherwise trip it mid-suite and look like a
+ * product failure.
+ */
+const HANDSHAKE_LIMIT = 24;
+const HANDSHAKE_WINDOW_MS = 60_000;
+const handshakes = [];
+
+async function pauseForHandshakeBudget() {
+  for (;;) {
+    const now = Date.now();
+    while (handshakes.length > 0 && now - handshakes[0] > HANDSHAKE_WINDOW_MS) {
+      handshakes.shift();
+    }
+    if (handshakes.length < HANDSHAKE_LIMIT) break;
+    const waitMs = HANDSHAKE_WINDOW_MS - (now - handshakes[0]) + 250;
+    console.log(`  … pausing ${Math.ceil(waitMs / 1000)}s for the handshake budget`);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+  handshakes.push(Date.now());
+}
+
 /** Connect the next identity in rotation and wait for the handshake. */
 async function connectPooled(index = cursor++) {
+  await pauseForHandshakeBudget();
   const socket = connectClient(tokens[index % tokens.length]);
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("connect timed out")), 10_000);
@@ -196,7 +222,7 @@ async function run() {
       console.error("server never came up");
       return finish(1);
     }
-    await mintTokens(12);
+    await mintTokens(18);
     console.log(`[facesync] server ready on ${SERVER_URL}\n`);
 
     /* ── 1. Both players report geometry ── */
@@ -484,7 +510,72 @@ async function run() {
       close(sockA, sockB);
     }
 
-    /* ── 11. Partner leaves mid-lead-in ── */
+    /* ── 11. FaceSync as a mode in its own right ── */
+    console.log("\nfacesync mode: the reveal is the whole round");
+    {
+      const { sockA, sockB, startedA, startedB } = await pair("facesync");
+
+      check("both players get the same facesync match",
+        startedA.matchId === startedB.matchId, startedA.matchId);
+      check("facesync matches open a lead-in",
+        startedA.faceSyncEndsAt > startedA.roundStartedAt,
+        `${startedA.faceSyncEndsAt - startedA.roundStartedAt}ms`);
+
+      const resultA = waitFor(sockA, "face_sync_result");
+      const resultB = waitFor(sockB, "face_sync_result");
+      // No countdown may follow: this mode has no emoji round.
+      const strayTick = waitForMaybe(sockA, "countdown_tick", 6_000);
+      const strayLock = waitForMaybe(sockA, "emoji_locked", 1_000);
+
+      sockA.emit("face_sync_sample", { vector: VECTOR_A });
+      sockB.emit("face_sync_sample", { vector: VECTOR_A2 });
+
+      const [ra, rb] = await Promise.all([resultA, resultB]);
+      check("both players get the same facesync score",
+        ra.score === rb.score, `${ra.score} / ${rb.score}`);
+      check("both players get the same band", ra.category === rb.category, ra.category);
+
+      check("no countdown follows a facesync reveal", (await strayTick) === null);
+      check("no scan window opens", (await strayLock) === null);
+
+      close(sockA, sockB);
+    }
+
+    console.log("\nfacesync mode: a miss still ends cleanly");
+    {
+      const { sockA, sockB } = await pair("facesync");
+      const skip = waitFor(sockA, "face_sync_skipped");
+      const strayTick = waitForMaybe(sockA, "countdown_tick", 5_000);
+
+      sockA.emit("face_sync_sample", { unavailable: true });
+      sockB.emit("face_sync_sample", { unavailable: true });
+
+      check("a facesync miss is announced", Boolean(await skip));
+      check("a miss does not start an emoji round", (await strayTick) === null);
+      close(sockA, sockB);
+    }
+
+    console.log("\nqueues do not mix across modes");
+    {
+      // Someone who picked FaceSync must never be dropped into a
+      // ten-second emoji duel they did not ask for.
+      const faceSyncClient = await connectPooled();
+      const emojiClient = await connectPooled();
+      const crossMatch = waitForMaybe(faceSyncClient, "match_started", 4_000);
+
+      faceSyncClient.emit("join_queue", { peerId: `peer-${randomUUID()}`, gameMode: "facesync" });
+      await waitFor(faceSyncClient, "waiting");
+      emojiClient.emit("join_queue", { peerId: `peer-${randomUUID()}` });
+
+      check("a facesync player is not paired with an emoji player",
+        (await crossMatch) === null);
+
+      faceSyncClient.emit("stop_matching");
+      emojiClient.emit("stop_matching");
+      close(faceSyncClient, emojiClient);
+    }
+
+    /* ── 12. Partner leaves mid-lead-in ── */
     console.log("\npartner disconnects during the lead-in");
     {
       const { sockA, sockB } = await pair();

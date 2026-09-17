@@ -99,13 +99,16 @@ async function initSchema() {
     // breaking the legacy emoji-only rows. The defaults keep the existing
     // shape intact for older data; new celebrity matches will populate
     // `game_mode='celebrity'` and a non-null `celebrity_id`.
+    // `game_mode='facesync'` rows are resemblance-only rounds: they
+    // carry an emoji because the column is NOT NULL, but never
+    // score against it.
     await client.query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_mode VARCHAR(20) NOT NULL DEFAULT 'emoji'`);
     await client.query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS celebrity_id INTEGER`);
     await client.query(`ALTER TABLE matches ADD COLUMN IF NOT EXISTS celebrity_name VARCHAR(255)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_matches_game_mode ON matches(game_mode)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_matches_celebrity_id ON matches(celebrity_id)`);
     await client.query(`ALTER TABLE matches DROP CONSTRAINT IF EXISTS matches_game_mode_check`);
-    await client.query(`ALTER TABLE matches ADD CONSTRAINT matches_game_mode_check CHECK (game_mode IN ('emoji', 'celebrity'))`);
+    await client.query(`ALTER TABLE matches ADD CONSTRAINT matches_game_mode_check CHECK (game_mode IN ('emoji', 'celebrity', 'facesync'))`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS sessions (
         token VARCHAR(64) PRIMARY KEY,

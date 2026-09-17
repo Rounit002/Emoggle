@@ -109,9 +109,14 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
             <div className="absolute top-3 left-3 z-30 rounded-full border border-white/15 bg-black/65 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-zinc-200 backdrop-blur-md">
               {label}
             </div>
-            <div className="absolute top-3 right-3 z-30 rounded-full border border-violet-300/30 bg-zinc-950/75 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white shadow-[0_0_22px_rgba(168,85,247,0.22)] backdrop-blur-md">
-              {rankLabel.replace("|", " | ")}
-            </div>
+            {/* Rank pill. Modes without a rank (FaceSync has no
+                score and no ELO) pass an empty label and get no
+                pill at all, rather than an empty one. */}
+            {rankLabel.trim().length > 0 && (
+              <div className="absolute top-3 right-3 z-30 rounded-full border border-violet-300/30 bg-zinc-950/75 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white shadow-[0_0_22px_rgba(168,85,247,0.22)] backdrop-blur-md">
+                {rankLabel.replace("|", " | ")}
+              </div>
+            )}
             {/* Player name + country flag pill. Sits directly
                 under the YOU/STRANGER label at top-left so it is
                 always visible — even on mobile (where the older

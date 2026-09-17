@@ -140,6 +140,24 @@ const socketMeta = new Map(); // socketId -> { peerId, userId, country, displayN
 const activeMatches = new Map(); // matchId -> { roomId, player1SocketId, player2SocketId, timerId, scores, gameMode }
 const CELEBRITY_GAME_MODE = "celebrity";
 const EMOJI_GAME_MODE = "emoji";
+/*
+ * FaceSync as a mode in its own right: pair with a stranger,
+ * compare faces, show the number, move on. No emoji, no countdown,
+ * no scan window, no ELO.
+ *
+ * It has its own queue because `enqueueSocket` refuses to pair
+ * across modes, which is what stops someone who chose FaceSync
+ * from being dropped into a ten-second emoji duel they did not ask
+ * for. The cost is a split matchmaking pool.
+ */
+const FACE_SYNC_GAME_MODE = "facesync";
+
+/** The three modes a client may ask for. Anything else is emoji. */
+function readGameMode(value) {
+  if (value === CELEBRITY_GAME_MODE) return CELEBRITY_GAME_MODE;
+  if (value === FACE_SYNC_GAME_MODE) return FACE_SYNC_GAME_MODE;
+  return EMOJI_GAME_MODE;
+}
 const ROUND_COUNTDOWN_SEC = 3;
 const MATCH_DURATION_SEC = 10;
 const CELEBRITY_AFFECTS_ELO = process.env.CELEBRITY_AFFECTS_ELO === "true";
@@ -992,10 +1010,9 @@ async function startMatch(socket, partner) {
   if (meta1.gameMode !== meta2.gameMode) return false;
 
   const emoji = pickEmoji();
-  const gameMode = meta1.gameMode === CELEBRITY_GAME_MODE
-    ? CELEBRITY_GAME_MODE
-    : EMOJI_GAME_MODE;
+  const gameMode = readGameMode(meta1.gameMode);
   const isCelebrityRound = gameMode === CELEBRITY_GAME_MODE;
+  const isFaceSyncRound = gameMode === FACE_SYNC_GAME_MODE;
 
   // Pick the celebrity target for this round at the same moment
   // we mint the match id, so both clients always see the same
@@ -1026,8 +1043,11 @@ async function startMatch(socket, partner) {
       await client.query(
         `INSERT INTO matches
            (id, player1_id, player2_id, current_emoji, status, game_mode)
-         VALUES ($1, $2, $3, $4, 'ACTIVE', 'emoji')`,
-        [matchId, meta1.userId, meta2.userId, emoji],
+         VALUES ($1, $2, $3, $4, 'ACTIVE', $5)`,
+        // A FaceSync round never uses the emoji, but the column is
+        // NOT NULL and carrying one keeps the row shape identical
+        // to every other match.
+        [matchId, meta1.userId, meta2.userId, emoji, gameMode],
       );
     }
     await client.query("COMMIT");
@@ -1074,7 +1094,7 @@ async function startMatch(socket, partner) {
    * nothing on screen. Celebrity matches keep their exact previous
    * timeline.
    */
-  const faceSyncEnabled = gameMode === EMOJI_GAME_MODE;
+  const faceSyncEnabled = gameMode === EMOJI_GAME_MODE || isFaceSyncRound;
 
   const roundStartedAt = Date.now();
   const faceSyncEndsAt = roundStartedAt + (faceSyncEnabled ? FACE_SYNC_COLLECT_MS : 0);
@@ -1336,6 +1356,10 @@ async function startMatch(socket, partner) {
       // real traffic should use deliberate aggregate telemetry,
       // not log mining.
       console.log(`[FS] Match ${matchId} face sync resolved`);
+      // In FaceSync mode the reveal IS the round: there is no
+      // countdown to hold back, and the match simply stays open on
+      // the result until someone asks for the next stranger.
+      if (isFaceSyncRound) return;
       active.faceSyncTimerId = setTimeout(() => {
         const still = activeMatches.get(matchId);
         if (still) still.faceSyncTimerId = null;
@@ -1346,6 +1370,11 @@ async function startMatch(socket, partner) {
 
     io.to(roomId).emit("face_sync_skipped", { matchId, ...schedulePayload() });
     console.log(`[FS] Match ${matchId} face sync skipped (${reason})`);
+    // A FaceSync round with nothing to compare has nowhere to go —
+    // the client shows the miss and offers the next stranger,
+    // rather than being dropped into an emoji duel it never asked
+    // for.
+    if (isFaceSyncRound) return;
     beginCountdown();
   };
 
@@ -1592,9 +1621,7 @@ io.on("connection", (socket) => {
     // string on the sender side can never make the partner see
     // a country code instead of a flag.
     const clientCountryCode = readCountryCode(payload.countryCode);
-    const gameMode = payload.gameMode === CELEBRITY_GAME_MODE
-      ? CELEBRITY_GAME_MODE
-      : EMOJI_GAME_MODE;
+    const gameMode = readGameMode(payload.gameMode);
 
     console.log(`[Q] ${socket.id} joining ${gameMode} queue peerId=${peerId} name=${displayName ?? "(none)"} country=${clientCountryCode ?? "(none)"}`);
 

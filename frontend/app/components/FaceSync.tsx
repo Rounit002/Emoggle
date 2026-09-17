@@ -45,6 +45,13 @@ interface FaceSyncProps {
   sampleTarget: number;
   /** Seeds which scanning line is shown. Stable per match. */
   variantSeed: number;
+  /**
+   * `seam` is the lead-in card wedged between the two video tiles
+   * in the emoji duel. `hero` is the dedicated FaceSync mode, where
+   * the resemblance IS the round, so the number gets room to be the
+   * main event. Same copy, same count-up, larger type.
+   */
+  variant?: "seam" | "hero";
 }
 
 /** How long the number spends counting up to its final value. */
@@ -111,7 +118,9 @@ export default function FaceSync({
   sampleCount,
   sampleTarget,
   variantSeed,
+  variant = "seam",
 }: FaceSyncProps) {
+  const hero = variant === "hero";
   const reduceMotion = useReducedMotion() ?? false;
   const revealing = phase === "showing_result" && result !== null;
   const { display, landed } = useCountUp(revealing ? result.score : null, reduceMotion);
@@ -125,11 +134,11 @@ export default function FaceSync({
       exit={reduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.94 }}
       transition={{ type: "spring", stiffness: 320, damping: 24 }}
       className={cn(
-        "pointer-events-none z-30 flex w-full max-w-[320px] flex-col items-center gap-1.5",
-        "rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)]",
-        "px-3 py-2 text-center shadow-[4px_4px_0_0_var(--charcoal)]",
-        "sm:max-w-[200px] sm:gap-2 sm:rounded-3xl sm:border-[4px] sm:px-4 sm:py-4",
-        "sm:shadow-[6px_6px_0_0_var(--charcoal)]",
+        "pointer-events-none z-30 flex w-full flex-col items-center text-center",
+        "border-[var(--charcoal)] bg-[var(--off-white-2)]",
+        hero
+          ? "max-w-[420px] gap-2 rounded-3xl border-[4px] px-6 py-6 shadow-[8px_8px_0_0_var(--charcoal)] sm:gap-3 sm:px-8 sm:py-8"
+          : "max-w-[320px] gap-1.5 rounded-2xl border-[3px] px-3 py-2 shadow-[4px_4px_0_0_var(--charcoal)] sm:max-w-[200px] sm:gap-2 sm:rounded-3xl sm:border-[4px] sm:px-4 sm:py-4 sm:shadow-[6px_6px_0_0_var(--charcoal)]",
       )}
       /*
        * Lifecycle phase, exposed for diagnostics and end-to-end
@@ -150,7 +159,10 @@ export default function FaceSync({
     >
       {/* Eyebrow — constant across every phase so the card has a
           stable identity while its contents change. */}
-      <span className="font-display text-[9px] font-black uppercase tracking-[0.2em] text-[var(--purple-deep)] sm:text-[10px]">
+      <span className={cn(
+        "font-display font-black uppercase tracking-[0.2em] text-[var(--purple-deep)]",
+        hero ? "text-[11px] sm:text-xs" : "text-[9px] sm:text-[10px]",
+      )}>
         <span aria-hidden>⚡ </span>
         FaceSync
       </span>
@@ -175,13 +187,21 @@ export default function FaceSync({
                   : { scale: 1 }
               }
               transition={{ duration: 0.34, ease: "easeOut" }}
-              className="font-display text-[2.6rem] font-black leading-none tracking-tight tabular text-[var(--charcoal)] sm:text-[3.4rem]"
+              className={cn(
+                "font-display font-black leading-none tracking-tight tabular text-[var(--charcoal)]",
+                hero
+                  ? "text-[clamp(4rem,20vw,6.5rem)]"
+                  : "text-[2.6rem] sm:text-[3.4rem]",
+              )}
             >
               {display}
-              <span className="text-[1.4rem] sm:text-[1.8rem]">%</span>
+              <span className={hero ? "text-[0.45em]" : "text-[1.4rem] sm:text-[1.8rem]"}>%</span>
             </motion.span>
 
-            <span className="font-display text-[9px] font-black uppercase tracking-[0.16em] text-[var(--pink-deep)] sm:text-[11px]">
+            <span className={cn(
+              "font-display font-black uppercase tracking-[0.16em] text-[var(--pink-deep)]",
+              hero ? "text-base sm:text-xl" : "text-[9px] sm:text-[11px]",
+            )}>
               {bandLabel(result.category)}
             </span>
 
@@ -189,7 +209,10 @@ export default function FaceSync({
               initial={reduceMotion ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: reduceMotion ? 0 : 0.45 }}
-              className="text-[11px] font-bold leading-snug text-[var(--charcoal)] sm:text-[13px]"
+              className={cn(
+                "font-bold leading-snug text-[var(--charcoal)]",
+                hero ? "text-base sm:text-lg" : "text-[11px] sm:text-[13px]",
+              )}
             >
               {bandLine(result.category, result.variant)}
             </motion.p>
@@ -249,7 +272,10 @@ export default function FaceSync({
       </AnimatePresence>
 
       {/* Always present, never loud. */}
-      <p className="text-[8px] font-semibold leading-tight text-[var(--on-surface-variant)] opacity-70 sm:text-[9px]">
+      <p className={cn(
+        "font-semibold leading-tight text-[var(--on-surface-variant)] opacity-70",
+        hero ? "text-[10px] sm:text-[11px]" : "text-[8px] sm:text-[9px]",
+      )}>
         {FACE_SYNC_DISCLAIMER}
       </p>
     </motion.div>

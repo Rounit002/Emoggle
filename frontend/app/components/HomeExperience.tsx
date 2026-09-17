@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { MotionConfig } from "framer-motion";
 import CelebrityDuelArena from "./CelebrityDuelArena";
 import DuelArena from "./DuelArena";
+import FaceSyncArena from "./FaceSyncArena";
 import ModeSelect from "./ModeSelect";
 import SoloFaceJudge from "./SoloFaceJudge";
 import { MediaPipeFaceProvider } from "../context/MediaPipeFaceContext";
@@ -13,13 +14,14 @@ import { CountryProvider } from "../context/CountryContext";
 import { RevenueCatProvider } from "../context/RevenueCatContext";
 import { useSmoothScrollController } from "./SmoothScroll";
 
-type View = "home" | "arena" | "solo" | "celebrity";
-type ModeId = "camera" | "solo" | "celebrity";
+type View = "home" | "arena" | "solo" | "celebrity" | "facesync";
+type ModeId = "camera" | "solo" | "celebrity" | "facesync";
 
 const VIEW_BY_MODE: Record<ModeId, View> = {
   camera: "arena",
   solo: "solo",
   celebrity: "celebrity",
+  facesync: "facesync",
 };
 
 export default function HomeExperience() {
@@ -104,6 +106,10 @@ function HomeContent() {
 
   if (view === "celebrity") {
     return <CelebrityDuelArena onBack={handleBack} />;
+  }
+
+  if (view === "facesync") {
+    return <FaceSyncArena onBack={handleBack} />;
   }
 
   return <ModeSelect onSelect={handleSelect} />;

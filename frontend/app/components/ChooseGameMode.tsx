@@ -5,13 +5,16 @@
  * --------------
  * A full-screen mode picker. The "Play now" CTA on the home
  * page opens this instead of dropping the user straight into
- * stranger matchmaking. Three options, all with the same
+ * stranger matchmaking. Four options, all with the same
  * sticker-card visual language as the rest of Emoggle:
  *
  *  - Solo          – play the emoji-expression challenge alone
  *                    and beat your own score.
  *  - Stranger      – the existing random-matchmaking flow.
  *  - Celebrity     – the VIP celebrity-expression game.
+ *  - FaceSync      – pair with a stranger and see how much you
+ *                    two look alike. Its own queue, so nobody who
+ *                    picks it lands in an emoji duel instead.
  *
  * The celebrity option still goes through the existing paywall
  * logic; the parent passes the same `onSelect` callback it
@@ -37,7 +40,7 @@ import {
   cn,
 } from "../ui";
 
-export type GameMode = "camera" | "solo" | "celebrity";
+export type GameMode = "camera" | "solo" | "celebrity" | "facesync";
 
 export interface ChooseGameModeProps {
   open: boolean;
@@ -56,7 +59,7 @@ interface ModeOption {
   /** One-line description for the card. */
   description: string;
   /** Background fill colour for the card body. */
-  fill: "yellow" | "purple" | "pink";
+  fill: "yellow" | "purple" | "pink" | "violet";
   /** CTA label on the card button. */
   cta: string;
   /** Small icon next to the CTA. */
@@ -74,6 +77,10 @@ const FILL_CLASSES: Record<ModeOption["fill"], string> = {
   yellow: "on-accent bg-[var(--yellow)] text-[var(--ink)]",
   purple: "on-accent-inverse bg-[var(--purple)] text-[var(--ink)]",
   pink: "on-accent bg-[var(--pink)] text-[var(--ink)]",
+  // FaceSync gets the soft purple wash rather than a fourth hue:
+  // the palette only has three accents, and inventing one would
+  // put a colour on screen that exists nowhere else.
+  violet: "on-accent bg-[var(--purple-container)] text-[var(--ink)]",
 };
 
 const MODE_OPTIONS: ModeOption[] = [
@@ -98,6 +105,17 @@ const MODE_OPTIONS: ModeOption[] = [
     ctaIcon: <Camera size={18} />,
     badge: "Live",
     tilt: "tilt-r-1",
+  },
+  {
+    id: "facesync",
+    glyph: "⚡",
+    title: "FaceSync",
+    description: "Match with a stranger and find out how much you two actually look alike.",
+    fill: "violet",
+    cta: "Compare Faces",
+    ctaIcon: <Sparkle size={18} />,
+    badge: "New",
+    tilt: "tilt-r-2",
   },
   {
     id: "celebrity",

@@ -34,13 +34,13 @@ import { ChooseGameMode, type GameMode } from "./ChooseGameMode";
 import { NameEntryModal } from "./NameEntryModal";
 
 interface ModeSelectProps {
-  onSelect: (mode: "camera" | "solo" | "celebrity") => void;
+  onSelect: (mode: ModeId) => void;
 }
 
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 
-type ModeId = "camera" | "solo" | "celebrity";
+type ModeId = "camera" | "solo" | "celebrity" | "facesync";
 
 interface ModeCard {
   id: ModeId;

@@ -49,7 +49,12 @@ export type MatchStatus =
   | "stopped"
   | "error";
 
-export type MatchGameMode = "emoji" | "celebrity";
+/**
+ * Which queue a client joins. The server refuses to pair across
+ * modes, so someone who chose FaceSync is never dropped into a
+ * ten-second emoji duel they did not ask for.
+ */
+export type MatchGameMode = "emoji" | "celebrity" | "facesync";
 
 export interface ChatMessage {
   text: string;
