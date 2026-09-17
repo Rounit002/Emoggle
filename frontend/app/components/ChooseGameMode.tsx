@@ -254,8 +254,23 @@ export function ChooseGameMode({
             </button>
           </div>
 
-          {/* Cards — scroll if they overflow on small phones */}
-          <div className="mt-6 flex-1 overflow-y-auto">
+          {/* Cards — scroll when they overflow the viewport.
+              Two things are load-bearing here:
+
+              `min-h-0` because a flex child defaults to
+              `min-height: auto` and so refuses to shrink below its
+              content. Without it this box just grows past the
+              bottom of the screen and `overflow-y-auto` never has
+              anything to scroll.
+
+              `data-lenis-prevent` because Lenis runs as the root
+              smooth-scroll and swallows wheel events document-wide;
+              a nested scroller has to opt out or the wheel does
+              nothing over it. Same pattern as the chat log. */}
+          <div
+            data-lenis-prevent
+            className="mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          >
             <ul className="mx-auto flex w-full max-w-2xl flex-col gap-5 pb-6 sm:gap-6">
               {MODE_OPTIONS.map((option, index) => {
                 const isCelebrity = option.id === "celebrity";
