@@ -8,8 +8,10 @@ import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
 import { ScrollReveal } from "./home/EmojiMotion";
 import {
+  GooeyBlock,
   Headline,
   PulseDot,
+  RotateBlock,
   TypewriterBlock,
 } from "./home/HeadlineMotion";
 import {
@@ -38,6 +40,52 @@ const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 
 type ModeId = "camera" | "solo" | "celebrity" | "facesync";
+
+/* Which animation the hero's purple chip uses.
+
+   "textrotate"  — phrases slide up and out of the chip character by
+                   character while the next slides in, and the chip resizes
+                   to fit (components/ui/text-rotate.tsx).
+   "gooey"       — phrases blur and bleed into one another through an SVG
+                   threshold filter (components/ui/gooey-text-morphing.tsx).
+   "typewriter"  — the original design: one phrase typed out character by
+                   character with a blinking caret.
+
+   All three paths are live code. Flip this constant to switch the hero;
+   nothing else needs to change, and every block stays exported from
+   home/HeadlineMotion either way. */
+const HERO_CHIP_ANIMATION: "textrotate" | "gooey" | "typewriter" = "typewriter";
+
+/* The second line of the hero headline, in two halves.
+
+   "textrotate" keeps the first half still and rotates only the second, so
+   just the closing word wears the purple chip. "gooey" and "typewriter"
+   animate the line as one phrase, so they take the halves already joined.
+   Both are derived from the same two constants — edit the copy here and
+   every variant follows.
+
+   Module-level so the arrays keep their identity across renders: a fresh
+   array each render would restart the animation. "Make friends." stays
+   first, since that is the phrase that ships in the server-rendered <h1>
+   for crawlers and screen readers. */
+const HERO_CHIP_STATIC_WORD = "Make";
+const HERO_CHIP_ROTATING_WORDS = ["friends.", "faces.", "chaos."];
+const HERO_CHIP_PHRASES = HERO_CHIP_ROTATING_WORDS.map(
+  (word) => `${HERO_CHIP_STATIC_WORD} ${word}`
+);
+
+/* Font size and top margin for that whole line. Separate from the sticker
+   below because the rotating variant puts the static word outside the chip,
+   and both halves have to be sized as one line. */
+const HERO_CHIP_LINE_CLASSNAME = "mt-2 text-[0.82em] sm:mt-3 sm:text-[1em]";
+
+/* The chip itself: purple sticker, hard offset shadow, tilted a couple of
+   degrees off true. */
+const HERO_CHIP_STICKER_CLASSNAME =
+  "inline-block whitespace-nowrap rotate-[-2deg] rounded-2xl border-[3px] border-[var(--ink-shadow)] on-accent-inverse bg-[var(--purple)] px-3 py-1 text-[var(--ink)] shadow-[6px_6px_0_0_var(--ink-shadow)] sm:px-5 sm:py-2";
+
+/* The two joined, for the variants that put the whole phrase in one chip. */
+const HERO_CHIP_CLASSNAME = `${HERO_CHIP_LINE_CLASSNAME} ${HERO_CHIP_STICKER_CLASSNAME}`;
 
 interface ModeCard {
   id: ModeId;
@@ -353,19 +401,52 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 stagger={0.1}
               />
               <br />
-              {/* "Make friends." — classic typewriter on the
-                  purple chip. The block still pops in (same
-                  spring as before, so the landing stays tactile),
-                  then the text types out character by character
-                  with a blinking caret. This instance deliberately
-                  uses a slower character cadence than the primitive's
-                  default so "Make friends." has time to register. */}
-              <TypewriterBlock
-                text="Make friends."
-                startDelay={0.3}
-                typingSpeed={90}
-                className="mt-2 inline-block whitespace-nowrap rotate-[-2deg] rounded-2xl border-[3px] border-[var(--ink-shadow)] on-accent-inverse bg-[var(--purple)] px-3 py-1 text-[0.82em] text-[var(--ink)] shadow-[6px_6px_0_0_var(--ink-shadow)] sm:mt-3 sm:px-5 sm:py-2 sm:text-[1em]"
-              />
+              {/* The purple chip. All three animations pop the block
+                  in with the same spring, so the landing stays tactile
+                  whichever is active; they differ only in what happens
+                  to the text afterwards. HERO_CHIP_ANIMATION at the top
+                  of this file picks between them. */}
+              {HERO_CHIP_ANIMATION === "textrotate" ? (
+                /* Half still, half moving: "Make" holds its place in
+                   headline charcoal and only the closing word rotates
+                   inside the chip, sliding up and out character by
+                   character, last character first, while the next
+                   slides in from below. */
+                <RotateBlock
+                  texts={HERO_CHIP_ROTATING_WORDS}
+                  staticText={HERO_CHIP_STATIC_WORD}
+                  delay={0.1}
+                  rotationInterval={2600}
+                  lineClassName={HERO_CHIP_LINE_CLASSNAME}
+                  className={HERO_CHIP_STICKER_CLASSNAME}
+                />
+              ) : HERO_CHIP_ANIMATION === "gooey" ? (
+                /* Gooey morph: the chip cycles through
+                   HERO_CHIP_PHRASES, each phrase blurring and bleeding
+                   into the next. Sized to the longest phrase so it holds
+                   its shape instead of resizing mid-morph. The cooldown
+                   is longer than the primitive's default so each phrase
+                   reads as a sentence before it dissolves. */
+                <GooeyBlock
+                  texts={HERO_CHIP_PHRASES}
+                  label={HERO_CHIP_PHRASES[0]}
+                  delay={0.1}
+                  morphTime={0.9}
+                  cooldownTime={1.1}
+                  className={HERO_CHIP_CLASSNAME}
+                />
+              ) : (
+                /* Original design, kept for rollback: "Make friends."
+                   typed out character by character with a blinking
+                   caret, at a slower cadence than the primitive's
+                   default so it has time to register. */
+                <TypewriterBlock
+                  text="Make friends."
+                  startDelay={0.3}
+                  typingSpeed={90}
+                  className={HERO_CHIP_CLASSNAME}
+                />
+              )}
             </h1>
 
             <motion.p
