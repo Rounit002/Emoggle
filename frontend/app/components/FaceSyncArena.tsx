@@ -47,7 +47,6 @@ import {
   Mic,
   MicOff,
   Refresh,
-  cn,
 } from "../ui";
 
 interface FaceSyncArenaProps {
@@ -190,20 +189,19 @@ export default function FaceSyncArena({ onBack }: FaceSyncArenaProps) {
       </header>
 
       <main
-        className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-3 sm:gap-6 sm:p-6"
+        className="flex min-h-0 flex-1 flex-col items-center gap-3 p-3 sm:gap-4 sm:p-4 lg:gap-6 lg:p-6"
         aria-label="FaceSync arena"
       >
         {/* Faces stay visible the whole time — the entire joke is
             "do these two look alike", which does not work if the
             result covers them. Stacked on a phone, side by side on
             a desktop, with the card between. */}
-        <div className="grid w-full max-w-[1320px] flex-none grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:gap-6">
+        <div className="grid w-full flex-none grid-cols-1 items-start gap-6 sm:grid-cols-2 sm:gap-8">
           <FaceTile
             label="YOU"
             name={myName ?? "You"}
             country={myCountry}
             countryCode={myCountryCode}
-            accent="purple"
             isLocal
             localStream={localStream}
             webcamRef={webcamRef}
@@ -214,7 +212,7 @@ export default function FaceSyncArena({ onBack }: FaceSyncArenaProps) {
             isMicMuted={isMicMuted}
           />
 
-          <div className="flex w-full items-center justify-center py-1 sm:w-[380px] sm:py-0">
+          <div className="order-last flex w-full items-center justify-center py-1 sm:col-span-2 [&>*]:max-w-[420px]">
             <AnimatePresence mode="wait" initial={false}>
               {inMatch && faceSyncResult ? (
                 <FaceSync
@@ -251,7 +249,6 @@ export default function FaceSyncArena({ onBack }: FaceSyncArenaProps) {
             name={partnerName ?? "Stranger"}
             country={partnerCountry}
             countryCode={partnerCountryCode}
-            accent="pink"
             isLocal={false}
             remoteStream={remoteStream}
           />
@@ -323,7 +320,6 @@ interface FaceTileProps {
   name: string;
   country: string | null;
   countryCode: string | null;
-  accent: "purple" | "pink";
   isLocal: boolean;
   localStream?: MediaStream | null;
   remoteStream?: MediaStream | null;
@@ -340,7 +336,6 @@ function FaceTile({
   name,
   country,
   countryCode,
-  accent,
   isLocal,
   localStream,
   remoteStream,
@@ -353,15 +348,10 @@ function FaceTile({
 }: FaceTileProps) {
   return (
     <div
-      className={cn(
-        "relative aspect-[4/3] w-full overflow-hidden rounded-[1.75rem] border-[4px] bg-[var(--off-white-2)]",
-        "shadow-[5px_5px_0_0_var(--charcoal)] sm:aspect-video sm:rounded-3xl sm:shadow-[8px_8px_0_0_var(--charcoal)]",
-        accent === "purple"
-          ? "border-[var(--purple-deep)] sm:-rotate-[1.5deg]"
-          : "border-[var(--pink-deep)] sm:rotate-[1.5deg]",
-      )}
+      className="relative mx-auto w-full max-w-[360px] min-w-0 sm:max-w-none"
     >
       <VideoPanel
+        framed
         ref={webcamRef}
         label={label}
         playerName={name}
@@ -391,7 +381,7 @@ function FaceTile({
       />
 
       {isLocal && onToggleMic && (
-        <div className="absolute bottom-2.5 right-2.5 z-40">
+        <div className="absolute bottom-14 right-3 z-40">
           <IconButton
             size="sm"
             variant={isMicMuted ? "default" : "purple"}

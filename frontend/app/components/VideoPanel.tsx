@@ -50,6 +50,8 @@ interface VideoPanelProps {
   faceLandmarks?: FaceLandmark[] | null;
   /** Remove the inner frame on narrow duel layouts only. */
   fullBleedOnMobile?: boolean;
+  /** Wide camera card with an outside seat label and location. */
+  framed?: boolean;
 }
 
 const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
@@ -80,6 +82,7 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
       scanBox = null,
       faceLandmarks = null,
       fullBleedOnMobile = false,
+      framed = false,
     },
     ref
   ) => {
@@ -100,11 +103,22 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
     const effectiveCameraStatus = localCameraStatus ?? (localStream ? "ready" : "requesting");
 
     return (
-      <div className={`relative h-full w-full min-h-0 min-w-0 overflow-hidden bg-zinc-900 transition-shadow duration-700 ${panelShape} ${panelBorder}`}>
+      <div className={framed ? "mx-auto flex w-full max-w-[360px] min-w-0 flex-col gap-3 sm:max-w-none" : "contents"}>
+        {framed && (
+          <span className="ml-4 w-fit rounded-lg border-2 border-[var(--charcoal)] bg-[var(--off-white)] px-4 py-1 font-display text-sm font-bold text-[var(--charcoal)]">{label}</span>
+        )}
+      <div className={framed
+        ? `relative aspect-[4/3] w-full min-w-0 overflow-hidden rounded-[1.75rem] border-[4px] bg-zinc-900 sm:aspect-video sm:rounded-3xl ${isLocal ? "border-[#1976d2]" : "border-[var(--pink-deep)]"}`
+        : `relative h-full w-full min-h-0 min-w-0 overflow-hidden bg-zinc-900 transition-shadow duration-700 ${panelShape} ${panelBorder}`}>
         <div className="pointer-events-none absolute inset-0 z-20 border border-white/10 shadow-[inset_0_0_80px_rgba(0,0,0,0.65)]" />
         <div className="pointer-events-none absolute inset-0 z-20 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:100%_4px] opacity-35 mix-blend-screen" />
 
-        {!isRevealing && !isJudging && (
+        {framed && !isRevealing && !isJudging && (
+          <div className="absolute left-3 top-3 z-30 max-w-[calc(100%-1.5rem)] truncate rounded-lg border-2 border-[var(--charcoal)] bg-[var(--off-white)] px-3 py-1 font-display text-sm font-bold text-[var(--charcoal)]">
+            {playerName ?? label}
+          </div>
+        )}
+        {!framed && !isRevealing && !isJudging && (
           <>
             <div className="absolute top-3 left-3 z-30 rounded-full border border-white/15 bg-black/65 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-zinc-200 backdrop-blur-md">
               {label}
@@ -287,6 +301,13 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
           >
             {roast}
           </motion.p>
+        )}
+      </div>
+        {framed && (
+          <span className="ml-4 flex w-fit max-w-[calc(100%-2rem)] items-center gap-2 rounded-lg border-2 border-[var(--charcoal)] bg-[var(--off-white)] px-3 py-1 text-sm font-bold text-[var(--charcoal)]">
+            <span aria-hidden>{flag}</span>
+            <span className="truncate">{country || "Location unavailable"}</span>
+          </span>
         )}
       </div>
     );

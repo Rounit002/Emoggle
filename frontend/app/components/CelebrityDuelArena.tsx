@@ -422,8 +422,9 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
           onImageError={() => setImageLoadError(true)}
         />
 
-        <div className="relative grid flex-none grid-cols-1 gap-3 sm:min-h-[360px] sm:grid-cols-2 sm:gap-4 lg:min-h-[420px]">
+        <div className="relative grid flex-none grid-cols-1 items-start gap-6 sm:grid-cols-2 sm:gap-8">
           <VideoPanel
+            framed
             ref={webcamRef}
             label="YOU"
             isLocal
@@ -445,6 +446,7 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
             onRetryCamera={retryCamera}
           />
           <VideoPanel
+            framed
             label="RIVAL"
             isLocal={false}
             playerName={partnerName ?? "Rival"}
