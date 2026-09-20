@@ -30,6 +30,12 @@ import {
 } from "../ui";
 import { ChooseGameMode, type GameMode } from "./ChooseGameMode";
 import { NameEntryModal } from "./NameEntryModal";
+import {
+  getCurrentUser,
+  isGoogleUser,
+  isSupabaseConfigured,
+  signInWithGoogle,
+} from "../lib/supabase/profile";
 
 interface ModeSelectProps {
   onSelect: (mode: ModeId) => void;
@@ -195,6 +201,15 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     }
   }, [sessionToken]);
 
+  const hasGoogleAccount = useCallback(async () => {
+    if (!isSupabaseConfigured()) return false;
+    try {
+      return isGoogleUser(await getCurrentUser());
+    } catch {
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     if (isSessionReady) void refreshBillingStatus();
   }, [isSessionReady, refreshBillingStatus]);
@@ -282,6 +297,19 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
     if ((mode === "celebrity" || mode === "facesync") && !isVIP) {
       const access = billingStatus ?? await refreshBillingStatus();
       if (access && !access.hasPaidAccess && access.freeRoundsRemaining <= 0) {
+        if (!isSupabaseConfigured()) {
+          setBillingMessage("Google sign-in is temporarily unavailable. Please try again later.");
+          return;
+        }
+        if (!await hasGoogleAccount()) {
+          setBillingMessage("Your free rounds are used. Opening Google sign-in…");
+          try {
+            await signInWithGoogle();
+          } catch {
+            setBillingMessage("Could not open Google sign-in. Please try again.");
+          }
+          return;
+        }
         if (!access.billingEnabled) {
           setBillingMessage("Payments are temporarily unavailable. Please try again later.");
           return;
@@ -586,7 +614,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
             {isVIP || billingStatus?.hasPaidAccess ? (
               <Pill tone="yellow">Face modes unlocked</Pill>
             ) : billingStatus ? (
-              <Pill tone="yellow">{billingStatus.freeRoundsRemaining} free face mode rounds · $2 once after</Pill>
+              <Pill tone="yellow">{billingStatus.freeRoundsRemaining} free face mode rounds · Google sign-in + $2 once after</Pill>
             ) : null}
           </div>
 
@@ -677,6 +705,11 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
         isVIP={isVIP}
         freeRoundsRemaining={billingStatus?.freeRoundsRemaining ?? 10}
         hasPaidAccess={billingStatus?.hasPaidAccess ?? false}
+        requiresGoogleSignIn={
+          !isVIP &&
+          billingStatus?.hasPaidAccess !== true &&
+          billingStatus?.freeRoundsRemaining === 0
+        }
       />
 
       {/* Name entry — first-time gate or "edit name" affordance.

@@ -52,6 +52,8 @@ export interface ChooseGameModeProps {
   isVIP?: boolean;
   freeRoundsRemaining?: number;
   hasPaidAccess?: boolean;
+  /** Require a Google account before checkout after free rounds are used. */
+  requiresGoogleSignIn?: boolean;
 }
 
 interface ModeOption {
@@ -141,6 +143,7 @@ export function ChooseGameMode({
   isVIP = false,
   freeRoundsRemaining = 10,
   hasPaidAccess = false,
+  requiresGoogleSignIn = false,
 }: ChooseGameModeProps) {
   const reduceMotion = useReducedMotion();
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -343,7 +346,9 @@ export function ChooseGameMode({
                         <p className="text-xs font-bold leading-snug opacity-90 sm:text-sm">
                           {hasPaidAccess || isVIP
                             ? "Unlocked for this device"
-                            : `${freeRoundsRemaining} free rounds · then $2 once for both face modes`}
+                            : requiresGoogleSignIn
+                              ? "Free rounds used · sign in with Google, then $2 once for both face modes"
+                              : `${freeRoundsRemaining} free rounds · then Google sign-in + $2 once for both face modes`}
                         </p>
                       )}
                     </div>

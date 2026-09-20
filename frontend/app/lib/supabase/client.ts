@@ -67,10 +67,10 @@ export function getSupabaseClient(): SupabaseClient | null {
       persistSession: true,
       autoRefreshToken: true,
       storageKey: SUPABASE_AUTH_STORAGE_KEY,
-      // Emoggle has no OAuth redirect, so there is never a session
-      // in the URL to parse. Leaving this on makes the library scan
-      // every navigation for a token it will never find.
-      detectSessionInUrl: false,
+      // Google returns the Supabase session in the OAuth callback URL.
+      // Parsing it here turns the completed sign-in into the persisted
+      // browser session used by the rest of the app.
+      detectSessionInUrl: true,
     },
   });
   return client;

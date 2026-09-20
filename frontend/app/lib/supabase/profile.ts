@@ -156,6 +156,23 @@ export async function getCurrentUser(): Promise<User | null> {
   return data.session?.user ?? null;
 }
 
+/** True only for a session created through Google OAuth. */
+export function isGoogleUser(user: User | null | undefined): boolean {
+  if (!user) return false;
+  if (user.app_metadata?.provider === "google") return true;
+  return user.identities?.some((identity) => identity.provider === "google") ?? false;
+}
+
+/** Send the player to Google, returning them to the page they started from. */
+export async function signInWithGoogle(): Promise<void> {
+  const client = requireClient();
+  const { error } = await client.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: `${window.location.origin}/` },
+  });
+  if (error) throw classify(error);
+}
+
 /**
  * The Supabase user for this browser, creating an anonymous one on
  * first visit.
