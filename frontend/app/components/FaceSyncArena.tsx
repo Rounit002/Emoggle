@@ -29,6 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import FaceSync from "./FaceSync";
+import ChatBox from "./ChatBox";
 import { useMatchmaking } from "../hooks/useMatchmaking";
 import { useFaceSync } from "../hooks/useFaceSync";
 import { useLocalCamera } from "../hooks/useLocalCamera";
@@ -79,6 +80,11 @@ export default function FaceSyncArena({ onBack }: FaceSyncArenaProps) {
     partnerCountry,
     partnerCountryCode,
     currentMatchId,
+    messages,
+    sendChat,
+    rivalTyping,
+    sendTyping,
+    reportPartner,
     faceSyncResult,
     faceSyncSkippedFor,
     sendFaceSyncSample,
@@ -255,6 +261,23 @@ export default function FaceSyncArena({ onBack }: FaceSyncArenaProps) {
             remoteStream={remoteStream}
           />
         </div>
+
+        {/* The chat belongs to the active FaceSync session and spans the
+            complete camera area, matching the two-up layout above it. */}
+        {inMatch && (
+          <div className="h-[72px] w-full flex-none sm:h-[300px]">
+            <ChatBox
+              messages={messages}
+              onSend={sendChat}
+              onTyping={sendTyping}
+              rivalTyping={rivalTyping}
+              partnerLabel={partnerName ?? "Stranger"}
+              matchId={currentMatchId}
+              onReport={reportPartner}
+              compactOnMobile
+            />
+          </div>
+        )}
 
         {/* One action, and only once there is something to move on
             from. Offering "next" mid-scan would just make people
