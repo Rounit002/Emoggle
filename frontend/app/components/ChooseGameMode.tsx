@@ -338,18 +338,46 @@ export function ChooseGameMode({
                             {badgeText}
                           </span>
                         )}
+                        {isPaidFaceMode && !hasPaidAccess && !isVIP && (
+                          <span className="inline-flex items-center gap-1 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--on-accent)] shadow-[2px_2px_0_0_var(--charcoal)]">
+                            <Sparkle size={11} aria-hidden />
+                            Face pass
+                            <span className="rounded-full bg-[var(--charcoal)] px-1.5 py-px text-[9px] text-[var(--off-white)]">
+                              $2
+                            </span>
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm leading-snug opacity-90 sm:text-base">
                         {option.description}
                       </p>
                       {isPaidFaceMode && (
-                        <p className="text-xs font-bold leading-snug opacity-90 sm:text-sm">
-                          {hasPaidAccess || isVIP
-                            ? "Unlocked for this device"
-                            : requiresGoogleSignIn
-                              ? "Free rounds used · sign in with Google, then $2 once for both face modes"
-                              : `${freeRoundsRemaining} free rounds · then Google sign-in + $2 once for both face modes`}
-                        </p>
+                        <div
+                          className={cn(
+                            "mt-1 inline-flex w-fit max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border-[2px] border-[var(--charcoal)] px-2.5 py-1.5 text-xs font-bold leading-snug shadow-[3px_3px_0_0_var(--charcoal)] sm:text-sm",
+                            hasPaidAccess || isVIP
+                              ? "bg-[var(--off-white)] text-[var(--charcoal)]"
+                              : requiresGoogleSignIn
+                                ? "bg-[var(--pink)] text-[var(--on-accent)]"
+                                : "bg-[var(--off-white)] text-[var(--charcoal)]",
+                          )}
+                        >
+                          <Sparkle size={14} aria-hidden />
+                          {hasPaidAccess || isVIP ? (
+                            <span>Unlocked for this device</span>
+                          ) : requiresGoogleSignIn ? (
+                            <span>Free rounds used · sign in with Google, then unlock for $2</span>
+                          ) : (
+                            <>
+                              <span>
+                                <strong className="font-display text-base leading-none">{freeRoundsRemaining}</strong>{" "}
+                                free rounds left
+                              </span>
+                              <span aria-hidden className="h-4 border-l-2 border-[var(--charcoal)]/45" />
+                              <span>Google + $2 unlock</span>
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
 
@@ -366,7 +394,9 @@ export function ChooseGameMode({
                         "touch-manipulation cursor-pointer transition-[transform,box-shadow,background-color,opacity] duration-150 ease-out motion-reduce:transition-none disabled:cursor-wait disabled:opacity-60 disabled:active:translate-y-0",
                         isCelebrity
                           ? "bg-[var(--pink)] text-[var(--on-accent)] hover:bg-[var(--pink-hover)] sm:w-auto"
-                          : "bg-[var(--off-white)] text-[var(--charcoal)] hover:bg-[var(--off-white-2)] sm:w-auto",
+                          : isPaidFaceMode && !hasPaidAccess && !isVIP
+                            ? "bg-[var(--yellow)] text-[var(--on-accent)] hover:brightness-95 sm:w-auto"
+                            : "bg-[var(--off-white)] text-[var(--charcoal)] hover:bg-[var(--off-white-2)] sm:w-auto",
                       )}
                     >
                       <span
