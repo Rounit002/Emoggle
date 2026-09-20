@@ -21,6 +21,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const rateLimit = require("express-rate-limit");
+const DodoPayments = require("dodopayments");
 const { pool, initSchema } = require("./db");
 const {
   SESSION_COOKIE_NAME,
@@ -424,6 +425,7 @@ function mapUserRow(row) {
     socketId: row.socket_id,
     elo: row.elo,
     isVIP: row.is_vip,
+    deviceId: row.device_id ?? null,
     createdAt: row.created_at,
   };
 }
@@ -511,13 +513,19 @@ function scrubChatText(raw) {
   );
 }
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({
+  limit: "1mb",
+  verify: (req, _res, buffer) => { req.rawBody = buffer.toString("utf8"); },
+}));
 
 // Apply rate limiting to all /api routes
 app.use("/api", apiLimiter);
 
 // ─── Anonymous authenticated sessions ───────────────────────────────────────
 app.post("/api/session", sessionLimiter, requireTrustedMutationOrigin, async (req, res) => {
+  const requestedDeviceId = UUID_PATTERN.test(req.body?.deviceId || "")
+    ? req.body.deviceId
+    : crypto.randomUUID();
   // DB-less dev mode: serve a fully in-memory session so the
   // celebrity arena (and the rest of the matchmaking pipeline)
   // can run end-to-end without a Postgres connection. Tokens
@@ -531,18 +539,20 @@ app.post("/api/session", sessionLimiter, requireTrustedMutationOrigin, async (re
           id: existing.id,
           elo: existing.elo,
           isVIP: false,
+          deviceId: existing.deviceId ?? requestedDeviceId,
           socketToken: existingToken,
         });
       }
     }
     const userId = crypto.randomUUID();
     const rawToken = crypto.randomBytes(32).toString("hex");
-    memoryUsers.set(userId, { id: userId, elo: MEMORY_DEFAULT_ELO, is_vip: false });
-    memorySessions.set(rawToken, { id: userId, elo: MEMORY_DEFAULT_ELO });
+    memoryUsers.set(userId, { id: userId, elo: MEMORY_DEFAULT_ELO, is_vip: false, device_id: requestedDeviceId });
+    memorySessions.set(rawToken, { id: userId, elo: MEMORY_DEFAULT_ELO, device_id: requestedDeviceId });
     return res.status(201).json({
       id: userId,
       elo: MEMORY_DEFAULT_ELO,
       isVIP: false,
+      deviceId: requestedDeviceId,
       socketToken: rawToken,
     });
   }
@@ -555,11 +565,20 @@ app.post("/api/session", sessionLimiter, requireTrustedMutationOrigin, async (re
     try {
       const existingUser = await findSessionUser(existingToken);
       if (existingUser) {
+        if (!existingUser.device_id) {
+          await pool.query(`UPDATE users SET device_id = $1 WHERE id = $2 AND device_id IS NULL`, [requestedDeviceId, existingUser.id]);
+          existingUser.device_id = requestedDeviceId;
+        }
+        await pool.query(
+          `INSERT INTO game_access (device_id) VALUES ($1) ON CONFLICT (device_id) DO NOTHING`,
+          [existingUser.device_id],
+        );
         res.cookie(SESSION_COOKIE_NAME, existingToken, sessionCookieOptions());
         return res.json({
           id: existingUser.id,
           elo: existingUser.elo,
           isVIP: existingUser.is_vip === true,
+          deviceId: existingUser.device_id,
           socketToken: existingToken,
         });
       }
@@ -577,9 +596,13 @@ app.post("/api/session", sessionLimiter, requireTrustedMutationOrigin, async (re
     client = await pool.connect();
     await client.query("BEGIN");
     const { rows } = await client.query(
-      `INSERT INTO users (id) VALUES ($1)
+      `INSERT INTO users (id, device_id) VALUES ($1, $2)
        RETURNING id, elo, is_vip`,
-      [userId],
+      [userId, requestedDeviceId],
+    );
+    await client.query(
+      `INSERT INTO game_access (device_id) VALUES ($1) ON CONFLICT (device_id) DO NOTHING`,
+      [requestedDeviceId],
     );
     await client.query(
       `INSERT INTO sessions (token, user_id, expires_at)
@@ -592,6 +615,7 @@ app.post("/api/session", sessionLimiter, requireTrustedMutationOrigin, async (re
       id: rows[0].id,
       elo: rows[0].elo,
       isVIP: rows[0].is_vip === true,
+      deviceId: requestedDeviceId,
       socketToken: rawToken,
     });
   } catch (err) {
@@ -611,6 +635,134 @@ app.get("/api/users/me", verifyToken, (req, res) => {
   });
 });
 
+const FREE_FACE_MODE_ROUNDS = 10;
+const FACE_MODE_PRODUCT_ID = process.env.DODO_PAYMENTS_PRODUCT_ID || "";
+function dodoIsConfigured() {
+  return Boolean(process.env.DODO_PAYMENTS_API_KEY && process.env.DODO_PAYMENTS_WEBHOOK_KEY && FACE_MODE_PRODUCT_ID);
+}
+function createDodoClient() {
+  return new DodoPayments({
+    bearerToken: process.env.DODO_PAYMENTS_API_KEY,
+    webhookKey: process.env.DODO_PAYMENTS_WEBHOOK_KEY,
+    environment: process.env.DODO_PAYMENTS_ENVIRONMENT === "test_mode" ? "test_mode" : "live_mode",
+  });
+}
+async function readGameAccess(deviceId) {
+  if (!UUID_PATTERN.test(deviceId || "")) throw new Error("Player device is not linked to this session");
+  await pool.query(`INSERT INTO game_access (device_id) VALUES ($1) ON CONFLICT (device_id) DO NOTHING`, [deviceId]);
+  const { rows } = await pool.query(
+    `SELECT free_rounds_used, (paid_at IS NOT NULL) AS has_paid_access
+       FROM game_access WHERE device_id = $1`,
+    [deviceId],
+  );
+  const used = Number(rows[0]?.free_rounds_used ?? 0);
+  const paid = rows[0]?.has_paid_access === true;
+  return {
+    freeRoundsUsed: used,
+    freeRoundsRemaining: Math.max(0, FREE_FACE_MODE_ROUNDS - used),
+    hasPaidAccess: paid,
+    billingEnabled: dodoIsConfigured(),
+  };
+}
+
+app.get("/api/billing/status", verifyToken, async (req, res) => {
+  try {
+    return res.json(await readGameAccess(req.user.device_id));
+  } catch (err) {
+    warnDbFallback(err);
+    return res.status(503).json({ detail: "Could not load face mode access." });
+  }
+});
+
+app.post("/api/billing/checkout", sessionLimiter, requireTrustedMutationOrigin, verifyToken, async (req, res) => {
+  if (!dodoIsConfigured()) return res.status(503).json({ detail: "Dodo Payments is not configured." });
+  try {
+    const access = await readGameAccess(req.user.device_id);
+    if (access.hasPaidAccess) return res.json({ hasPaidAccess: true });
+    if (access.freeRoundsRemaining > 0) {
+      return res.status(409).json({ detail: "Your free rounds are still available.", ...access });
+    }
+    const baseUrl = (process.env.DODO_PAYMENTS_RETURN_URL || "https://emoggle.com/").replace(/\/$/, "");
+    const session = await createDodoClient().checkoutSessions.create({
+      product_cart: [{ product_id: FACE_MODE_PRODUCT_ID, quantity: 1 }],
+      allowed_payment_method_types: ["credit", "debit"],
+      return_url: `${baseUrl}/?payment=dodo`,
+      cancel_url: `${baseUrl}/?payment=dodo-cancelled`,
+      metadata: {
+        device_id: req.user.device_id,
+        purpose: "emoggle_face_modes_unlock",
+      },
+    });
+    if (!session.checkout_url) return res.status(502).json({ detail: "Dodo did not return a checkout URL." });
+    return res.json({ checkoutUrl: session.checkout_url });
+  } catch (err) {
+    console.error("[Dodo] Checkout session creation failed:", err.message);
+    return res.status(502).json({ detail: "Could not start Dodo checkout." });
+  }
+});
+
+app.post("/api/webhooks/dodo", async (req, res) => {
+  if (!process.env.DODO_PAYMENTS_WEBHOOK_KEY) return res.status(503).json({ detail: "Dodo webhook is not configured." });
+  const headers = {
+    "webhook-id": typeof req.headers["webhook-id"] === "string" ? req.headers["webhook-id"] : "",
+    "webhook-signature": typeof req.headers["webhook-signature"] === "string" ? req.headers["webhook-signature"] : "",
+    "webhook-timestamp": typeof req.headers["webhook-timestamp"] === "string" ? req.headers["webhook-timestamp"] : "",
+  };
+  let event;
+  try {
+    if (!req.rawBody) return res.status(400).json({ detail: "Webhook body is missing." });
+    event = createDodoClient().webhooks.unwrap(req.rawBody, { headers });
+  } catch {
+    return res.status(401).json({ detail: "Invalid Dodo webhook signature." });
+  }
+  const eventId = headers["webhook-id"];
+  if (!eventId || eventId.length > 255) return res.status(400).json({ detail: "Invalid Dodo event ID." });
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const inserted = await client.query(
+      `INSERT INTO dodo_webhook_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING event_id`,
+      [eventId],
+    );
+    if (inserted.rowCount === 0) {
+      await client.query("COMMIT");
+      return res.status(204).end();
+    }
+    if (event.type === "payment.succeeded") {
+      const payment = event.data || {};
+      const deviceId = payment.metadata?.device_id;
+      const productMatches = Array.isArray(payment.product_cart) && payment.product_cart.some(
+        (item) => item?.product_id === FACE_MODE_PRODUCT_ID,
+      );
+      if (payment.metadata?.purpose === "emoggle_face_modes_unlock" && UUID_PATTERN.test(deviceId || "") && productMatches) {
+        await client.query(
+          `INSERT INTO game_access (device_id, paid_at, dodo_payment_id)
+           VALUES ($1, NOW(), $2)
+           ON CONFLICT (device_id) DO UPDATE SET
+             paid_at = COALESCE(game_access.paid_at, EXCLUDED.paid_at),
+             dodo_payment_id = COALESCE(game_access.dodo_payment_id, EXCLUDED.dodo_payment_id),
+             updated_at = NOW()`,
+          [deviceId, payment.payment_id],
+        );
+      }
+    } else if (event.type === "refund.succeeded" && event.data?.is_partial !== true && event.data?.payment_id) {
+      await client.query(
+        `UPDATE game_access SET paid_at = NULL, updated_at = NOW() WHERE dodo_payment_id = $1`,
+        [event.data.payment_id],
+      );
+    }
+    await client.query("COMMIT");
+    return res.status(204).end();
+  } catch (err) {
+    await client?.query("ROLLBACK").catch(() => {});
+    warnDbFallback(err);
+    return res.status(503).json({ detail: "Dodo event could not be recorded." });
+  } finally {
+    client?.release();
+  }
+});
+
 app.delete("/api/session", requireTrustedMutationOrigin, verifyToken, async (req, res) => {
   try {
     await pool.query(`DELETE FROM sessions WHERE token = $1`, [req.sessionTokenHash]);
@@ -627,9 +779,19 @@ app.delete("/api/session", requireTrustedMutationOrigin, verifyToken, async (req
   }
 });
 
-function requireVIP(req, res, next) {
+async function requireVIP(req, res, next) {
   if (req.user?.is_vip === true) return next();
-  return res.status(403).json({ detail: "An active VIP entitlement is required." });
+  try {
+    const access = await readGameAccess(req.user?.device_id);
+    if (access.hasPaidAccess || access.freeRoundsRemaining > 0) return next();
+    if (!access.billingEnabled) {
+      return res.status(503).json({ code: "PAYMENTS_UNAVAILABLE", detail: "Your free face mode rounds are used, but payments are temporarily unavailable." });
+    }
+    return res.status(403).json({ code: "PAYMENT_REQUIRED", detail: "Your 10 free face mode rounds are used. Unlock both face modes for $2." });
+  } catch (err) {
+    warnDbFallback(err);
+    return res.status(503).json({ detail: "Could not verify face mode access." });
+  }
 }
 
 // RevenueCat must send Authorization: Bearer <REVENUECAT_WEBHOOK_SECRET>.
@@ -936,6 +1098,7 @@ async function ensureUser(socketId, userId) {
       socketId,
       elo: existing.elo,
       isVIP: existing.is_vip === true,
+      deviceId: existing.device_id ?? null,
       createdAt: existing.createdAt ?? null,
     };
   }
@@ -1024,6 +1187,55 @@ async function startMatch(socket, partner) {
     if (!dbAvailable) throw new Error("Database unavailable");
     client = await pool.connect();
     await client.query("BEGIN");
+    if (isCelebrityRound || isFaceSyncRound) {
+      const participants = [
+        { socket, meta: meta1 },
+        { socket: partnerSocket, meta: meta2 },
+      ];
+      const deviceIds = [...new Set(participants.map(({ meta }) => meta.deviceId).filter((id) => UUID_PATTERN.test(id || "")))].sort();
+      if (deviceIds.length !== new Set(participants.map(({ meta }) => meta.deviceId)).size) {
+        throw new Error("Player device identity is unavailable for billing");
+      }
+      for (const deviceId of deviceIds) {
+        await client.query(`INSERT INTO game_access (device_id) VALUES ($1) ON CONFLICT (device_id) DO NOTHING`, [deviceId]);
+      }
+      const accessRows = await client.query(
+        `SELECT device_id, free_rounds_used, (paid_at IS NOT NULL) AS has_paid_access
+           FROM game_access WHERE device_id = ANY($1::uuid[]) ORDER BY device_id FOR UPDATE`,
+        [deviceIds],
+      );
+      const accessByDevice = new Map(accessRows.rows.map((row) => [row.device_id, row]));
+      const denied = participants.filter(({ meta }) => {
+        const access = accessByDevice.get(meta.deviceId);
+        return meta.isVIP !== true && access?.has_paid_access !== true && Number(access?.free_rounds_used ?? 0) >= FREE_FACE_MODE_ROUNDS;
+      });
+      if (denied.length) {
+        await client.query("ROLLBACK");
+        const deniedSocketIds = new Set(denied.map(({ socket: deniedSocket }) => deniedSocket.id));
+        for (const { socket: participantSocket, meta } of participants) {
+          if (deniedSocketIds.has(participantSocket.id)) {
+            participantSocket.emit("server_error", {
+              code: "PAYMENT_REQUIRED",
+              detail: "Your 10 free face mode rounds are used. Unlock both face modes for $2.",
+            });
+          } else {
+            enqueueSocket(participantSocket, meta.peerId);
+          }
+        }
+        return "paywall";
+      }
+      const freeDeviceIds = new Set();
+      for (const { meta } of participants) {
+        const access = accessByDevice.get(meta.deviceId);
+        if (meta.isVIP !== true && access?.has_paid_access !== true) freeDeviceIds.add(meta.deviceId);
+      }
+      for (const deviceId of freeDeviceIds) {
+        await client.query(
+          `UPDATE game_access SET free_rounds_used = free_rounds_used + 1, updated_at = NOW() WHERE device_id = $1`,
+          [deviceId],
+        );
+      }
+    }
     const candidate = isCelebrityRound ? await pickMatchCelebrity(client) : null;
     if (isCelebrityRound && !candidate) {
       await client.query("ROLLBACK");
@@ -1055,6 +1267,11 @@ async function startMatch(socket, partner) {
   } catch (err) {
     await client?.query("ROLLBACK").catch(() => {});
     warnDbFallback(err);
+    if (isCelebrityRound || isFaceSyncRound) {
+      socket.emit("server_error", { detail: "Could not verify face mode access. Please retry." });
+      partnerSocket.emit("server_error", { detail: "Could not verify face mode access. Please retry." });
+      return false;
+    }
     // DB-less mode still pairs both game modes. Celebrity rounds receive the
     // pilot target; emoji rounds need no external target at all.
     celebrity = isCelebrityRound ? pickFallbackCelebrity() : null;
@@ -1434,7 +1651,7 @@ function enqueueSocket(socket, peerId, skippedSocketId = null) {
     if (!blockedBySkip) {
       waitingQueue.splice(i, 1);
       startMatch(socket, candidate).then((ok) => {
-        if (!ok) {
+        if (ok === false) {
           removeFromQueue(socket.id);
           removeFromQueue(candidate.socketId);
         }
@@ -1664,7 +1881,8 @@ io.on("connection", (socket) => {
 
     socketMeta.set(socket.id, {
       peerId,
-      userId: user.id,
+    userId: user.id,
+    deviceId: user.deviceId ?? null,
       country: resolvedCountry,
       countryCode: resolvedCountryCode,
       displayName,

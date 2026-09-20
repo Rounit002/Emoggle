@@ -29,6 +29,7 @@ import { isInappropriateName } from "./nameModeration";
 
 const STORAGE_KEYS = {
   name: "emoggle_user_name",
+  pendingName: "emoggle_user_name_pending",
   matchHistory: "emoggle_match_history",
   soloHistory: "emoggle_solo_history",
   stats: "emoggle_stats",
@@ -229,6 +230,16 @@ export function validateName(raw: string): string | null {
   return trimmed;
 }
 
+/**
+ * The locally cached display name.
+ *
+ * Since the move to Supabase this is no longer the authority — it
+ * is a mirror of the player's `profiles` row, and the value that
+ * the one-time migration seeds that row from for players who
+ * already had a name here before the table existed. Supabase wins
+ * whenever it answers; this is what keeps the game playable when
+ * it does not.
+ */
 export function getName(): string | null {
   const raw = safeGet(STORAGE_KEYS.name);
   if (!raw) return null;
@@ -242,6 +253,49 @@ export function setName(name: string): string | null {
   if (!validated) return null;
   safeSet(STORAGE_KEYS.name, validated);
   return validated;
+}
+
+export function clearName(): void {
+  safeRemove(STORAGE_KEYS.name);
+  safeRemove(STORAGE_KEYS.pendingName);
+}
+
+/* ─── Pending name (unsynced edit) ──────────────────────────────────── */
+
+/**
+ * Supabase owns the display name, but a write can fail — the
+ * player is offline, the project is briefly unreachable. Rather
+ * than lose the edit or make the player wait, the name is applied
+ * locally and recorded here as "not yet pushed".
+ *
+ * `PlayerNameContext` drains this on the next boot: if a pending
+ * name is present it is written to Supabase before anything else,
+ * then cleared. That makes this key a one-entry retry queue, not a
+ * second source of truth — whatever Supabase holds wins the moment
+ * the queue is empty.
+ */
+export function getPendingName(): string | null {
+  const raw = safeGet(STORAGE_KEYS.pendingName);
+  if (!raw) return null;
+  const validated = validateName(raw);
+  if (!validated) safeRemove(STORAGE_KEYS.pendingName);
+  return validated;
+}
+
+export function setPendingName(name: string): void {
+  const validated = validateName(name);
+  if (!validated) return;
+  safeSet(STORAGE_KEYS.pendingName, validated);
+}
+
+/**
+ * Clear the marker, but only when it still holds `name`. A newer
+ * edit may have landed while the previous one was in flight, and
+ * an unconditional clear would drop it.
+ */
+export function clearPendingName(name?: string): void {
+  if (name !== undefined && safeGet(STORAGE_KEYS.pendingName) !== name) return;
+  safeRemove(STORAGE_KEYS.pendingName);
 }
 
 /* ─── Match history (duels) ─────────────────────────────────────────── */
@@ -408,6 +462,7 @@ export function clearAll(): void {
   if (typeof window === "undefined") return;
   const targets = [
     STORAGE_KEYS.name,
+    STORAGE_KEYS.pendingName,
     STORAGE_KEYS.matchHistory,
     STORAGE_KEYS.soloHistory,
     STORAGE_KEYS.stats,

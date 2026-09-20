@@ -8,6 +8,18 @@ function originFor(value: string | undefined, fallback: string): string {
   }
 }
 
+/** Like `originFor`, but for a service that may simply not be
+ *  configured. Returns an empty string so the caller can leave the
+ *  directive untouched rather than allowlisting a placeholder. */
+function optionalOrigin(value: string | undefined): string {
+  if (!value?.trim()) return "";
+  try {
+    return new URL(value).origin;
+  } catch {
+    return "";
+  }
+}
+
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const isDev = process.env.NODE_ENV === "development";
@@ -16,13 +28,17 @@ export function proxy(request: NextRequest) {
     "http://localhost:3001",
   );
   const signalingWsOrigin = signalingOrigin.replace(/^http/, "ws");
+  // Auth and profile requests for the display name. Only the
+  // project's own origin is allowed, and only when one is set — an
+  // environment running without Supabase keeps the narrower policy.
+  const supabaseOrigin = optionalOrigin(process.env.NEXT_PUBLIC_SUPABASE_URL);
   const csp = `
     default-src 'self';
     script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval'${isDev ? " 'unsafe-eval'" : ""};
     style-src 'self' 'unsafe-inline';
     img-src 'self' data: blob: https:;
     font-src 'self' data:;
-    connect-src 'self' ${signalingOrigin} ${signalingWsOrigin} https://api.revenuecat.com https://*.revenuecat.com https://*.paddle.com https://storage.googleapis.com https://0.peerjs.com wss://0.peerjs.com https://ipapi.co https://*.ipapi.co http://ip-api.com;
+    connect-src 'self' ${signalingOrigin} ${signalingWsOrigin}${supabaseOrigin ? ` ${supabaseOrigin}` : ""} https://api.revenuecat.com https://*.revenuecat.com https://*.paddle.com https://storage.googleapis.com https://0.peerjs.com wss://0.peerjs.com https://ipapi.co https://*.ipapi.co http://ip-api.com;
     media-src 'self' blob:;
     worker-src 'self' blob:;
     frame-src https://js.stripe.com https://cdn.paddle.com https://*.revenuecat.com;

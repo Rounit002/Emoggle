@@ -10,6 +10,7 @@ import {
   type MatchHistoryEntry,
   type SoloHistoryEntry,
 } from "../lib/storage";
+import { signOut as signOutSupabase } from "../lib/supabase/profile";
 
 type Tab = "solo" | "duels";
 
@@ -30,6 +31,11 @@ export default function HistoryPage() {
   const clearAll = () => {
     if (!window.confirm("Clear all Emoggle data on this device?\n\nThis wipes your name, your history, and the cached country. It cannot be undone.")) return;
     clearAllStorage();
+    // The name now lives in Supabase, so wiping local storage alone
+    // would hand it straight back on the next visit. Ending the
+    // anonymous session makes the next visit a new player, which is
+    // what the confirmation above promises.
+    void signOutSupabase();
     setSolo([]);
     setDuels([]);
   };

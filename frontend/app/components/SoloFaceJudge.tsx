@@ -325,10 +325,10 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
             </div>
 
             <div className="mt-auto flex flex-col items-center gap-1 text-center">
-              {/* Personal greeting — uses the localStorage-stored
-                  name when present, falls back to a friendly
-                  default. The country flag (when detected) is
-                  rendered alongside the name as a tiny pill. */}
+              {/* Personal greeting — uses the player's saved name
+                  when present, falls back to a friendly default.
+                  The country flag (when detected) is rendered
+                  alongside the name as a tiny pill. */}
               <span className="font-display text-sm font-bold text-[var(--charcoal)]">
                 {playerName
                   ? `Hey ${playerName}${detectedCountry?.flag ? ` ${detectedCountry.flag}` : ""}, make this face:`

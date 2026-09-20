@@ -14,7 +14,8 @@
  *    a name to the same value doesn't trigger a no-op write).
  *  - On submit, calls `onSubmit(cleaned)` and lets the parent
  *    handle persistence. This keeps the storage decision in the
- *    PlayerNameContext rather than in the modal.
+ *    PlayerNameContext rather than in the modal — the modal has
+ *    no idea the name goes to Supabase, and does not need one.
  *  - Optional `required` mode disables the cancel button. The
  *    first-time entry uses this so a brand-new user can't dismiss
  *    the modal without picking a name.
@@ -129,7 +130,7 @@ export function NameEntryModal({
       : value.length > NAME_MAX_LENGTH
         ? `Trim it down to ${NAME_MAX_LENGTH} characters or fewer.`
         : "Letters, numbers, and basic punctuation only."
-    : `${trimmedLength}/${NAME_MAX_LENGTH} characters · only stored on this device`;
+    : `${trimmedLength}/${NAME_MAX_LENGTH} characters · the only thing we save about you`;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,7 +194,7 @@ export function NameEntryModal({
                   ? "We\u2019ll show it next to your face during live duels so your partner knows who they\u2019re squishing."
                   : "Update the name that appears on your camera tile and in the chat."}{" "}
                 <span className="font-bold text-[var(--charcoal)]">
-                  Stays on this device.
+                  Your name is all we keep — never your camera.
                 </span>
               </p>
             </div>

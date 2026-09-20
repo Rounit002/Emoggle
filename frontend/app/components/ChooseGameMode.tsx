@@ -50,6 +50,8 @@ export interface ChooseGameModeProps {
   onSelect: (mode: GameMode) => void;
   /** True when the celebrity option should show a VIP badge + crown. */
   isVIP?: boolean;
+  freeRoundsRemaining?: number;
+  hasPaidAccess?: boolean;
 }
 
 interface ModeOption {
@@ -137,6 +139,8 @@ export function ChooseGameMode({
   onClose,
   onSelect,
   isVIP = false,
+  freeRoundsRemaining = 10,
+  hasPaidAccess = false,
 }: ChooseGameModeProps) {
   const reduceMotion = useReducedMotion();
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -286,6 +290,7 @@ export function ChooseGameMode({
             <ul className="mx-auto flex w-full max-w-2xl flex-col gap-5 pb-6 sm:gap-6">
               {MODE_OPTIONS.map((option, index) => {
                 const isCelebrity = option.id === "celebrity";
+                const isPaidFaceMode = option.id === "celebrity" || option.id === "facesync";
                 const badgeText = isCelebrity && isVIP ? "VIP" : option.badge;
                 return (
                   <motion.li
@@ -334,6 +339,13 @@ export function ChooseGameMode({
                       <p className="text-sm leading-snug opacity-90 sm:text-base">
                         {option.description}
                       </p>
+                      {isPaidFaceMode && (
+                        <p className="text-xs font-bold leading-snug opacity-90 sm:text-sm">
+                          {hasPaidAccess || isVIP
+                            ? "Unlocked for this device"
+                            : `${freeRoundsRemaining} free rounds · then $2 once for both face modes`}
+                        </p>
+                      )}
                     </div>
 
                     {/* CTA */}

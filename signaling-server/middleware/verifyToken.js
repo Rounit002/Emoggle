@@ -59,7 +59,7 @@ async function findSessionUser(token) {
   }
   const tokenHash = hashSessionToken(token);
   const { rows } = await pool.query(
-    `SELECT u.id, u.username, u.email, u.elo, u.is_vip
+    `SELECT u.id, u.username, u.email, u.elo, u.is_vip, u.device_id
        FROM sessions s
        JOIN users u ON u.id = s.user_id
       WHERE s.token = $1 AND s.expires_at > NOW()`,

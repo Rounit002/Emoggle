@@ -147,7 +147,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
             "Content-Type": "application/json",
             ...(resumeToken ? { Authorization: `Bearer ${resumeToken}` } : {}),
           },
-          body: "{}",
+          body: JSON.stringify({ deviceId }),
         });
         if (!response.ok) throw new Error("Session service unavailable");
         const data = (await response.json()) as Record<string, unknown>;

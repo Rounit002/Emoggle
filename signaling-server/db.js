@@ -63,6 +63,23 @@ async function initSchema() {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMP`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS vip_expires_at TIMESTAMPTZ`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS revenuecat_event_at TIMESTAMPTZ`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS device_id UUID`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_users_device_id ON users(device_id)`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS game_access (
+        device_id UUID PRIMARY KEY,
+        free_rounds_used INTEGER NOT NULL DEFAULT 0 CHECK (free_rounds_used >= 0),
+        paid_at TIMESTAMPTZ,
+        dodo_payment_id VARCHAR(128) UNIQUE,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS dodo_webhook_events (
+        event_id VARCHAR(255) PRIMARY KEY,
+        received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS celebrity_faces (
         id SERIAL PRIMARY KEY,

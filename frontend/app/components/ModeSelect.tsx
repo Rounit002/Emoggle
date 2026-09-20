@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import styles from "./HeroPreview.module.css";
 import { motion } from "framer-motion";
 import { useRevenueCat } from "../context/RevenueCatContext";
 import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
+import { useUserProfile } from "../context/UserProfileContext";
 import { ScrollReveal } from "./home/EmojiMotion";
 import {
   GooeyBlock,
@@ -22,9 +23,7 @@ import {
   Pill,
   ThemeToggle,
   Camera,
-  Crown,
   Edit,
-  Globe,
   Sparkle,
   User,
   cn,
@@ -132,8 +131,8 @@ const MODES: ModeCard[] = [
     tilt: "tilt-l-2",
     title: "Win points",
     description:
-      "Our highly inaccurate AI judges who did it better. Rack up points and climb the leaderboard.",
-    badge: "VIP",
+      "Our highly inaccurate AI judges who did it better. Rack up points and climb the leaderboard. 10 free rounds, then $2 once to unlock both face modes.",
+    badge: "$2 after 10 free",
   },
 ];
 
@@ -162,19 +161,62 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
   // modal was open, so we can advance to the right picker once
   // the modal closes successfully.
   const [pendingMode, setPendingMode] = useState<GameMode | null>(null);
+  const [billingStatus, setBillingStatus] = useState<{
+    freeRoundsRemaining: number;
+    hasPaidAccess: boolean;
+    billingEnabled: boolean;
+  } | null>(null);
+  const [billingMessage, setBillingMessage] = useState<string | null>(null);
 
   const { name, isHydrated: isNameHydrated, save: saveName } = usePlayerName();
   const { country } = useCountry();
+  const { sessionToken, isSessionReady } = useUserProfile();
 
-  const {
-    isAvailable: isRevenueCatAvailable,
-    isLoading: isRevenueCatLoading,
-    isPurchasing,
-    isVIP,
-    showPaywall,
-    refreshCustomerInfo,
-    error: revenueCatError,
-  } = useRevenueCat();
+  const { isVIP } = useRevenueCat();
+
+  const refreshBillingStatus = useCallback(async () => {
+    if (!sessionToken) return null;
+    try {
+      const response = await fetch(`${SIGNALING_URL}/api/billing/status`, {
+        headers: { Authorization: `Bearer ${sessionToken}` },
+        cache: "no-store",
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      const next = {
+        freeRoundsRemaining: Number(data.freeRoundsRemaining) || 0,
+        hasPaidAccess: data.hasPaidAccess === true,
+        billingEnabled: data.billingEnabled === true,
+      };
+      setBillingStatus(next);
+      return next;
+    } catch {
+      return null;
+    }
+  }, [sessionToken]);
+
+  useEffect(() => {
+    if (isSessionReady) void refreshBillingStatus();
+  }, [isSessionReady, refreshBillingStatus]);
+
+  useEffect(() => {
+    if (!isSessionReady || !sessionToken || !window.location.search.includes("payment=dodo")) return;
+    let cancelled = false;
+    const confirmPayment = async () => {
+      for (let attempt = 0; attempt < 8 && !cancelled; attempt++) {
+        const status = await refreshBillingStatus();
+        if (status?.hasPaidAccess) {
+          setBillingMessage("Payment confirmed. Compare Face and Celebrity Face are unlocked.");
+          window.history.replaceState({}, "", window.location.pathname);
+          return;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      }
+      if (!cancelled) setBillingMessage("Payment is still being confirmed. Refresh this page in a moment.");
+    };
+    void confirmPayment();
+    return () => { cancelled = true; };
+  }, [isSessionReady, refreshBillingStatus, sessionToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -228,9 +270,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
   };
 
   // The mode picker modal calls this with the chosen mode id.
-  // Celebrity mode no longer has any paywall — every mode
-  // simply routes to the chosen arena and the user is matched
-  // by the existing stranger queue.
   const handleModalSelect = (mode: GameMode) => {
     setModePickerOpen(false);
     requestMode(mode);
@@ -239,9 +278,47 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
   /** Actually transition into a mode — separated from the gate
    *  wrapper so we can call it both from the click handler and
    *  from the post-modal-success path. */
-  const proceedToMode = (mode: GameMode) => {
-    // Celebrity mode is open to all players; the previous
-    // VIP/paywall gate has been removed.
+  const proceedToMode = async (mode: GameMode) => {
+    if ((mode === "celebrity" || mode === "facesync") && !isVIP) {
+      const access = billingStatus ?? await refreshBillingStatus();
+      if (access && !access.hasPaidAccess && access.freeRoundsRemaining <= 0) {
+        if (!access.billingEnabled) {
+          setBillingMessage("Payments are temporarily unavailable. Please try again later.");
+          return;
+        }
+        if (!sessionToken) {
+          setBillingMessage("Your player session is still loading. Please try again.");
+          return;
+        }
+        try {
+          const response = await fetch(`${SIGNALING_URL}/api/billing/checkout`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${sessionToken}`,
+            },
+            body: "{}",
+          });
+          const data = await response.json();
+          if (typeof data.checkoutUrl === "string") {
+            window.location.assign(data.checkoutUrl);
+            return;
+          }
+          setBillingMessage(data.detail || "Could not open Dodo checkout. Please try again.");
+          if (data.freeRoundsRemaining > 0 || data.hasPaidAccess) {
+            setBillingStatus({
+              freeRoundsRemaining: Number(data.freeRoundsRemaining) || 0,
+              hasPaidAccess: data.hasPaidAccess === true,
+              billingEnabled: true,
+            });
+            onSelect(mode);
+          }
+        } catch {
+          setBillingMessage("Could not reach Dodo checkout. Please try again.");
+        }
+        return;
+      }
+    }
     onSelect(mode);
   };
 
@@ -506,17 +583,10 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 <Headline text="How to play" trigger="scroll" />
               </span>
             </h2>
-            {isVIP ? (
-              <Pill tone="yellow">VIP active</Pill>
-            ) : isRevenueCatAvailable ? (
-              <button
-                onClick={() => void showPaywall()}
-                disabled={isPurchasing}
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--charcoal)] underline-offset-4 hover:underline disabled:opacity-50"
-              >
-                <Crown size={14} />
-                {isPurchasing ? "Opening checkout…" : "Unlock VIP"}
-              </button>
+            {isVIP || billingStatus?.hasPaidAccess ? (
+              <Pill tone="yellow">Face modes unlocked</Pill>
+            ) : billingStatus ? (
+              <Pill tone="yellow">{billingStatus.freeRoundsRemaining} free face mode rounds · $2 once after</Pill>
             ) : null}
           </div>
 
@@ -538,7 +608,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
               >
                 <button
                   onClick={() => handleSelect(mode.id)}
-                  disabled={mode.id === "celebrity" && isRevenueCatAvailable && isRevenueCatLoading}
                   className={cn(
                     "group relative flex w-full max-w-[320px] flex-col items-start gap-4",
                     "rounded-3xl border-[4px] border-[var(--ink-shadow)] p-4 text-left sm:p-5",
@@ -548,7 +617,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                     mode.tilt,
                     fillClasses[mode.fill],
                     "focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--ink-shadow)]",
-                    mode.id === "celebrity" && isRevenueCatAvailable && isRevenueCatLoading && "opacity-60",
                   )}
                 >
                   <div className="flex w-full items-start justify-between">
@@ -590,27 +658,10 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
             ))}
           </ul>
 
-          {revenueCatError && (
-            <p className="mt-4 text-center text-xs text-[var(--pink-deep)]">
-              {revenueCatError}
+          {billingMessage && (
+            <p role="status" className="mt-4 text-center text-xs text-[var(--pink-deep)]">
+              {billingMessage}
             </p>
-          )}
-
-          {isRevenueCatAvailable && (
-            <div className="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-[var(--on-surface-variant)]">
-              <button
-                onClick={() => void refreshCustomerInfo()}
-                disabled={isRevenueCatLoading}
-                className="inline-flex items-center gap-1.5 hover:text-[var(--charcoal)] hover:underline disabled:opacity-50"
-              >
-                <Globe size={14} />
-                {isRevenueCatLoading ? "Checking…" : "Refresh access"}
-              </button>
-              <span className="inline-flex items-center gap-1.5">
-                <Sparkle size={14} />
-                Fair play · No face data sold
-              </span>
-            </div>
           )}
         </section>
 
@@ -624,6 +675,8 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
         onClose={() => setModePickerOpen(false)}
         onSelect={handleModalSelect}
         isVIP={isVIP}
+        freeRoundsRemaining={billingStatus?.freeRoundsRemaining ?? 10}
+        hasPaidAccess={billingStatus?.hasPaidAccess ?? false}
       />
 
       {/* Name entry — first-time gate or "edit name" affordance.
