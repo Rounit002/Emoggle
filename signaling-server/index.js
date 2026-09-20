@@ -1267,13 +1267,18 @@ async function startMatch(socket, partner) {
   } catch (err) {
     await client?.query("ROLLBACK").catch(() => {});
     warnDbFallback(err);
-    if (isCelebrityRound || isFaceSyncRound) {
+    // Production must fail closed when billing cannot be verified. Local
+    // development already uses isolated in-memory users and has no checkout,
+    // so allow face modes to form an unpersisted match there. This keeps the
+    // two-tab localhost workflow usable when Supabase is offline.
+    const allowDbLessLocalMatch = process.env.NODE_ENV !== "production";
+    if ((isCelebrityRound || isFaceSyncRound) && !allowDbLessLocalMatch) {
       socket.emit("server_error", { detail: "Could not verify face mode access. Please retry." });
       partnerSocket.emit("server_error", { detail: "Could not verify face mode access. Please retry." });
       return false;
     }
-    // DB-less mode still pairs both game modes. Celebrity rounds receive the
-    // pilot target; emoji rounds need no external target at all.
+    // DB-less local mode still pairs every game mode. Celebrity rounds receive
+    // the pilot target; emoji and FaceSync rounds need no external target.
     celebrity = isCelebrityRound ? pickFallbackCelebrity() : null;
     if (isCelebrityRound && !celebrity) {
       socket.emit("server_error", { detail: "Match persistence is unavailable." });
@@ -2260,6 +2265,11 @@ if (!process.env.DATABASE_URL) {
     })
     .catch((err) => {
       console.error("[FATAL] Could not initialize DB schema:", err.message);
+      // Initialization did not complete, so no request may attempt the
+      // database path even when the failure is an auth/configuration error
+      // rather than a network error. Local development can then use the
+      // in-memory session and matchmaking fallback as intended.
+      dbAvailable = false;
       warnDbFallback(err);
       server.listen(PORT, () =>
         console.log(`[WARN] Signaling server running on :${PORT} — authenticated matchmaking is unavailable`)
