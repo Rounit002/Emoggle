@@ -171,7 +171,9 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
     myCountryCode,
     profile,
     saveProfile,
-    localStream ? sessionToken : null,
+    // Keep the queue connection available while camera permission resolves.
+    // `useMatchmaking` defers media until `localStream` is ready.
+    sessionToken,
     "celebrity",
   );
 

@@ -92,7 +92,9 @@ export default function FaceSyncArena({ onBack }: FaceSyncArenaProps) {
     myCountryCode,
     profile,
     saveProfile,
-    localStream ? sessionToken : null,
+    // Matchmaking is independent of camera permission; the hook waits to
+    // start the media call until a local stream exists.
+    sessionToken,
     "facesync",
   );
 

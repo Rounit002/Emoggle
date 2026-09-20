@@ -213,7 +213,10 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     myCountryCode,
     profile,
     saveProfile,
-    localStream ? sessionToken : null,
+    // Establish the authenticated queue connection even while the browser is
+    // still asking for camera access. The matchmaking hook defers the PeerJS
+    // media call until `localStream` becomes available.
+    sessionToken,
   );
 
   const mySeat: Seat = useMemo(

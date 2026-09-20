@@ -61,7 +61,7 @@ export function LobbyOverlay({
   const body = cameraFailed
     ? cameraError ?? "Allow camera access in your browser, then try again."
     : cameraPending
-      ? "Use the browser prompt to allow your camera. Matchmaking starts once your preview is ready."
+      ? "Use the browser prompt to allow your camera. We’re already finding your match."
       : hasError
     ? "Check that the game server is running, then try again."
     : isConnecting
