@@ -137,7 +137,7 @@ const MODES: ModeCard[] = [
     tilt: "tilt-l-2",
     title: "Win points",
     description:
-      "Our highly inaccurate AI judges who did it better. Rack up points and climb the leaderboard. 10 free rounds, then $2 once to unlock both face modes.",
+      "Our highly inaccurate AI judges who did it better. Rack up points and climb the leaderboard. 10 free rounds, then sign in with Google and pay $2 once to unlock both face modes.",
     badge: "$2 after 10 free",
   },
 ];
