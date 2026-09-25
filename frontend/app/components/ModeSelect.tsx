@@ -452,28 +452,24 @@ export default function ModeSelect({ onSelect, supportOpen, onDismissSupport, on
               transition={{ duration: 0.4, delay: 0.26 }}
               className="mt-5 flex w-full flex-col items-center gap-3 sm:mt-8 sm:w-auto lg:items-start"
             >
-              {/* The one thing a phone visitor is here to tap, so on
-                  mobile it stretches to the column instead of sitting
-                  as a 160px pill in the middle of a 375px screen.
-                  Capped at 320px so it keeps the sticker proportions
-                  rather than becoming a banner. */}
-              <Button
-                size="lg"
-                block
-                className="max-w-[320px] sm:w-auto"
-                onClick={() => setModePickerOpen(true)}
-                iconLeft={<Camera size={18} />}
-              >
-                Play now
-              </Button>
-              <button
-                type="button"
-                onClick={onOpenSupport}
-                className="inline-flex min-h-12 w-full max-w-[320px] items-center justify-center gap-2 rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-6 text-sm font-bold text-[var(--charcoal)] shadow-[4px_4px_0_0_var(--charcoal)] transition-[transform,box-shadow,background-color] hover:bg-[var(--yellow)] active:translate-y-1 active:shadow-none sm:w-auto"
-              >
-                <span aria-hidden="true">♥</span>
-                Support this site
-              </button>
+              <div className="flex max-w-full items-center justify-center gap-2 sm:gap-3 lg:justify-start">
+                <Button
+                  size="lg"
+                  className="h-14 shrink-0 px-3 text-sm sm:h-16 sm:px-8 sm:text-base"
+                  onClick={() => setModePickerOpen(true)}
+                  iconLeft={<Camera size={18} />}
+                >
+                  Play now
+                </Button>
+                <button
+                  type="button"
+                  onClick={onOpenSupport}
+                  className="inline-flex min-h-14 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-2.5 text-xs font-bold text-[var(--charcoal)] shadow-[4px_4px_0_0_var(--charcoal)] transition-[transform,box-shadow,background-color] hover:bg-[var(--yellow)] active:translate-y-1 active:shadow-none sm:min-h-16 sm:gap-2 sm:px-6 sm:text-sm"
+                >
+                  <span aria-hidden="true">♥</span>
+                  Support this site
+                </button>
+              </div>
               <p className="hidden text-xs text-[var(--on-surface-variant)] sm:block">
                 Webcam + a straight face you won&apos;t keep
               </p>

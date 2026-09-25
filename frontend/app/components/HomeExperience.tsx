@@ -42,7 +42,7 @@ export default function HomeExperience() {
 
 function HomeContent() {
   const [view, setView] = useState<View>("home");
-  const [supportOpen, setSupportOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(true);
   const setSmoothScrollEnabled = useSmoothScrollController();
   const dismissSupport = useCallback(() => setSupportOpen(false), []);
   const openSupport = useCallback(() => setSupportOpen(true), []);

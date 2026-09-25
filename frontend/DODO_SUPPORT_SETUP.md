@@ -1,8 +1,9 @@
 # Dodo support payments
 
-Emoggle is free to play. Visitors can open the optional support popup from the
-home page or the Play Now mode picker and enter a one-time USD amount of at
-least $1. Closing it does not restrict any game mode.
+Emoggle is free to play. The optional support popup appears when visitors open
+or refresh the home page. They can also reopen it from the home page or the
+Play Now mode picker and enter a one-time USD amount of at least $1. Closing
+it does not restrict any game mode.
 
 ## Dodo dashboard
 
