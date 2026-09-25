@@ -106,6 +106,10 @@ async function run() {
       // No DATABASE_URL: the test exercises the in-memory fallback
       // path so it can run on a fresh container without Postgres.
       DATABASE_URL: "",
+      DB_HOST: "",
+      DB_USER: "",
+      DB_NAME: "",
+      DB_PASSWORD: "",
       ENABLE_RANKED_ELO: "false",
       CELEBRITY_AFFECTS_ELO: "false",
       TRUST_GEO_HEADERS: "false",

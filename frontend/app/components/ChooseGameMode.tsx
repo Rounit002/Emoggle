@@ -11,14 +11,12 @@
  *  - Solo          – play the emoji-expression challenge alone
  *                    and beat your own score.
  *  - Stranger      – the existing random-matchmaking flow.
- *  - Celebrity     – the VIP celebrity-expression game.
+ *  - Celebrity     – the celebrity-expression game.
  *  - FaceSync      – pair with a stranger and see how much you
  *                    two look alike. Its own queue, so nobody who
  *                    picks it lands in an emoji duel instead.
  *
- * The celebrity option still goes through the existing paywall
- * logic; the parent passes the same `onSelect` callback it
- * already uses for the inline mode cards.
+ * Every mode is free to play.
  *
  * Back / cancel
  *  The modal has a real back chevron (top-left) and a visible
@@ -48,12 +46,6 @@ export interface ChooseGameModeProps {
   open: boolean;
   onClose: () => void;
   onSelect: (mode: GameMode) => void;
-  /** True when the celebrity option should show a VIP badge + crown. */
-  isVIP?: boolean;
-  freeRoundsRemaining?: number;
-  hasPaidAccess?: boolean;
-  /** Require a Google account before checkout after free rounds are used. */
-  requiresGoogleSignIn?: boolean;
 }
 
 interface ModeOption {
@@ -140,10 +132,6 @@ export function ChooseGameMode({
   open,
   onClose,
   onSelect,
-  isVIP = false,
-  freeRoundsRemaining = 10,
-  hasPaidAccess = false,
-  requiresGoogleSignIn = false,
 }: ChooseGameModeProps) {
   const reduceMotion = useReducedMotion();
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -262,21 +250,9 @@ export function ChooseGameMode({
               <span className="font-display text-lg font-bold text-[var(--charcoal)]">
                 How do you want to play?
               </span>
-              {!hasPaidAccess && !isVIP && (
-                <span
-                  className={cn(
-                    "mt-1 inline-flex items-center gap-1.5 rounded-full border-[2px] border-[var(--charcoal)] px-2.5 py-1 text-[11px] font-bold shadow-[2px_2px_0_0_var(--charcoal)]",
-                    requiresGoogleSignIn
-                      ? "bg-[var(--pink)] text-[var(--on-accent)]"
-                      : "bg-[var(--yellow)] text-[var(--on-accent)]",
-                  )}
-                >
-                  <Sparkle size={13} aria-hidden />
-                  {requiresGoogleSignIn
-                    ? "Face Pass · $2"
-                    : `${freeRoundsRemaining} free face rounds left`}
-                </span>
-              )}
+              <span className="mt-1 inline-flex items-center gap-1.5 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-2.5 py-1 text-[11px] font-bold text-[var(--on-accent)] shadow-[2px_2px_0_0_var(--charcoal)]">
+                <Sparkle size={13} aria-hidden /> All modes are free
+              </span>
             </div>
             <button
               type="button"
@@ -308,10 +284,7 @@ export function ChooseGameMode({
             <ul className="mx-auto flex w-full max-w-2xl flex-col gap-5 pb-6 sm:gap-6">
               {MODE_OPTIONS.map((option, index) => {
                 const isCelebrity = option.id === "celebrity";
-                const isPaidFaceMode = option.id === "celebrity" || option.id === "facesync";
-                const badgeText = isPaidFaceMode && !hasPaidAccess && !isVIP
-                  ? undefined
-                  : isCelebrity && isVIP ? "VIP" : option.badge;
+                const badgeText = option.badge;
                 return (
                   <motion.li
                     key={option.id}
@@ -355,12 +328,6 @@ export function ChooseGameMode({
                             {badgeText}
                           </span>
                         )}
-                        {isPaidFaceMode && !hasPaidAccess && !isVIP && (
-                          <span className="inline-flex items-center gap-1 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--on-accent)] shadow-[2px_2px_0_0_var(--charcoal)]">
-                            <Sparkle size={11} aria-hidden />
-                            Face Pass · $2
-                          </span>
-                        )}
                       </div>
                       <p className="text-sm leading-snug opacity-90 sm:text-base">
                         {option.description}
@@ -380,9 +347,7 @@ export function ChooseGameMode({
                         "touch-manipulation cursor-pointer transition-[transform,box-shadow,background-color,opacity] duration-150 ease-out motion-reduce:transition-none disabled:cursor-wait disabled:opacity-60 disabled:active:translate-y-0",
                         isCelebrity
                           ? "bg-[var(--pink)] text-[var(--on-accent)] hover:bg-[var(--pink-hover)] sm:w-auto"
-                          : isPaidFaceMode && !hasPaidAccess && !isVIP
-                            ? "bg-[var(--yellow)] text-[var(--on-accent)] hover:brightness-95 sm:w-auto"
-                            : "bg-[var(--off-white)] text-[var(--charcoal)] hover:bg-[var(--off-white-2)] sm:w-auto",
+                          : "bg-[var(--off-white)] text-[var(--charcoal)] hover:bg-[var(--off-white-2)] sm:w-auto",
                       )}
                     >
                       <span

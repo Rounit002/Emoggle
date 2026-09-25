@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import styles from "./HeroPreview.module.css";
 import { motion } from "framer-motion";
-import { useRevenueCat } from "../context/RevenueCatContext";
 import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
-import { useUserProfile } from "../context/UserProfileContext";
+import { SupportModal } from "./SupportModal";
 import { ScrollReveal } from "./home/EmojiMotion";
 import {
   GooeyBlock,
@@ -24,21 +23,16 @@ import {
   ThemeToggle,
   Camera,
   Edit,
-  Sparkle,
   User,
   cn,
 } from "../ui";
 import { ChooseGameMode, type GameMode } from "./ChooseGameMode";
 import { NameEntryModal } from "./NameEntryModal";
-import {
-  getCurrentUser,
-  isGoogleUser,
-  isSupabaseConfigured,
-  signInWithGoogle,
-} from "../lib/supabase/profile";
-
 interface ModeSelectProps {
   onSelect: (mode: ModeId) => void;
+  supportOpen: boolean;
+  onDismissSupport: () => void;
+  onOpenSupport: () => void;
 }
 
 const SIGNALING_URL =
@@ -137,8 +131,8 @@ const MODES: ModeCard[] = [
     tilt: "tilt-l-2",
     title: "Win points",
     description:
-      "Our highly inaccurate AI judges who did it better. Rack up points and climb the leaderboard. 10 free rounds, then sign in with Google and pay $2 once to unlock both face modes.",
-    badge: "$2 after 10 free",
+      "Our highly inaccurate AI judges who did it better. Rack up points and climb the leaderboard. Free to play.",
+    badge: "Free to play",
   },
 ];
 
@@ -148,7 +142,7 @@ const fillClasses: Record<ModeCard["fill"], string> = {
   pink: "on-accent bg-[var(--pink)]",
 };
 
-export default function ModeSelect({ onSelect }: ModeSelectProps) {
+export default function ModeSelect({ onSelect, supportOpen, onDismissSupport, onOpenSupport }: ModeSelectProps) {
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
   // True when the "Play now" CTA has opened the mode picker.
   // Lives in ModeSelect (not in the parent) so the home page
@@ -167,71 +161,9 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
   // modal was open, so we can advance to the right picker once
   // the modal closes successfully.
   const [pendingMode, setPendingMode] = useState<GameMode | null>(null);
-  const [billingStatus, setBillingStatus] = useState<{
-    freeRoundsRemaining: number;
-    hasPaidAccess: boolean;
-    billingEnabled: boolean;
-  } | null>(null);
-  const [billingMessage, setBillingMessage] = useState<string | null>(null);
 
   const { name, isHydrated: isNameHydrated, save: saveName } = usePlayerName();
   const { country } = useCountry();
-  const { sessionToken, isSessionReady } = useUserProfile();
-
-  const { isVIP } = useRevenueCat();
-
-  const refreshBillingStatus = useCallback(async () => {
-    if (!sessionToken) return null;
-    try {
-      const response = await fetch(`${SIGNALING_URL}/api/billing/status`, {
-        headers: { Authorization: `Bearer ${sessionToken}` },
-        cache: "no-store",
-      });
-      if (!response.ok) return null;
-      const data = await response.json();
-      const next = {
-        freeRoundsRemaining: Number(data.freeRoundsRemaining) || 0,
-        hasPaidAccess: data.hasPaidAccess === true,
-        billingEnabled: data.billingEnabled === true,
-      };
-      setBillingStatus(next);
-      return next;
-    } catch {
-      return null;
-    }
-  }, [sessionToken]);
-
-  const hasGoogleAccount = useCallback(async () => {
-    if (!isSupabaseConfigured()) return false;
-    try {
-      return isGoogleUser(await getCurrentUser());
-    } catch {
-      return false;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isSessionReady) void refreshBillingStatus();
-  }, [isSessionReady, refreshBillingStatus]);
-
-  useEffect(() => {
-    if (!isSessionReady || !sessionToken || !window.location.search.includes("payment=dodo")) return;
-    let cancelled = false;
-    const confirmPayment = async () => {
-      for (let attempt = 0; attempt < 8 && !cancelled; attempt++) {
-        const status = await refreshBillingStatus();
-        if (status?.hasPaidAccess) {
-          setBillingMessage("Payment confirmed. Compare Face and Celebrity Face are unlocked.");
-          window.history.replaceState({}, "", window.location.pathname);
-          return;
-        }
-        await new Promise((resolve) => window.setTimeout(resolve, 1500));
-      }
-      if (!cancelled) setBillingMessage("Payment is still being confirmed. Refresh this page in a moment.");
-    };
-    void confirmPayment();
-    return () => { cancelled = true; };
-  }, [isSessionReady, refreshBillingStatus, sessionToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -260,12 +192,15 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
   // briefly flash the homepage and then slap a modal on top of
   // it for returning users.
   useEffect(() => {
-    if (!isNameHydrated) return;
+    if (!isNameHydrated || supportOpen) return;
     if (name) return;
     if (nameModalOpen) return;
-    setNameModalRequired(true);
-    setNameModalOpen(true);
-  }, [isNameHydrated, name, nameModalOpen]);
+    const timer = window.setTimeout(() => {
+      setNameModalRequired(true);
+      setNameModalOpen(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isNameHydrated, name, nameModalOpen, supportOpen]);
 
   // Wrap `handleSelect` so the gate kicks in before any mode pick.
   // If the user doesn't have a name, we open the modal in
@@ -293,62 +228,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
   /** Actually transition into a mode — separated from the gate
    *  wrapper so we can call it both from the click handler and
    *  from the post-modal-success path. */
-  const proceedToMode = async (mode: GameMode) => {
-    if ((mode === "celebrity" || mode === "facesync") && !isVIP) {
-      const access = billingStatus ?? await refreshBillingStatus();
-      if (access && !access.hasPaidAccess && access.freeRoundsRemaining <= 0) {
-        if (!isSupabaseConfigured()) {
-          setBillingMessage("Google sign-in is temporarily unavailable. Please try again later.");
-          return;
-        }
-        if (!await hasGoogleAccount()) {
-          setBillingMessage("Your free rounds are used. Opening Google sign-in…");
-          try {
-            await signInWithGoogle();
-          } catch {
-            setBillingMessage("Could not open Google sign-in. Please try again.");
-          }
-          return;
-        }
-        if (!access.billingEnabled) {
-          setBillingMessage("Payments are temporarily unavailable. Please try again later.");
-          return;
-        }
-        if (!sessionToken) {
-          setBillingMessage("Your player session is still loading. Please try again.");
-          return;
-        }
-        try {
-          const response = await fetch(`${SIGNALING_URL}/api/billing/checkout`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${sessionToken}`,
-            },
-            body: "{}",
-          });
-          const data = await response.json();
-          if (typeof data.checkoutUrl === "string") {
-            window.location.assign(data.checkoutUrl);
-            return;
-          }
-          setBillingMessage(data.detail || "Could not open Dodo checkout. Please try again.");
-          if (data.freeRoundsRemaining > 0 || data.hasPaidAccess) {
-            setBillingStatus({
-              freeRoundsRemaining: Number(data.freeRoundsRemaining) || 0,
-              hasPaidAccess: data.hasPaidAccess === true,
-              billingEnabled: true,
-            });
-            onSelect(mode);
-          }
-        } catch {
-          setBillingMessage("Could not reach Dodo checkout. Please try again.");
-        }
-        return;
-      }
-    }
-    onSelect(mode);
-  };
+  const proceedToMode = (mode: GameMode) => onSelect(mode);
 
   const handleNameSubmit = (next: string) => {
     saveName(next);
@@ -611,11 +491,12 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                 <Headline text="How to play" trigger="scroll" />
               </span>
             </h2>
-            {isVIP || billingStatus?.hasPaidAccess ? (
-              <Pill tone="yellow">Face modes unlocked</Pill>
-            ) : billingStatus ? (
-              <Pill tone="yellow">{billingStatus.freeRoundsRemaining} free face mode rounds · Google sign-in + $2 once after</Pill>
-            ) : null}
+            <div className="flex flex-wrap items-center gap-3">
+              <Pill tone="yellow">All modes are free to play</Pill>
+              <button type="button" onClick={onOpenSupport} className="min-h-11 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-4 text-sm font-bold text-[var(--charcoal)] shadow-[2px_2px_0_0_var(--charcoal)] hover:bg-[var(--yellow)]">
+                Support Emoggle
+              </button>
+            </div>
           </div>
 
           <ul className="mt-8 grid grid-cols-1 items-start gap-8 px-1 sm:mt-10 sm:grid-cols-3 sm:gap-6 sm:px-0 sm:pt-8">
@@ -678,7 +559,7 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
                         outright below sm; still a hover reveal on
                         pointer-sized screens. */}
                     <span className="opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-                      {i < 2 ? "Play →" : "Unlock →"}
+                      Play →
                     </span>
                   </div>
                 </button>
@@ -686,11 +567,6 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
             ))}
           </ul>
 
-          {billingMessage && (
-            <p role="status" className="mt-4 text-center text-xs text-[var(--pink-deep)]">
-              {billingMessage}
-            </p>
-          )}
         </section>
 
       </div>
@@ -702,15 +578,9 @@ export default function ModeSelect({ onSelect }: ModeSelectProps) {
         open={modePickerOpen}
         onClose={() => setModePickerOpen(false)}
         onSelect={handleModalSelect}
-        isVIP={isVIP}
-        freeRoundsRemaining={billingStatus?.freeRoundsRemaining ?? 10}
-        hasPaidAccess={billingStatus?.hasPaidAccess ?? false}
-        requiresGoogleSignIn={
-          !isVIP &&
-          billingStatus?.hasPaidAccess !== true &&
-          billingStatus?.freeRoundsRemaining === 0
-        }
       />
+
+      <SupportModal open={supportOpen} onClose={onDismissSupport} />
 
       {/* Name entry — first-time gate or "edit name" affordance.
           Required mode for the first-time flow so the user can't

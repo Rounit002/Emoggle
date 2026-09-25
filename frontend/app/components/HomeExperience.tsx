@@ -11,7 +11,6 @@ import { MediaPipeFaceProvider } from "../context/MediaPipeFaceContext";
 import { UserProfileProvider } from "../context/UserProfileContext";
 import { PlayerNameProvider } from "../context/PlayerNameContext";
 import { CountryProvider } from "../context/CountryContext";
-import { RevenueCatProvider } from "../context/RevenueCatContext";
 import { useSmoothScrollController } from "./SmoothScroll";
 import { useCoveredView } from "./home/useCoveredView";
 
@@ -31,11 +30,9 @@ export default function HomeExperience() {
       <UserProfileProvider>
         <PlayerNameProvider>
           <CountryProvider>
-            <RevenueCatProvider>
-              <MotionConfig reducedMotion="user">
-                <HomeContent />
-              </MotionConfig>
-            </RevenueCatProvider>
+            <MotionConfig reducedMotion="user">
+              <HomeContent />
+            </MotionConfig>
           </CountryProvider>
         </PlayerNameProvider>
       </UserProfileProvider>
@@ -45,7 +42,21 @@ export default function HomeExperience() {
 
 function HomeContent() {
   const [view, setView] = useState<View>("home");
+  const [supportOpen, setSupportOpen] = useState(true);
   const setSmoothScrollEnabled = useSmoothScrollController();
+  const dismissSupport = useCallback(() => setSupportOpen(false), []);
+  const openSupport = useCallback(() => setSupportOpen(true), []);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("support")) return;
+    const timer = window.setTimeout(() => {
+      setSupportOpen(false);
+      for (const key of ["support", "payment_id", "status", "email"]) url.searchParams.delete(key);
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   /* Games always open at their beginning. When the player returns,
      restore the landing-page position they came from. */
@@ -118,5 +129,5 @@ function HomeContent() {
     return <FaceSyncArena onBack={handleBack} />;
   }
 
-  return <ModeSelect onSelect={handleSelect} />;
+  return <ModeSelect onSelect={handleSelect} supportOpen={supportOpen} onDismissSupport={dismissSupport} onOpenSupport={openSupport} />;
 }
