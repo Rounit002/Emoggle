@@ -231,6 +231,7 @@ export default function Home() {
               ["/history", "History"],
               ["/privacy", "Privacy"],
               ["/terms", "Terms"],
+              ["/refund", "Refunds"],
               ["/contact", "Contact"],
             ].map(([href, label]) => (
               <Link

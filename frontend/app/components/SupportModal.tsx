@@ -149,12 +149,17 @@ export function SupportModal({ open, onClose }: { open: boolean; onClose: () => 
             />
           </div>
           {error && <p id="support-error" role="alert" className="mt-3 text-sm font-bold text-[var(--pink-deep)]">{error}</p>}
+          {isSessionReady && !sessionToken && (
+            <p className="mt-3 text-sm text-[var(--on-surface-variant)]" role="status">
+              Checkout is unavailable right now. Please try again later.
+            </p>
+          )}
           <button
             type="submit"
             disabled={busy || !isSessionReady || !sessionToken}
             className="mt-6 min-h-12 w-full rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--purple)] px-5 font-bold text-[var(--ink)] shadow-[4px_4px_0_0_var(--charcoal)] transition-transform active:translate-y-1 active:shadow-none disabled:cursor-wait disabled:opacity-60"
           >
-            {busy ? "Opening checkout…" : !isSessionReady ? "Getting ready…" : "Continue to secure checkout"}
+            {busy ? "Opening checkout…" : !isSessionReady ? "Getting ready…" : !sessionToken ? "Checkout unavailable" : "Continue to secure checkout"}
           </button>
         </form>
         <button type="button" onClick={close} disabled={busy} className="mt-4 min-h-11 w-full text-sm font-bold underline-offset-4 hover:underline disabled:opacity-50">

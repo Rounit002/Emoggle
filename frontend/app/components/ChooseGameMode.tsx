@@ -44,8 +44,10 @@ export type GameMode = "camera" | "solo" | "celebrity" | "facesync";
 
 export interface ChooseGameModeProps {
   open: boolean;
+  supportOpen: boolean;
   onClose: () => void;
   onSelect: (mode: GameMode) => void;
+  onOpenSupport: () => void;
 }
 
 interface ModeOption {
@@ -130,8 +132,10 @@ const MODE_OPTIONS: ModeOption[] = [
 
 export function ChooseGameMode({
   open,
+  supportOpen,
   onClose,
   onSelect,
+  onOpenSupport,
 }: ChooseGameModeProps) {
   const reduceMotion = useReducedMotion();
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -151,7 +155,7 @@ export function ChooseGameMode({
   // Escape closes the modal — matches the user's mental model
   // for a "page" rather than a tooltip.
   useEffect(() => {
-    if (!open) return;
+    if (!open || supportOpen) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") handleClose();
       if (e.key !== "Tab") return;
@@ -171,7 +175,7 @@ export function ChooseGameMode({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleClose, open]);
+  }, [handleClose, open, supportOpen]);
 
   useEffect(() => {
     if (!open) return;
@@ -232,6 +236,8 @@ export function ChooseGameMode({
           aria-modal="true"
           aria-label="Choose a game mode"
           aria-busy={isSelecting}
+          aria-hidden={supportOpen || undefined}
+          inert={supportOpen}
         >
           <DoodleBackdrop inOverlay />
 
@@ -373,6 +379,15 @@ export function ChooseGameMode({
               reassurance. Both rows are below the cards so the
               user can always find a way out. */}
           <div className="relative z-10 flex flex-none flex-col items-center gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onOpenSupport}
+              disabled={isSelecting}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-5 text-sm font-bold text-[var(--charcoal)] shadow-[3px_3px_0_0_var(--charcoal)] transition-[transform,box-shadow,background-color] hover:bg-[var(--yellow)] active:translate-y-0.5 active:shadow-none disabled:opacity-50"
+            >
+              <span aria-hidden="true">♥</span>
+              Support this site
+            </button>
             <button
               type="button"
               onClick={handleClose}

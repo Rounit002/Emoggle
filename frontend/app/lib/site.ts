@@ -8,7 +8,8 @@ export const siteConfig = {
   title: "Emoggle: Emoji Face-Matching Webcam Game",
   description:
     "Match emoji expressions in live webcam duels with strangers or play solo. Emoggle is a free browser face-expression game—no download needed.",
-  contentLastModified: "2026-07-19",
+  supportEmail: "rounit7667@gmail.com",
+  contentLastModified: "2026-09-26",
 };
 
 export const frequentlyAskedQuestions = [
@@ -25,7 +26,7 @@ export const frequentlyAskedQuestions = [
   {
     question: "Is Emoggle free?",
     answer:
-      "Emoggle's core solo and random-match gameplay is free to use. Optional premium features may be offered separately.",
+      "Yes. Every game mode is free to play. One-time support payments are optional and do not unlock game features.",
   },
   {
     question: "Do I need a webcam?",

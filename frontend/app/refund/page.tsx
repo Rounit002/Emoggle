@@ -1,42 +1,54 @@
 import type { Metadata } from "next";
+import InfoPageShell from "../components/InfoPageShell";
+import { siteConfig } from "../lib/site";
 
 export const metadata: Metadata = {
-  title: "Refunds & Cancellations",
-  description: "Policy for refunds, cancellations, and customer support.",
+  title: "Support Payment Refunds",
+  description: "How to request help with an optional Emoggle support payment.",
   alternates: { canonical: "/refund" },
   openGraph: { url: "/refund" },
 };
 
 export default function RefundPage() {
   return (
-    <div className="mx-auto max-w-3xl px-6 py-12 prose prose-zinc">
-      <h1>Refunds & Cancellations</h1>
-      <p>
-        Emoggle VIP provides access to premium features. Because this is a
-        digital service, refunds are generally not provided once a purchase is
-        completed. If you experience an issue such as duplicate charges or
-        unauthorized payment, please contact us promptly and we will review your
-        request.
-      </p>
+    <InfoPageShell
+      eyebrow="Payment help"
+      title="Refunds and cancellations"
+      intro="Playing Emoggle is free. This policy covers only optional one-time payments made through Support this site."
+    >
+      <p>Effective September 26, 2026.</p>
 
-      <h2>How to Request Support</h2>
-      <p>
-        Please reach out via our <a href="/contact">Contact</a> page with your
-        approximate date/time of purchase, any screenshots, and any order
-        references you have. We aim to respond within a reasonable time.
-      </p>
+      <section>
+        <h2>Before and after checkout</h2>
+        <p>
+          You can close the support form or leave checkout before paying. There is no
+          subscription to cancel and no paid game access to lose. A completed support
+          payment is voluntary and generally is not refundable simply because you stop
+          playing. This does not affect rights you may have under applicable law.
+        </p>
+      </section>
 
-      <h2>Processing Time</h2>
-      <p>
-        If a refund is approved, processing time may vary based on your bank or
-        payment provider.
-      </p>
+      <section>
+        <h2>Request a review</h2>
+        <p>
+          If you paid by mistake, were charged twice, see an unauthorized charge, or
+          experienced a payment problem, email
+          <a href={`mailto:${siteConfig.supportEmail}`}> {siteConfig.supportEmail}</a> promptly.
+          Include the payment reference from your Dodo receipt, payment date, amount,
+          and a short explanation. Do not send your full card number or payment password.
+          We will review the request and work with Dodo Payments where a refund is
+          appropriate. Any approved refund is processed through the payment provider;
+          the time it takes to reach your original payment method can vary.
+        </p>
+      </section>
 
-      <h2>Exceptions</h2>
-      <p>
-        We reserve the right to refuse or limit refunds in cases of abuse,
-        fraud, or violations of our Terms & Conditions.
-      </p>
-    </div>
+      <section>
+        <h2>Questions</h2>
+        <p>
+          See our <a href="/contact">Contact page</a> for other support or our
+          <a href="/terms"> Terms of Use</a> for the rules of the game.
+        </p>
+      </section>
+    </InfoPageShell>
   );
 }

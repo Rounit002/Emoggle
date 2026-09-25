@@ -571,6 +571,9 @@ a:focus-visible,
 
 .info-content ul { list-style-type: disc; }
 .info-content ol { list-style-type: decimal; }
+.info-content a { color: var(--charcoal); text-decoration: underline; text-underline-offset: 3px; }
+.info-content a:hover { color: var(--purple-deep); }
+.info-content section p + p { margin-top: 1rem; }
 
 /* Dark theme: plum-charcoal surface layers with softened party accents.
    Scoped to the existing theme attribute so light-mode tokens stay intact.

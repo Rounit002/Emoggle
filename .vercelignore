@@ -1,0 +1,14 @@
+# CLI deployments start at the repository root; the Vercel app lives in frontend.
+frontend/.next-build/
+frontend/.next/
+frontend/node_modules/
+frontend/.tmp*/
+frontend/*.tsbuildinfo
+frontend/.env*
+graphify-out/
+.pnpm-store/
+ai-judge/
+signaling-server/
+.claude/
+.env*
+.vercel/

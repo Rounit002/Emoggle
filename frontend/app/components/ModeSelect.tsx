@@ -466,6 +466,14 @@ export default function ModeSelect({ onSelect, supportOpen, onDismissSupport, on
               >
                 Play now
               </Button>
+              <button
+                type="button"
+                onClick={onOpenSupport}
+                className="inline-flex min-h-12 w-full max-w-[320px] items-center justify-center gap-2 rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-6 text-sm font-bold text-[var(--charcoal)] shadow-[4px_4px_0_0_var(--charcoal)] transition-[transform,box-shadow,background-color] hover:bg-[var(--yellow)] active:translate-y-1 active:shadow-none sm:w-auto"
+              >
+                <span aria-hidden="true">♥</span>
+                Support this site
+              </button>
               <p className="hidden text-xs text-[var(--on-surface-variant)] sm:block">
                 Webcam + a straight face you won&apos;t keep
               </p>
@@ -576,8 +584,10 @@ export default function ModeSelect({ onSelect, supportOpen, onDismissSupport, on
           sits on top of every other element on the home page. */}
       <ChooseGameMode
         open={modePickerOpen}
+        supportOpen={supportOpen}
         onClose={() => setModePickerOpen(false)}
         onSelect={handleModalSelect}
+        onOpenSupport={onOpenSupport}
       />
 
       <SupportModal open={supportOpen} onClose={onDismissSupport} />

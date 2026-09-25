@@ -1,0 +1,8 @@
+# Vercel builds from source; never upload local build and dev caches.
+.next/
+.next-build/
+node_modules/
+.tmp*/
+*.tsbuildinfo
+.env*
+.vercel/
