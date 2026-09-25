@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useUserProfile } from "../context/UserProfileContext";
 
 const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
@@ -15,12 +15,17 @@ function amountInCents(value: string): number | null {
 
 export function SupportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { sessionToken, isSessionReady } = useUserProfile();
-  const [amount, setAmount] = useState("1");
+  const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const close = useCallback(() => {
+    setAmount("");
+    setError(null);
+    onClose();
+  }, [onClose]);
 
   useEffect(() => {
     busyRef.current = busy;
@@ -33,7 +38,7 @@ export function SupportModal({ open, onClose }: { open: boolean; onClose: () => 
     document.body.style.overflow = "hidden";
     const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 0);
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busyRef.current) onClose();
+      if (event.key === "Escape" && !busyRef.current) close();
       if (event.key !== "Tab") return;
       const elements = dialogRef.current?.querySelectorAll<HTMLElement>(
         'button:not([disabled]), input:not([disabled])',
@@ -56,7 +61,7 @@ export function SupportModal({ open, onClose }: { open: boolean; onClose: () => 
       document.body.style.overflow = previousOverflow;
       previousFocus?.focus();
     };
-  }, [onClose, open]);
+  }, [close, open]);
 
   if (!open) return null;
 
@@ -65,6 +70,7 @@ export function SupportModal({ open, onClose }: { open: boolean; onClose: () => 
     setError(null);
     if (amountInCents(amount) === null) {
       setError("Enter at least $1.00, using no more than two decimal places.");
+      inputRef.current?.focus();
       return;
     }
     if (!sessionToken) {
@@ -109,21 +115,21 @@ export function SupportModal({ open, onClose }: { open: boolean; onClose: () => 
       >
         <button
           type="button"
-          onClick={onClose}
+          onClick={close}
           disabled={busy}
           aria-label="Close support popup"
           className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--off-white)] text-xl font-bold hover:bg-[var(--yellow)] disabled:opacity-50"
         >
           ×
         </button>
-        <span className="inline-block rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-3 py-1 text-xs font-bold uppercase tracking-wider text-[var(--on-accent)]">
+        <span className="inline-block rounded-full border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-4 py-2 font-display text-base font-extrabold uppercase tracking-wide text-[var(--on-accent)] shadow-[3px_3px_0_0_var(--charcoal)] sm:text-lg">
           Support Emoggle
         </span>
         <h2 id="support-title" className="mt-5 pr-8 font-display text-3xl font-bold leading-tight">
           Enjoying the game?
         </h2>
         <p id="support-description" className="mt-3 text-sm leading-relaxed text-[var(--on-surface-variant)]">
-          Help us keep Emoggle running. Choose any amount from $1. Playing is free whether you contribute or not.
+          Help us keep Emoggle running. Choose an amount that feels right. Playing is free whether you contribute or not.
         </p>
         <form onSubmit={submit} className="mt-6">
           <label htmlFor="support-amount" className="text-sm font-bold">Your amount (USD)</label>
@@ -138,12 +144,10 @@ export function SupportModal({ open, onClose }: { open: boolean; onClose: () => 
               value={amount}
               onChange={(event) => { setAmount(event.target.value); setError(null); }}
               aria-invalid={error ? true : undefined}
-              aria-describedby={error ? "support-error" : "support-minimum"}
+              aria-describedby={error ? "support-error" : undefined}
               className="h-full w-full bg-transparent pl-2 text-xl font-bold outline-none"
-              placeholder="1.00"
             />
           </div>
-          <p id="support-minimum" className="mt-2 text-xs text-[var(--on-surface-variant)]">Minimum $1.00 · one time payment</p>
           {error && <p id="support-error" role="alert" className="mt-3 text-sm font-bold text-[var(--pink-deep)]">{error}</p>}
           <button
             type="submit"
@@ -153,7 +157,7 @@ export function SupportModal({ open, onClose }: { open: boolean; onClose: () => 
             {busy ? "Opening checkout…" : !isSessionReady ? "Getting ready…" : "Continue to secure checkout"}
           </button>
         </form>
-        <button type="button" onClick={onClose} disabled={busy} className="mt-4 min-h-11 w-full text-sm font-bold underline-offset-4 hover:underline disabled:opacity-50">
+        <button type="button" onClick={close} disabled={busy} className="mt-4 min-h-11 w-full text-sm font-bold underline-offset-4 hover:underline disabled:opacity-50">
           Maybe later — let me play
         </button>
       </div>
