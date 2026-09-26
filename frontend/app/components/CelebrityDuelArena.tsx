@@ -33,7 +33,7 @@ import Countdown from "./Countdown";
 import { useUserProfile } from "../context/UserProfileContext";
 import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
-import { useMatchmaking, type MatchResult } from "../hooks/useMatchmaking";
+import { useMatchmaking, type MatchGameMode, type MatchResult } from "../hooks/useMatchmaking";
 import { useLocalCamera } from "../hooks/useLocalCamera";
 import { useRoundClock } from "../hooks/useRoundClock";
 import { useCelebrityExpressionScorer } from "../hooks/useCelebrityExpressionScorer";
@@ -57,6 +57,8 @@ type AppPhase = "lobby" | "matched" | "countdown" | "playing" | "results";
 
 interface CelebrityDuelArenaProps {
   onBack: () => void;
+  modeSwitchTicket?: string | null;
+  onModeSwitch?: (mode: MatchGameMode, ticket: string) => void;
 }
 
 function toTenPoint(raw: number | null): number | null {
@@ -114,7 +116,7 @@ function buildResult(
   };
 }
 
-export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) {
+export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwitch }: CelebrityDuelArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const peakAccumulatorRef = useRef<PeakScoreAccumulator>(createPeakAccumulator());
   const submittedRef = useRef(false);
@@ -175,6 +177,8 @@ export default function CelebrityDuelArena({ onBack }: CelebrityDuelArenaProps) 
     // `useMatchmaking` defers media until `localStream` is ready.
     sessionToken,
     "celebrity",
+    modeSwitchTicket,
+    onModeSwitch,
   );
 
   // The celebrity target is passed in the `match_started` payload

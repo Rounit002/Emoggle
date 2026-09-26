@@ -13,8 +13,8 @@
  *  - Connection / reconnect: same as the emoji hook, runs while
  *    `localStream` is non-null.
  *  - Queueing: shares the canonical stranger queue (`join_queue`,
- *    `waiting`, and `match_started`) with the emoji duel. The server
- *    includes one synchronized celebrity target in that match payload.
+ *    `waiting`, and `match_started`) with the emoji duel. This legacy
+ *    hook is not used by the current celebrity arena.
  *  - Round lifecycle: the same 3-second countdown + 10-second scan
  *    window the emoji duel uses. The server owns the timing and
  *    fans `countdown_tick` + `emoji_locked` events out.

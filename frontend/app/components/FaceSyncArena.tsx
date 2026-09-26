@@ -8,11 +8,9 @@
  * countdown, no ten-second scan window, no score submission and no
  * ELO — the resemblance IS the round.
  *
- * It rides the same matchmaking pipeline as the emoji duel but on
- * its own queue (`gameMode: "facesync"`). The server refuses to
- * pair across modes, which is the point: someone who picked this
- * card must never land in a ten-second emoji duel they did not ask
- * for. The cost of that guarantee is a split matchmaking pool.
+ * It rides the shared stranger queue. When the other player chose
+ * another mode, the server switches their arena before the match
+ * starts so both clients follow FaceSync's round rules.
  *
  * Deliberately NOT reusing `DuelArena`. That component carries the
  * whole round lifecycle — round clock, expression scorer, stable
@@ -30,7 +28,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import FaceSync from "./FaceSync";
 import ChatBox from "./ChatBox";
-import { useMatchmaking } from "../hooks/useMatchmaking";
+import { useMatchmaking, type MatchGameMode } from "../hooks/useMatchmaking";
 import { useFaceSync } from "../hooks/useFaceSync";
 import { useLocalCamera } from "../hooks/useLocalCamera";
 import { useUserProfile } from "../context/UserProfileContext";
@@ -52,9 +50,11 @@ import {
 
 interface FaceSyncArenaProps {
   onBack: () => void;
+  modeSwitchTicket?: string | null;
+  onModeSwitch?: (mode: MatchGameMode, ticket: string) => void;
 }
 
-export default function FaceSyncArena({ onBack }: FaceSyncArenaProps) {
+export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }: FaceSyncArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const {
     stream: localStream,
@@ -102,6 +102,8 @@ export default function FaceSyncArena({ onBack }: FaceSyncArenaProps) {
     // start the media call until a local stream exists.
     sessionToken,
     "facesync",
+    modeSwitchTicket,
+    onModeSwitch,
   );
 
   const faceSync = useFaceSync({

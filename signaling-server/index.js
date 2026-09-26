@@ -138,20 +138,13 @@ const io = new Server(server, {
 
 // ─── In-memory state (minimal; keyed by matchId for easy cleanup) ────────────
 const waitingQueue = []; // { socketId, peerId, skippedSocketId }
+const pendingModeSwitches = new Map(); // ticket -> { socketId, requesterSocketId, userId, timeoutId }
+const pairingSockets = new Set();
 const socketMeta = new Map(); // socketId -> { peerId, userId, country, displayName, gameMode }
 const activeMatches = new Map(); // matchId -> { roomId, player1SocketId, player2SocketId, timerId, scores, gameMode }
 const CELEBRITY_GAME_MODE = "celebrity";
 const EMOJI_GAME_MODE = "emoji";
-/*
- * FaceSync as a mode in its own right: pair with a stranger,
- * compare faces, show the number, move on. No emoji, no countdown,
- * no scan window, no ELO.
- *
- * It has its own queue because `enqueueSocket` refuses to pair
- * across modes, which is what stops someone who chose FaceSync
- * from being dropped into a ten-second emoji duel they did not ask
- * for. The cost is a split matchmaking pool.
- */
+/* FaceSync has its own round rules; cross-mode players switch views before pairing. */
 const FACE_SYNC_GAME_MODE = "facesync";
 
 /** The three modes a client may ask for. Anything else is emoji. */
@@ -1081,6 +1074,9 @@ async function startMatch(socket, partner) {
   const meta2 = socketMeta.get(partner.socketId);
   if (!meta1 || !meta2) return false;
   if (meta1.gameMode !== meta2.gameMode) return false;
+  if (pairingSockets.has(socket.id) || pairingSockets.has(partner.socketId)) return false;
+  pairingSockets.add(socket.id);
+  pairingSockets.add(partner.socketId);
 
   const emoji = pickEmoji();
   const gameMode = readGameMode(meta1.gameMode);
@@ -1146,7 +1142,12 @@ async function startMatch(socket, partner) {
     matchId = crypto.randomUUID();
   } finally {
     client?.release();
+    pairingSockets.delete(socket.id);
+    pairingSockets.delete(partner.socketId);
   }
+
+  if (!socket.connected || !partnerSocket.connected ||
+      socketMeta.get(socket.id) !== meta1 || socketMeta.get(partner.socketId) !== meta2) return false;
 
   const roomId = `match_${matchId}`;
   socket.join(roomId);
@@ -1486,12 +1487,52 @@ async function startMatch(socket, partner) {
 }
 
 // ─── Enqueue and attempt instant match ───────────────────────────────────────
+function clearModeSwitch(ticket, requeue = false) {
+  const transfer = pendingModeSwitches.get(ticket);
+  if (!transfer) return;
+  pendingModeSwitches.delete(ticket);
+  clearTimeout(transfer.timeoutId);
+  if (requeue) {
+    const candidate = io.sockets.sockets.get(transfer.socketId);
+    const meta = socketMeta.get(transfer.socketId);
+    if (candidate && meta) enqueueSocket(candidate, meta.peerId);
+  }
+}
+
+function clearModeSwitchesForSocket(socketId) {
+  for (const [ticket, transfer] of pendingModeSwitches) {
+    if (transfer.socketId !== socketId) continue;
+    clearModeSwitch(ticket);
+    const requester = io.sockets.sockets.get(transfer.requesterSocketId);
+    const meta = socketMeta.get(transfer.requesterSocketId);
+    if (requester?.connected && meta) enqueueSocket(requester, meta.peerId);
+  }
+}
+
+function pairSockets(socket, candidate) {
+  void startMatch(socket, candidate).then((ok) => {
+    if (!ok) {
+      removeFromQueue(socket.id);
+      removeFromQueue(candidate.socketId);
+      const partnerSocket = io.sockets.sockets.get(candidate.socketId);
+      if (!partnerSocket?.connected && socket.connected) {
+        const meta = socketMeta.get(socket.id);
+        if (meta) enqueueSocket(socket, meta.peerId);
+      } else if (!socket.connected && partnerSocket?.connected) {
+        const meta = socketMeta.get(candidate.socketId);
+        if (meta) enqueueSocket(partnerSocket, meta.peerId);
+      }
+    }
+  });
+}
+
 function enqueueSocket(socket, peerId, skippedSocketId = null) {
   if (!socket?.connected || !peerId) return;
   removeFromQueue(socket.id);
   const currentMeta = socketMeta.get(socket.id);
-  if (!currentMeta) return;
+  if (!currentMeta || pairingSockets.has(socket.id) || getMatchBySocket(socket.id)) return;
 
+  let crossModeCandidate = null;
   for (let i = 0; i < waitingQueue.length; i++) {
     const candidate = waitingQueue[i];
     const candidateSocket = io.sockets.sockets.get(candidate.socketId);
@@ -1503,24 +1544,35 @@ function enqueueSocket(socket, peerId, skippedSocketId = null) {
       continue;
     }
 
-    // Celebrity and emoji players reuse the same queue machinery, but they
-    // must never be paired across modes because their targets and scoring
-    // algorithms differ.
-    if (candidateMeta.gameMode !== currentMeta.gameMode) continue;
-
     const blockedBySkip =
       candidate.socketId === skippedSocketId || candidate.skippedSocketId === socket.id;
 
     if (!blockedBySkip) {
-      waitingQueue.splice(i, 1);
-      startMatch(socket, candidate).then((ok) => {
-        if (ok === false) {
-          removeFromQueue(socket.id);
-          removeFromQueue(candidate.socketId);
-        }
-      });
-      return;
+      if (pairingSockets.has(candidate.socketId) || getMatchBySocket(candidate.socketId)) continue;
+      if (candidateMeta.gameMode === currentMeta.gameMode) {
+        waitingQueue.splice(i, 1);
+        pairSockets(socket, candidate);
+        return;
+      }
+      crossModeCandidate ??= candidate;
     }
+  }
+
+  if (crossModeCandidate) {
+    removeFromQueue(crossModeCandidate.socketId);
+    const ticket = crypto.randomUUID();
+    const timeoutId = setTimeout(() => clearModeSwitch(ticket, true), 10_000);
+    pendingModeSwitches.set(ticket, {
+      socketId: crossModeCandidate.socketId,
+      requesterSocketId: socket.id,
+      userId: currentMeta.userId,
+      timeoutId,
+    });
+    socket.emit("switch_mode", {
+      gameMode: socketMeta.get(crossModeCandidate.socketId).gameMode,
+      ticket,
+    });
+    return;
   }
 
   waitingQueue.push({ socketId: socket.id, peerId, skippedSocketId });
@@ -1529,10 +1581,8 @@ function enqueueSocket(socket, peerId, skippedSocketId = null) {
 }
 
 /* ─── Celebrity helpers ─────────────────────────────────────────────────────
- *  All celebrity-mimic state and events live in their own block so the
- *  legacy emoji-duel code above stays untouched. The flow mirrors the
- *  emoji duel — separate queue, separate start function, separate socket
- *  events — but the match stores an extra `celebrity` payload (id, name,
+ *  Celebrity rounds share matchmaking and store an extra
+ *  `celebrity` payload (id, name,
  *  image url, difficulty, optional pre-computed expression profile) so
  *  both clients always start the round targeting the same target.
  */
@@ -1754,6 +1804,17 @@ io.on("connection", (socket) => {
       gameMode,
     });
 
+    const ticket = readBoundedString(payload.ticket, 64);
+    const transfer = ticket && pendingModeSwitches.get(ticket);
+    if (transfer && transfer.userId === user.id) {
+      clearModeSwitch(ticket);
+      const partner = io.sockets.sockets.get(transfer.socketId);
+      const partnerMeta = socketMeta.get(transfer.socketId);
+      if (partner?.connected && partnerMeta?.gameMode === gameMode) {
+        pairSockets(socket, { socketId: partner.id, peerId: partnerMeta.peerId });
+        return;
+      }
+    }
     enqueueSocket(socket, peerId);
   });
 
@@ -1983,6 +2044,10 @@ io.on("connection", (socket) => {
   });
 
   socket.on("stop_matching", () => {
+    clearModeSwitchesForSocket(socket.id);
+    for (const [ticket, transfer] of pendingModeSwitches) {
+      if (transfer.requesterSocketId === socket.id) clearModeSwitch(ticket, true);
+    }
     const existing = getMatchBySocket(socket.id);
 
     if (existing) {
@@ -2008,6 +2073,7 @@ io.on("connection", (socket) => {
 
   // ─── Graceful disconnect ─────────────────────────────────────────────────
   socket.on("disconnect", () => {
+    clearModeSwitchesForSocket(socket.id);
     removeFromQueue(socket.id);
 
     const existing = getMatchBySocket(socket.id);

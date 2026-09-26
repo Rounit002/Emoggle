@@ -49,11 +49,7 @@ export type MatchStatus =
   | "stopped"
   | "error";
 
-/**
- * Which queue a client joins. The server refuses to pair across
- * modes, so someone who chose FaceSync is never dropped into a
- * ten-second emoji duel they did not ask for.
- */
+/** Round rules and view requested by this client. */
 export type MatchGameMode = "emoji" | "celebrity" | "facesync";
 
 export interface ChatMessage {
@@ -222,9 +218,13 @@ export function useMatchmaking(
   onProfileUpdate?: (profile: UserProfile) => void,
   sessionToken?: string | null,
   gameMode: MatchGameMode = "emoji",
+  modeSwitchTicket?: string | null,
+  onModeSwitch?: (mode: MatchGameMode, ticket: string) => void,
 ): MatchmakingState {
   const profileRef = useRef<UserProfile | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const onModeSwitchRef = useRef(onModeSwitch);
+  useEffect(() => { onModeSwitchRef.current = onModeSwitch; }, [onModeSwitch]);
   const peerRef = useRef<Peer | null>(null);
   const callRef = useRef<MediaConnection | null>(null);
   const pendingCallRef = useRef<MediaConnection | null>(null);
@@ -302,8 +302,9 @@ export function useMatchmaking(
       country: country ?? null,
       countryCode: countryCode ?? null,
       gameMode,
+      ticket: modeSwitchTicket ?? null,
     };
-  }, [gameMode]);
+  }, [gameMode, modeSwitchTicket]);
 
   const clearStreamTimeout = useCallback(() => {
     if (streamTimeoutRef.current) {
@@ -499,6 +500,12 @@ export function useMatchmaking(
 
       socket.on("waiting", () => {
         if (!stoppedRef.current) setStatus("waiting");
+      });
+
+      socket.on("switch_mode", ({ gameMode: nextMode, ticket }: { gameMode?: string; ticket?: string }) => {
+        if (stoppedRef.current || typeof ticket !== "string") return;
+        if (nextMode !== "emoji" && nextMode !== "celebrity" && nextMode !== "facesync") return;
+        onModeSwitchRef.current?.(nextMode, ticket);
       });
 
       socket.on("usage_update", ({ isVIP }: { isVIP?: boolean }) => {

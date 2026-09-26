@@ -17,8 +17,8 @@
  *   5. Both clients receive a `match_result` with the same
  *      `matchId`, celebrity reference, and the higher-score
  *      player marked as the winner.
- *   6. A cross-mode pair remains unmatched, while two emoji players
- *      pair normally without receiving a celebrity target.
+ *   6. A cross-mode arrival switches to the waiting player's mode,
+ *      then both receive the same round rules.
  *
  * The test uses the existing in-memory queue / match state
  * directly, so it does not need a real camera or PeerJS
@@ -375,8 +375,7 @@ async function run() {
     }
     console.log("[smoke] duplicate submission dropped ✓");
 
-    // Mode isolation: an emoji player and celebrity player must remain in
-    // separate pools even though both reuse the same queue implementation.
+    // Cross-mode arrivals switch views before a match begins.
     let crossModeMatchCount = 0;
     const countCrossModeMatch = () => { crossModeMatchCount += 1; };
     sockA.on("match_started", countCrossModeMatch);
@@ -384,17 +383,24 @@ async function run() {
     const emojiWaitingA = waitFor(sockA, "waiting");
     sockA.emit("join_queue", { peerId: `peer-${randomUUID()}`, gameMode: "emoji" });
     await emojiWaitingA;
-    const celebrityWaitingB = waitFor(sockB, "waiting");
+    const switchB = waitFor(sockB, "switch_mode");
     sockB.emit("join_queue", { peerId: `peer-${randomUUID()}`, gameMode: "celebrity" });
-    await celebrityWaitingB;
-    await new Promise((r) => setTimeout(r, 300));
-    if (crossModeMatchCount !== 0) throw new Error("Players were matched across game modes");
+    const handoff = await switchB;
+    if (handoff.gameMode !== "emoji" || !handoff.ticket) throw new Error("Cross-mode handoff was not offered");
+    if (crossModeMatchCount !== 0) throw new Error("Match started before the mode switch");
     sockA.off("match_started", countCrossModeMatch);
     sockB.off("match_started", countCrossModeMatch);
 
+    // The browser unmounts the old arena and opens a fresh signaling socket.
+    sockB.disconnect();
+    const switchedSockB = connectClient(sessionB.socketToken);
+    await new Promise((resolve, reject) => {
+      switchedSockB.once("connect", resolve);
+      switchedSockB.once("connect_error", reject);
+    });
     const emojiMatchA = waitFor(sockA, "match_started");
-    const emojiMatchB = waitFor(sockB, "match_started");
-    sockB.emit("join_queue", { peerId: `peer-${randomUUID()}`, gameMode: "emoji" });
+    const emojiMatchB = waitFor(switchedSockB, "match_started");
+    switchedSockB.emit("join_queue", { peerId: `peer-${randomUUID()}`, gameMode: "emoji", ticket: handoff.ticket });
     const [emojiA, emojiB] = await Promise.all([emojiMatchA, emojiMatchB]);
     if (emojiA.celebrity || emojiB.celebrity) {
       throw new Error("Emoji match unexpectedly received a celebrity target");
@@ -402,10 +408,10 @@ async function run() {
     if (!emojiA.emoji || emojiA.emoji !== emojiB.emoji) {
       throw new Error("Emoji match did not receive one synchronized emoji");
     }
-    console.log("[smoke] mode isolation and emoji fallback OK ✓");
+    console.log("[smoke] cross-mode handoff and emoji round OK ✓");
 
     sockA.disconnect();
-    sockB.disconnect();
+    switchedSockB.disconnect();
 
     console.log("\n[smoke] ALL CHECKS PASSED");
     await cleanup(0);

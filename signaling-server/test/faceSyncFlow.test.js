@@ -555,20 +555,28 @@ async function run() {
       close(sockA, sockB);
     }
 
-    console.log("\nqueues do not mix across modes");
+    console.log("\ncross-mode handoff preserves FaceSync rules");
     {
       // Someone who picked FaceSync must never be dropped into a
       // ten-second emoji duel they did not ask for.
       const faceSyncClient = await connectPooled();
       const emojiClient = await connectPooled();
-      const crossMatch = waitForMaybe(faceSyncClient, "match_started", 4_000);
+      const crossMatch = collect(faceSyncClient, "match_started");
 
       faceSyncClient.emit("join_queue", { peerId: `peer-${randomUUID()}`, gameMode: "facesync" });
       await waitFor(faceSyncClient, "waiting");
+      const switchMode = waitFor(emojiClient, "switch_mode");
       emojiClient.emit("join_queue", { peerId: `peer-${randomUUID()}` });
+      const handoff = await switchMode;
 
-      check("a facesync player is not paired with an emoji player",
-        (await crossMatch) === null);
+      check("the newcomer is routed to FaceSync", handoff.gameMode === "facesync" && Boolean(handoff.ticket));
+      check("no match starts before the switch", crossMatch.seen.length === 0);
+      const matchA = waitFor(faceSyncClient, "match_started");
+      const matchB = waitFor(emojiClient, "match_started");
+      emojiClient.emit("join_queue", { peerId: `peer-${randomUUID()}`, gameMode: "facesync", ticket: handoff.ticket });
+      const [a, b] = await Promise.all([matchA, matchB]);
+      check("both players enter the same FaceSync round", a.matchId === b.matchId && a.faceSyncEndsAt > a.roundStartedAt);
+      crossMatch.stop();
 
       faceSyncClient.emit("stop_matching");
       emojiClient.emit("stop_matching");

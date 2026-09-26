@@ -13,6 +13,7 @@ import { PlayerNameProvider } from "../context/PlayerNameContext";
 import { CountryProvider } from "../context/CountryContext";
 import { useSmoothScrollController } from "./SmoothScroll";
 import { useCoveredView } from "./home/useCoveredView";
+import type { MatchGameMode } from "../hooks/useMatchmaking";
 
 type View = "home" | "arena" | "solo" | "celebrity" | "facesync";
 type ModeId = "camera" | "solo" | "celebrity" | "facesync";
@@ -20,6 +21,11 @@ type ModeId = "camera" | "solo" | "celebrity" | "facesync";
 const VIEW_BY_MODE: Record<ModeId, View> = {
   camera: "arena",
   solo: "solo",
+  celebrity: "celebrity",
+  facesync: "facesync",
+};
+const VIEW_BY_MATCH_MODE: Record<MatchGameMode, View> = {
+  emoji: "arena",
   celebrity: "celebrity",
   facesync: "facesync",
 };
@@ -42,6 +48,7 @@ export default function HomeExperience() {
 
 function HomeContent() {
   const [view, setView] = useState<View>("home");
+  const [modeSwitchTicket, setModeSwitchTicket] = useState<string | null>(null);
   const [supportOpen, setSupportOpen] = useState(true);
   const setSmoothScrollEnabled = useSmoothScrollController();
   const dismissSupport = useCallback(() => setSupportOpen(false), []);
@@ -95,13 +102,20 @@ function HomeContent() {
 
   const handleSelect = useCallback(
     (mode: ModeId) => {
+      setModeSwitchTicket(null);
       goTo(VIEW_BY_MODE[mode]);
     },
     [goTo],
   );
 
   const handleBack = useCallback(() => {
+    setModeSwitchTicket(null);
     goTo("home");
+  }, [goTo]);
+
+  const handleModeSwitch = useCallback((mode: MatchGameMode, ticket: string) => {
+    setModeSwitchTicket(ticket);
+    goTo(VIEW_BY_MATCH_MODE[mode]);
   }, [goTo]);
 
   useLayoutEffect(() => {
@@ -114,7 +128,7 @@ function HomeContent() {
   }, [view]);
 
   if (view === "arena") {
-    return <DuelArena onBack={handleBack} />;
+    return <DuelArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />;
   }
 
   if (view === "solo") {
@@ -122,11 +136,11 @@ function HomeContent() {
   }
 
   if (view === "celebrity") {
-    return <CelebrityDuelArena onBack={handleBack} />;
+    return <CelebrityDuelArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />;
   }
 
   if (view === "facesync") {
-    return <FaceSyncArena onBack={handleBack} />;
+    return <FaceSyncArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />;
   }
 
   return <ModeSelect onSelect={handleSelect} supportOpen={supportOpen} onDismissSupport={dismissSupport} onOpenSupport={openSupport} />;

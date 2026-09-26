@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import ChatBox from "./ChatBox";
-import { useMatchmaking } from "../hooks/useMatchmaking";
+import { useMatchmaking, type MatchGameMode } from "../hooks/useMatchmaking";
 import { useFaceSync } from "../hooks/useFaceSync";
 import FaceSync from "./FaceSync";
 import { MIN_SAMPLES } from "../lib/faceSync/types";
@@ -50,6 +50,8 @@ type AppPhase = "lobby" | "dueling" | "countdown" | "playing" | "results";
 
 interface DuelArenaProps {
   onBack: () => void;
+  modeSwitchTicket?: string | null;
+  onModeSwitch?: (mode: MatchGameMode, ticket: string) => void;
 }
 
 interface RankSnapshot {
@@ -114,7 +116,7 @@ function buildMatchResult(args: {
   };
 }
 
-export default function DuelArena({ onBack }: DuelArenaProps) {
+export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: DuelArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const submittedRef = useRef(false);
   const {
@@ -217,6 +219,9 @@ export default function DuelArena({ onBack }: DuelArenaProps) {
     // still asking for camera access. The matchmaking hook defers the PeerJS
     // media call until `localStream` becomes available.
     sessionToken,
+    "emoji",
+    modeSwitchTicket,
+    onModeSwitch,
   );
 
   const mySeat: Seat = useMemo(
