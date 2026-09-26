@@ -367,6 +367,11 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
     onBack();
   }, [onBack, stopMatching, stopScoreSampling]);
 
+  const handleStopSearch = useCallback(() => {
+    stopScoreSampling();
+    stopMatching();
+  }, [stopMatching, stopScoreSampling]);
+
   const myFlag = flagFromAnyOrFallback(myCountry, myCountryCode);
   const partnerFlag = flagFromAnyOrFallback(partnerCountry, partnerCountryCode);
   const inMatch = status === "matched";
@@ -480,10 +485,11 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
         )}
 
         <AnimatePresence>
-          {(phase === "lobby" || (status === "waiting" && !inMatch)) && (
+          {(phase === "lobby" || status === "stopped" || status === "error" || (status === "waiting" && !inMatch)) && (
             <LobbyOverlay
               status={status}
               onCancel={handleCancelSearch}
+              onStop={handleStopSearch}
               onRetry={handleRetry}
               cameraStatus={localCameraStatus}
               cameraError={localCameraError}

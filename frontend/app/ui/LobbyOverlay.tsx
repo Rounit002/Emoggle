@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import { Button, WebEmoji } from "./";
 import type { LocalCameraStatus } from "../hooks/useLocalCamera";
 
 interface LobbyOverlayProps {
   status: "idle" | "connecting" | "waiting" | "matched" | "stopped" | "error";
-  /** Stop matchmaking and leave the duel view. */
+  /** Leave the arena. */
   onCancel: () => void;
-  /** Retry after a connection failure without leaving the game. */
+  /** Stop searching while staying in the arena. */
+  onStop: () => void;
+  /** Start again after stopping or a connection failure. */
   onRetry?: () => void;
   cameraStatus?: LocalCameraStatus;
   cameraError?: string | null;
@@ -23,23 +25,21 @@ const ORBIT_RADIUS = 64;
 export function LobbyOverlay({
   status,
   onCancel,
+  onStop,
   onRetry,
   cameraStatus,
   cameraError,
   onRetryCamera,
 }: LobbyOverlayProps) {
-  const reduceMotion = useReducedMotion();
   const [isTakingLonger, setIsTakingLonger] = useState(false);
-  const [retryCycle, setRetryCycle] = useState(0);
   useEffect(() => {
     if (status !== "waiting") return;
     const timer = window.setTimeout(() => setIsTakingLonger(true), 8000);
     return () => window.clearTimeout(timer);
-  }, [status, retryCycle]);
+  }, [status]);
 
   const handleRetry = () => {
     setIsTakingLonger(false);
-    setRetryCycle((cycle) => cycle + 1);
     onRetry?.();
   };
 
@@ -47,10 +47,13 @@ export function LobbyOverlay({
   const cameraFailed = cameraStatus === "error";
   const cameraPending = cameraStatus === "requesting";
   const hasError = status === "error";
+  const isStopped = status === "stopped";
   const title = cameraFailed
     ? "Camera access needed"
     : cameraPending
       ? "Allow camera access"
+      : isStopped
+      ? "Search stopped"
       : hasError
     ? "Couldn’t connect"
     : isConnecting
@@ -62,12 +65,14 @@ export function LobbyOverlay({
     ? cameraError ?? "Allow camera access in your browser, then try again."
     : cameraPending
       ? "Use the browser prompt to allow your camera. We’re already finding your match."
-      : hasError
+    : isStopped
+    ? "You can start looking again whenever you're ready."
+    : hasError
     ? "Check that the game server is running, then try again."
     : isConnecting
       ? "Connecting to the game server and preparing your camera."
       : isTakingLonger
-        ? "No player has joined yet. You can keep waiting or try the search again."
+        ? "No player has joined yet. We'll keep searching until you stop."
         : "Looking for someone ready to make a ridiculous face.";
 
   return (
@@ -86,15 +91,9 @@ export function LobbyOverlay({
       >
         <div className="relative h-44 w-44" aria-hidden>
           <div className="absolute inset-5 rounded-full border-[2px] border-dashed border-[var(--off-white)] opacity-35" />
-          <motion.div
+          <div
             data-search-orbit
-            className="absolute inset-0"
-            animate={{ rotate: reduceMotion ? 0 : 360 }}
-            transition={
-              reduceMotion
-                ? { duration: 0 }
-                : { duration: 1, repeat: Infinity, ease: "linear" }
-            }
+            className="search-orbit absolute inset-0"
           >
             {SEARCH_EMOJIS.map((emoji, index) => {
               const angle = (index / SEARCH_EMOJIS.length) * Math.PI * 2 - Math.PI / 2;
@@ -102,27 +101,19 @@ export function LobbyOverlay({
               const y = Math.sin(angle) * ORBIT_RADIUS;
 
               return (
-                <motion.span
+                <span
                   key={emoji}
-                  className="absolute flex h-11 w-11 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] text-2xl shadow-[3px_3px_0_0_var(--ink-shadow)]"
+                  className="search-orbit-item absolute flex h-11 w-11 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] text-2xl shadow-[3px_3px_0_0_var(--ink-shadow)]"
                   style={{
                     left: `calc(50% + ${x}px)`,
                     top: `calc(50% + ${y}px)`,
-                    x: "-50%",
-                    y: "-50%",
                   }}
-                  animate={{ rotate: reduceMotion ? 0 : -360 }}
-                  transition={
-                    reduceMotion
-                      ? { duration: 0 }
-                      : { duration: 1, repeat: Infinity, ease: "linear" }
-                  }
                 >
                   <WebEmoji emoji={emoji} />
-                </motion.span>
+                </span>
               );
             })}
-          </motion.div>
+          </div>
           <span className="absolute left-1/2 top-1/2 flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[3px] border-[var(--ink-shadow)] on-accent-inverse bg-[var(--purple)] text-2xl shadow-[3px_3px_0_0_var(--ink-shadow)]">
             <WebEmoji emoji="👀" />
           </span>
@@ -142,14 +133,17 @@ export function LobbyOverlay({
             <Button onClick={onRetryCamera} className="min-h-11 flex-1">
               Try camera again
             </Button>
-          ) : (hasError || isTakingLonger) && onRetry && (
+          ) : (hasError || isStopped) && onRetry && (
             <Button onClick={handleRetry} className="min-h-11 flex-1">
-              Try again
+              {isStopped ? "Start searching" : "Try again"}
             </Button>
           )}
-          <Button variant="secondary" onClick={onCancel} className="min-h-11 flex-1">
-            {hasError || cameraFailed ? "Back" : "Cancel search"}
-          </Button>
+          {status === "waiting" || isConnecting ? (
+            <Button variant="secondary" onClick={onStop} className="min-h-11 flex-1">
+              Stop searching
+            </Button>
+          ) : null}
+          <Button variant="ghost" onClick={onCancel} className="min-h-11 flex-1">Back</Button>
         </div>
       </motion.div>
     </motion.div>

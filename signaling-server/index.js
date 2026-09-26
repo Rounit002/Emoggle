@@ -142,6 +142,7 @@ const pendingModeSwitches = new Map(); // ticket -> { socketId, requesterSocketI
 const pairingSockets = new Set();
 const socketMeta = new Map(); // socketId -> { peerId, userId, country, displayName, gameMode }
 const activeMatches = new Map(); // matchId -> { roomId, player1SocketId, player2SocketId, timerId, scores, gameMode }
+const matchIdBySocket = new Map(); // socketId -> matchId, for constant-time queue guards
 const CELEBRITY_GAME_MODE = "celebrity";
 const EMOJI_GAME_MODE = "emoji";
 /* FaceSync has its own round rules; cross-mode players switch views before pairing. */
@@ -900,6 +901,7 @@ function clearMatchState(matchId) {
   }
 
   activeMatches.delete(matchId);
+  for (const sid of sockets) matchIdBySocket.delete(sid);
   return sockets;
 }
 
@@ -978,12 +980,9 @@ async function finalizeMatchResult(matchId, { fillMissing = false } = {}) {
 }
 
 function getMatchBySocket(socketId) {
-  for (const [matchId, m] of activeMatches) {
-    if (m.player1SocketId === socketId || m.player2SocketId === socketId) {
-      return { matchId, ...m };
-    }
-  }
-  return null;
+  const matchId = matchIdBySocket.get(socketId);
+  const match = matchId && activeMatches.get(matchId);
+  return match ? { matchId, ...match } : null;
 }
 
 // ─── Sync user on socket connection (raw UPDATE/SELECT) ─────────────────────
@@ -1231,6 +1230,8 @@ async function startMatch(socket, partner) {
     celebrityId: celebrity?.id ?? null,
     celebrityName: celebrity?.name ?? null,
   });
+  matchIdBySocket.set(socket.id, matchId);
+  matchIdBySocket.set(partner.socketId, matchId);
 
   socket.emit("usage_update", { isVIP: meta1.isVIP === true });
   partnerSocket.emit("usage_update", { isVIP: meta2.isVIP === true });
@@ -1728,6 +1729,10 @@ io.on("connection", (socket) => {
     if (getMatchBySocket(socket.id)) {
       return socket.emit("server_error", { detail: "Already in an active match." });
     }
+    // A stop or a newer join can arrive while ensureUser is awaiting the DB.
+    // Only the latest request may put this socket into a queue.
+    const queueRequestId = (socket.data.queueRequestId || 0) + 1;
+    socket.data.queueRequestId = queueRequestId;
 
     // Display name + country are optional client-supplied fields.
     // The client has already validated them (see
@@ -1759,9 +1764,11 @@ io.on("connection", (socket) => {
     try {
       user = await ensureUser(socket.id, socket.user.id);
     } catch {
+      if (!socket.connected || socket.data.queueRequestId !== queueRequestId) return;
       socket.emit("server_error", { detail: "Could not initialize the authenticated user." });
       return socket.disconnect(true);
     }
+    if (!socket.connected || socket.data.queueRequestId !== queueRequestId) return;
     const isVIP = user.isVIP === true;
 
     socket.emit("user_id", { userId: user.id });
@@ -2044,6 +2051,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("stop_matching", () => {
+    socket.data.queueRequestId = (socket.data.queueRequestId || 0) + 1;
     clearModeSwitchesForSocket(socket.id);
     for (const [ticket, transfer] of pendingModeSwitches) {
       if (transfer.requesterSocketId === socket.id) clearModeSwitch(ticket, true);

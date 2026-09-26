@@ -429,24 +429,32 @@ export function useMatchmaking(
   useEffect(() => {
     if (!sessionToken) return;
 
-    /* ── 1. Create PeerJS instance with multiple STUN + optional TURN ── */
+    /* Establish signaling and PeerJS concurrently. Neither network handshake
+       has to wait for the other; queueing begins when both are ready. */
     const peer = new Peer({ config: { iceServers: buildIceServers() } });
     peerRef.current = peer;
-
+    const socket = io(SIGNALING_URL, {
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+      auth: { token: sessionToken },
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 3000,
+      timeout: 10000,
+    });
+    socketRef.current = socket;
+    let readyPeerId: string | null = null;
+    let joinedConnectionId: string | null = null;
+    const joinWhenReady = () => {
+      if (stoppedRef.current || !socket.connected || !readyPeerId || joinedConnectionId === socket.id) return;
+      joinedConnectionId = socket.id ?? null;
+      socket.emit("join_queue", buildJoinPayload(readyPeerId));
+      setStatus("waiting");
+    };
     peer.on("open", (id) => {
-      setStatus("connecting");
+      readyPeerId = id;
       setLocalPeerId(id);
-
-      /* ── 2. Connect to signaling server ── */
-      const socket = io(SIGNALING_URL, {
-        transports: ["websocket", "polling"],
-        withCredentials: true,
-        auth: { token: sessionToken },
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-        timeout: 20000,
-      });
-      socketRef.current = socket;
+      joinWhenReady();
+    });
 
       // One clock per connection. Sync starts immediately so the
       // offset is settled well before the first match_started
@@ -484,18 +492,18 @@ export function useMatchmaking(
 
       socket.on("connect", () => {
         serverClock.attach(socket);
-        socket.emit("join_queue", buildJoinPayload(id));
-        setStatus("waiting");
+        joinedConnectionId = null;
+        joinWhenReady();
       });
 
       socket.on("connect_error", (error) => {
         console.error("[Signaling] Secure connection failed:", error.message);
-        setStatus("error");
+        if (!stoppedRef.current) setStatus(socket.active ? "connecting" : "error");
       });
 
       socket.on("server_error", ({ detail }: { detail?: string }) => {
         console.error("[Signaling]", detail || "Server rejected the request");
-        setStatus("error");
+        if (!stoppedRef.current) setStatus("error");
       });
 
       socket.on("waiting", () => {
@@ -541,6 +549,7 @@ export function useMatchmaking(
           celebrity?: CelebrityTarget;
         } & RoundSchedulePayload
       ) => {
+          if (stoppedRef.current) return;
           const {
             matchId,
             partnerPeerId: ppId,
@@ -552,7 +561,6 @@ export function useMatchmaking(
             celebrity,
             ...schedule
           } = payload;
-          stoppedRef.current = false;
           callRef.current?.close();
           callRef.current = null;
           setRemoteStreamSynced(null);
@@ -759,10 +767,10 @@ export function useMatchmaking(
       });
 
       socket.on("disconnect", () => {
-        setStatus("idle");
+        joinedConnectionId = null;
+        if (!stoppedRef.current) setStatus("connecting");
         setRemoteStreamSynced(null);
       });
-    });
 
     /* ── 4. Answer incoming calls (receiver role) ── */
     peer.on("call", (call) => {
@@ -771,6 +779,7 @@ export function useMatchmaking(
 
     peer.on("error", (err) => {
       console.error("[PeerJS]", err.type, err.message);
+      if (stoppedRef.current) return;
       if (err.type === "peer-unavailable") {
         // Media can fail while the Socket.io opponent is still connected.
         // Keep the synchronized game round alive without remote video.
@@ -850,10 +859,13 @@ export function useMatchmaking(
   const startMatching = useCallback(() => {
     stoppedRef.current = false;
     resetMatchState();
-    setStatus("waiting");
+    const socket = socketRef.current;
     const peerId = peerRef.current?.id;
-    if (peerId && socketRef.current?.connected) {
-      socketRef.current.emit("join_queue", buildJoinPayload(peerId));
+    setStatus(peerId && socket?.connected ? "waiting" : "connecting");
+    if (peerId && socket?.connected) {
+      socket.emit("join_queue", buildJoinPayload(peerId));
+    } else if (socket && !socket.connected) {
+      socket.connect();
     }
   }, [buildJoinPayload, resetMatchState]);
 

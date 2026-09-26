@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { MotionConfig } from "framer-motion";
+import { AnimatePresence, motion, MotionConfig, useReducedMotion } from "framer-motion";
 import CelebrityDuelArena from "./CelebrityDuelArena";
 import DuelArena from "./DuelArena";
 import FaceSyncArena from "./FaceSyncArena";
@@ -47,6 +47,7 @@ export default function HomeExperience() {
 }
 
 function HomeContent() {
+  const reduceMotion = useReducedMotion();
   const [view, setView] = useState<View>("home");
   const [modeSwitchTicket, setModeSwitchTicket] = useState<string | null>(null);
   const [supportOpen, setSupportOpen] = useState(true);
@@ -127,21 +128,28 @@ function HomeContent() {
     }
   }, [view]);
 
-  if (view === "arena") {
-    return <DuelArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />;
-  }
+  const content = view === "arena"
+    ? <DuelArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />
+    : view === "solo"
+      ? <SoloFaceJudge onBack={handleBack} />
+      : view === "celebrity"
+        ? <CelebrityDuelArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />
+        : view === "facesync"
+          ? <FaceSyncArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />
+          : <ModeSelect onSelect={handleSelect} supportOpen={supportOpen} onDismissSupport={dismissSupport} onOpenSupport={openSupport} />;
 
-  if (view === "solo") {
-    return <SoloFaceJudge onBack={handleBack} />;
-  }
-
-  if (view === "celebrity") {
-    return <CelebrityDuelArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />;
-  }
-
-  if (view === "facesync") {
-    return <FaceSyncArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />;
-  }
-
-  return <ModeSelect onSelect={handleSelect} supportOpen={supportOpen} onDismissSupport={dismissSupport} onOpenSupport={openSupport} />;
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={view}
+        initial={reduceMotion ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: reduceMotion ? 0 : 0.18, ease: "easeOut" }}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        {content}
+      </motion.div>
+    </AnimatePresence>
+  );
 }

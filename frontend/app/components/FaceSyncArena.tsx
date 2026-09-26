@@ -23,7 +23,7 @@
  * itself (in its `hero` size).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import FaceSync from "./FaceSync";
@@ -63,9 +63,6 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
     retry: retryCamera,
   } = useLocalCamera({ audio: true });
   const [isMicMuted, setIsMicMuted] = useState(false);
-  const [searchSession, setSearchSession] = useState(0);
-  /** Which search we have already decided is an empty queue. */
-  const [emptyQueueFor, setEmptyQueueFor] = useState<string | null>(null);
 
   const { profile, saveProfile, sessionToken } = useUserProfile();
   const { name: myName } = usePlayerName();
@@ -126,26 +123,7 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
     return hash;
   }, [currentMatchId]);
 
-  /*
-   * "Nobody around" is derived rather than reset.
-   *
-   * The obvious shape — clear the flag at the top of the effect,
-   * set it on a timer — writes state synchronously during an
-   * effect, which cascades renders. Tagging the timeout with the
-   * search it belongs to means the flag is simply false for every
-   * other search, with no reset to write.
-   */
-  const searchKey = `${status}:${searchSession}`;
-  useEffect(() => {
-    if (status !== "waiting") return;
-    const timer = setTimeout(() => setEmptyQueueFor(searchKey), 6000);
-    return () => clearTimeout(timer);
-  }, [status, searchKey]);
-
-  const noOneFound = status === "waiting" && emptyQueueFor === searchKey;
-
   const handleRetry = useCallback(() => {
-    setSearchSession((s) => s + 1);
     startMatching();
   }, [startMatching]);
 
@@ -154,8 +132,11 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
     onBack();
   }, [onBack, stopMatching]);
 
+  const handleStopSearch = useCallback(() => {
+    stopMatching();
+  }, [stopMatching]);
+
   const handleNextStranger = useCallback(() => {
-    setSearchSession((s) => s + 1);
     skipUser();
   }, [skipUser]);
 
@@ -299,10 +280,11 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
       </main>
 
       <AnimatePresence>
-        {(status === "idle" || status === "connecting" || (status === "waiting" && !noOneFound)) && (
+        {(status === "idle" || status === "connecting" || status === "waiting" || status === "stopped" || status === "error") && (
           <LobbyOverlay
             status={status}
             onCancel={handleCancelSearch}
+            onStop={handleStopSearch}
             onRetry={handleRetry}
             cameraStatus={localCameraStatus}
             cameraError={localCameraError}
@@ -311,29 +293,6 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {status === "waiting" && noOneFound && (
-          <SimpleOverlay
-            emoji="👀"
-            title="No one around"
-            body="Nobody's in the FaceSync queue right now. Try again in a moment."
-            actionLabel="Try again"
-            onAction={handleRetry}
-          />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {status === "stopped" && (
-          <SimpleOverlay
-            emoji="⚡"
-            title="Matching paused"
-            body="You stopped looking for someone. Start again when you're ready."
-            actionLabel="Start matching"
-            onAction={handleRetry}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }
@@ -448,49 +407,6 @@ function MissedCard() {
         Couldn&apos;t get a clear look at both of you this time. Try the next
         stranger.
       </p>
-    </motion.div>
-  );
-}
-
-/* ===================================================================
-   Shared sticker-card overlay for the empty / paused states.
-   =================================================================== */
-
-function SimpleOverlay({
-  emoji,
-  title,
-  body,
-  actionLabel,
-  onAction,
-}: {
-  emoji: string;
-  title: string;
-  body: string;
-  actionLabel: string;
-  onAction: () => void;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="absolute inset-0 z-[60] flex items-center justify-center p-4 sm:p-6"
-      style={{
-        backgroundColor: "var(--off-white)",
-        paddingTop: "max(1rem, env(safe-area-inset-top))",
-        paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
-      }}
-    >
-      <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-6 text-center shadow-[8px_8px_0_0_var(--charcoal)] tilt-l-1 sm:p-8">
-        <span className="font-display text-5xl" aria-hidden>{emoji}</span>
-        <h2 className="font-display text-2xl font-bold tracking-tight text-[var(--charcoal)] sm:text-3xl">
-          {title}
-        </h2>
-        <p className="text-sm leading-relaxed text-[var(--on-surface-variant)]">{body}</p>
-        <div className="mt-2 flex justify-center">
-          <Button onClick={onAction} iconLeft={<Refresh size={16} />}>{actionLabel}</Button>
-        </div>
-      </div>
     </motion.div>
   );
 }

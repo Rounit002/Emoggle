@@ -29,7 +29,6 @@ import {
   Mic,
   MicOff,
   Refresh,
-  Sparkle,
   Timer,
   seatForIds,
   seatStyle,
@@ -128,8 +127,6 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [phase, setPhase] = useState<AppPhase>("lobby");
   const [finalScore, setFinalScore] = useState<number | null>(null);
-  const [searchSession, setSearchSession] = useState(0);
-  const [noOneFound, setNoOneFound] = useState(false);
   const [myRank, setMyRank] = useState<RankSnapshot>(DEFAULT_RANK);
   const [partnerRank, setPartnerRank] = useState<RankSnapshot>(DEFAULT_RANK);
   const { profile, saveProfile, sessionToken } = useUserProfile();
@@ -321,16 +318,6 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
   }, [status, resetScoreSampling]);
 
   useEffect(() => {
-    if (status !== "waiting") {
-      setNoOneFound(false);
-      return;
-    }
-    setNoOneFound(false);
-    const timer = setTimeout(() => setNoOneFound(true), 6000);
-    return () => clearTimeout(timer);
-  }, [status, searchSession]);
-
-  useEffect(() => {
     if (!matchResult) return;
     setMyRank({
       tier: matchResult.myTier || DEFAULT_RANK.tier,
@@ -469,11 +456,6 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
       : null);
 
   const handleRetry = useCallback(() => {
-    setSearchSession((s) => s + 1);
-    startMatching();
-  }, [startMatching]);
-
-  const handleStartMatching = useCallback(() => {
     startMatching();
   }, [startMatching]);
 
@@ -481,6 +463,10 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
     stopMatching();
     onBack();
   }, [onBack, stopMatching]);
+
+  const handleStopSearch = useCallback(() => {
+    stopMatching();
+  }, [stopMatching]);
 
   /* Report flow — the ChatBox calls this when the user confirms
      they want to flag the current partner. The hook does the
@@ -638,27 +624,16 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
 
       {/* Lobby — the cream waiting state */}
       <AnimatePresence>
-        {(phase === "lobby" || (status === "waiting" && !inMatch)) && !noOneFound && (
+        {(phase === "lobby" || status === "stopped" || status === "error" || (status === "waiting" && !inMatch)) && (
           <LobbyOverlay
             status={status}
             onCancel={handleCancelSearch}
+            onStop={handleStopSearch}
             onRetry={handleRetry}
             cameraStatus={localCameraStatus}
             cameraError={localCameraError}
             onRetryCamera={retryCamera}
           />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {status === "waiting" && noOneFound && (
-          <NoMatchOverlay onRetry={handleRetry} />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {status === "stopped" && (
-          <PausedOverlay onStart={handleStartMatching} />
         )}
       </AnimatePresence>
 
@@ -1008,76 +983,6 @@ function SeamColumn({
         )}
       </div>
     </div>
-  );
-}
-
-/* =====================================================================
-   NoMatch / Paused — both use the same sticker card language.
-   ===================================================================== */
-
-function NoMatchOverlay({ onRetry }: { onRetry: () => void }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      // z-60 sits above the camera score-bar (z-40) and the header
-      // (z-30). The background is fully opaque so the underlying
-      // camera controls don't bleed through and look like they're
-      // overlapping the modal. `env(safe-area-inset-*)` is
-      // applied via the padding so notch devices have room.
-      className="absolute inset-0 z-[60] flex items-center justify-center p-4 sm:p-6"
-      style={{
-        backgroundColor: "var(--off-white)",
-        paddingTop: "max(1rem, env(safe-area-inset-top))",
-        paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
-        paddingLeft: "max(1rem, env(safe-area-inset-left))",
-        paddingRight: "max(1rem, env(safe-area-inset-right))",
-      }}
-    >
-      <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-6 text-center shadow-[8px_8px_0_0_var(--charcoal)] tilt-l-1 sm:p-8">
-        <span className="font-display text-5xl" aria-hidden>👀</span>
-        <h2 className="font-display text-2xl font-bold tracking-tight text-[var(--charcoal)] sm:text-3xl">
-          No rivals around
-        </h2>
-        <p className="text-sm leading-relaxed text-[var(--on-surface-variant)]">
-          No one&apos;s online right now. We&apos;ll keep trying — or you can retry now.
-        </p>
-        <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
-          <Button onClick={onRetry} iconLeft={<Refresh size={16} />}>Try again</Button>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-function PausedOverlay({ onStart }: { onStart: () => void }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="absolute inset-0 z-[60] flex items-center justify-center p-4 sm:p-6"
-      style={{
-        backgroundColor: "var(--off-white)",
-        paddingTop: "max(1rem, env(safe-area-inset-top))",
-        paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
-        paddingLeft: "max(1rem, env(safe-area-inset-left))",
-        paddingRight: "max(1rem, env(safe-area-inset-right))",
-      }}
-    >
-      <div className="flex w-full max-w-md flex-col items-center gap-4 rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-6 text-center shadow-[8px_8px_0_0_var(--charcoal)] tilt-r-1 sm:p-8">
-        <h2 className="font-display text-2xl font-bold tracking-tight text-[var(--charcoal)] sm:text-3xl">
-          Matching paused
-        </h2>
-        <p className="text-sm leading-relaxed text-[var(--on-surface-variant)]">
-          You stopped looking for a rival. Start again when you&apos;re ready.
-        </p>
-        <div className="mt-2 flex justify-center">
-          <Button onClick={onStart} iconLeft={<Sparkle size={16} />}>Start matching</Button>
-        </div>
-      </div>
-    </motion.div>
   );
 }
 

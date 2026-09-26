@@ -166,10 +166,22 @@ async function run() {
     const matchA = waitFor(sockA, "match_started");
     const matchB = waitFor(sockB, "match_started");
     const waitingA = waitFor(sockA, "waiting");
-    sockA.emit("join_queue", { peerId: `peer-${randomUUID()}`, gameMode: "celebrity" });
+    const peerA = `peer-${randomUUID()}`;
+    const peerB = `peer-${randomUUID()}`;
+    sockA.emit("join_queue", { peerId: peerA, gameMode: "celebrity" });
     await waitingA;
-    sockB.emit("join_queue", { peerId: `peer-${randomUUID()}`, gameMode: "celebrity" });
-    console.log("[smoke] first client waiting; second client joined");
+    // The old UI declared the queue empty after six seconds. A player must
+    // remain available for the next arrival until they explicitly stop.
+    await new Promise((r) => setTimeout(r, 6_500));
+    sockA.emit("stop_matching");
+    await new Promise((r) => setTimeout(r, 100));
+    const waitingB = waitFor(sockB, "waiting");
+    sockB.emit("join_queue", { peerId: peerB, gameMode: "celebrity" });
+    await waitingB;
+    // Restarting the same socket should pair immediately with the player
+    // who arrived while it was stopped.
+    sockA.emit("join_queue", { peerId: peerA, gameMode: "celebrity" });
+    console.log("[smoke] stop, persistent wait, and restart completed");
 
     const [payloadA, payloadB] = await Promise.all([matchA, matchB]);
 

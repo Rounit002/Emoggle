@@ -231,6 +231,29 @@
   }
 }
 
+/* Continuous search stays on the compositor rather than running seven
+   JavaScript animation loops beside the camera and WebRTC work. */
+@keyframes search-orbit-turn {
+  to { transform: rotate(360deg); }
+}
+@keyframes search-orbit-counterturn {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(-360deg); }
+}
+.search-orbit {
+  animation: search-orbit-turn 12s linear infinite;
+}
+.search-orbit-item {
+  animation: search-orbit-counterturn 12s linear infinite;
+}
+
+body {
+  transition: background-color 220ms ease, color 220ms ease;
+}
+a {
+  transition: color 180ms ease, opacity 180ms ease;
+}
+
 @theme inline {
   /* Surfaces */
   --color-surface: var(--surface);
