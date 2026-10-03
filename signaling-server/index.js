@@ -15,6 +15,9 @@ console.log("[ENV] FRONTEND_URL:", process.env.FRONTEND_URL);
 const express = require("express");
 const { isInappropriateName, NAME_MODERATION_ERROR } = require("./nameModeration");
 const { readFaceVector, computeFaceSync, variantSeedFromMatchId } = require("./faceSync");
+const { RoundEngine } = require("./roundEngine");
+const { DuelStore } = require("./duelStore");
+const { PrivateDuels } = require("./privateDuels");
 const http = require("http");
 const crypto = require("crypto");
 const { Server } = require("socket.io");
@@ -134,6 +137,11 @@ const io = new Server(server, {
   pingTimeout: 60000,
   pingInterval: 25000,
   allowEIO3: false,
+  allowRequest: (req, done) => {
+    const origin = req.headers.origin;
+    const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
+    done(null, allowedOrigins.includes(origin) || (!origin && process.env.NODE_ENV !== "production" && local));
+  },
 });
 
 // ─── In-memory state (minimal; keyed by matchId for easy cleanup) ────────────
@@ -515,6 +523,38 @@ app.use(express.json({
 
 // Apply rate limiting to all /api routes
 app.use("/api", apiLimiter);
+const duelStore = new DuelStore({pool, available:()=>dbAvailable, production:process.env.NODE_ENV === "production"});
+let privateDuels;
+const modernRounds = new RoundEngine({
+  io, activeMatches, matchIdBySocket, socketMeta, pickEmoji, pickEmojiExcept,
+  pickCelebrity: pickMatchCelebrity, skipEnabled:()=>process.env.FEATURE_MUTUAL_EMOJI_SKIP !== "false",
+  pairAllowed:p=>p.seriesId ? !duelStore.series.get(p.seriesId)?.ending : !p.users.some(id=>privateDuels.member(id)),
+  privateStarted:id=>privateDuels.started(id),
+  canStartPrivate:id=>privateDuels.canStart(id),
+  persistPrivate:(match,a,b)=>privateDuels.persist(match,a,b),
+  privateResult:id=>privateDuels.result(id),
+  abortPrivate:id=>privateDuels.end(duelStore.series.get(id),"aborted"),
+  persistPublic:finalizeMatchScores,
+  createAttempt: async match => {
+    if (!dbAvailable) {
+      if (process.env.NODE_ENV === "production" && (match.seriesId || match.gameMode === "celebrity")) throw new Error("Persistence unavailable");
+      return;
+    }
+    await pool.query(`INSERT INTO matches(id,player1_id,player2_id,current_emoji,status,game_mode,celebrity_id,celebrity_name)
+      VALUES($1,$2,$3,$4,'ACTIVE',$5,$6,$7)`,[match.id,match.player1Id,match.player2Id,match.currentEmoji,match.gameMode,match.celebrityId > 0 ? match.celebrityId : null,match.celebrityName]);
+  },
+  cancelAttempt: async id => {
+    if (dbAvailable) await pool.query("UPDATE matches SET status='CANCELLED' WHERE id=$1 AND status='ACTIVE'",[id]).catch(()=>{});
+  },
+});
+privateDuels = new PrivateDuels({
+  io, store:duelStore, engine:modernRounds, socketMeta, pairingSockets,
+  enabled:()=>process.env.FEATURE_PRIVATE_DUELS !== "false",
+  auth:verifyToken, origin:requireTrustedMutationOrigin,
+  activeSocket:id=>activeSocketByUser.get(id),getMatch:getMatchBySocket,
+  removeFromQueue,clearTransfers:clearModeSwitchesForSocket,
+});
+app.use("/api/duels",privateDuels.router());
 
 // ─── Anonymous authenticated sessions ───────────────────────────────────────
 app.post("/api/session", sessionLimiter, requireTrustedMutationOrigin, async (req, res) => {
@@ -871,6 +911,7 @@ function removeFromQueue(socketId) {
 function clearMatchState(matchId) {
   const match = activeMatches.get(matchId);
   if (!match) return [];
+  if(match.modern){const sockets=[match.player1SocketId,match.player2SocketId];modernRounds.close(modernRounds.pair(sockets[0]));return sockets;}
 
   // Clear the countdown timer
   if (match.timerId) {
@@ -1073,6 +1114,14 @@ async function startMatch(socket, partner) {
   const meta2 = socketMeta.get(partner.socketId);
   if (!meta1 || !meta2) return false;
   if (meta1.gameMode !== meta2.gameMode) return false;
+  if (privateDuels.member(meta1.userId) || privateDuels.member(meta2.userId)) return false;
+  if (meta1.protocolVersion === 2 && meta2.protocolVersion === 2 && meta1.gameMode !== FACE_SYNC_GAME_MODE) {
+    if (pairingSockets.has(socket.id) || pairingSockets.has(partner.socketId)) return false;
+    pairingSockets.add(socket.id); pairingSockets.add(partner.socketId);
+    try {await modernRounds.startPair(socket.id,partner.socketId,meta1.gameMode);return true;}
+    catch {socket.emit("operation_error",{detail:"Could not start this round. Please retry."});return false;}
+    finally {pairingSockets.delete(socket.id);pairingSockets.delete(partner.socketId);}
+  }
   if (pairingSockets.has(socket.id) || pairingSockets.has(partner.socketId)) return false;
   pairingSockets.add(socket.id);
   pairingSockets.add(partner.socketId);
@@ -1283,8 +1332,9 @@ async function startMatch(socket, partner) {
     };
   };
 
+  const mediaNonce=crypto.randomBytes(32).toString("hex");
   socket.emit("match_started", {
-    matchId,
+    matchId, pairId:matchId, mediaNonce,
     partnerPeerId: meta2.peerId,
     partnerCountry: meta2.country ?? null,
     partnerCountryCode: meta2.countryCode ?? null,
@@ -1295,7 +1345,7 @@ async function startMatch(socket, partner) {
     ...schedulePayload(),
   });
   partnerSocket.emit("match_started", {
-    matchId,
+    matchId, pairId:matchId, mediaNonce,
     partnerPeerId: meta1.peerId,
     partnerCountry: meta1.country ?? null,
     partnerCountryCode: meta1.countryCode ?? null,
@@ -1528,7 +1578,7 @@ function pairSockets(socket, candidate) {
 }
 
 function enqueueSocket(socket, peerId, skippedSocketId = null) {
-  if (!socket?.connected || !peerId) return;
+  if (!socket?.connected || !peerId || privateDuels.member(socket.user?.id)) return;
   removeFromQueue(socket.id);
   const currentMeta = socketMeta.get(socket.id);
   if (!currentMeta || pairingSockets.has(socket.id) || getMatchBySocket(socket.id)) return;
@@ -1539,7 +1589,7 @@ function enqueueSocket(socket, peerId, skippedSocketId = null) {
     const candidateSocket = io.sockets.sockets.get(candidate.socketId);
     const candidateMeta = socketMeta.get(candidate.socketId);
 
-    if (!candidateSocket || !candidateSocket.connected || !candidateMeta) {
+    if (!candidateSocket || !candidateSocket.connected || !candidateMeta || privateDuels.member(candidateMeta.userId)) {
       waitingQueue.splice(i, 1);
       i--;
       continue;
@@ -1605,6 +1655,9 @@ const SOCKET_EVENT_LIMITS = {
   submit_score: [3, 30_000],
   change_emoji: [8, 30_000],
   time_sync: [40, 60_000],
+  private_join:[8,60_000],series_ready:[12,60_000],series_sync:[20,60_000],series_leave:[8,60_000],
+  round_media_ready:[12,60_000],round_target_ready:[20,60_000],round_retry:[6,60_000],
+  emoji_skip_request:[8,60_000],emoji_skip_respond:[20,60_000],
 };
 // Ceiling across every event name, including ones absent from the table
 // above. Without it an unrecognised event is free: Socket.IO still decodes
@@ -1722,11 +1775,37 @@ io.on("connection", (socket) => {
     socket.emit("time_sync_response", response);
   });
 
+  const featureError = error => socket.emit("operation_error",{detail:error.status?error.message:"Could not complete this game action."});
+  socket.on("private_join", async payload => {
+    try {
+      if (!isPlainObject(payload) || !readBoundedString(payload.peerId,128) || payload.protocolVersion !== 2) throw Object.assign(new Error("Invalid private connection."),{status:400});
+      const series=duelStore.get(payload.seriesId,socket.user.id);
+      const name=readDisplayName(payload.name);
+      if (!name || isInappropriateName(name)) throw Object.assign(new Error("Choose a valid display name."),{status:400});
+      const existing=getMatchBySocket(socket.id);
+      if (existing && !modernRounds.pair(socket.id)?.seriesId) throw Object.assign(new Error("Leave your current game first."),{status:409});
+      const user=await ensureUser(socket.id,socket.user.id);
+      if(!socket.connected)return;
+      removeFromQueue(socket.id);clearModeSwitchesForSocket(socket.id);
+      socketMeta.set(socket.id,{peerId:payload.peerId,userId:user.id,elo:user.elo,isVIP:user.isVIP,displayName:name,country:null,countryCode:null,gameMode:series.gameMode,protocolVersion:2});
+      await privateDuels.attach(socket,payload);
+    } catch(error){featureError(error);}
+  });
+  socket.on("series_ready",payload=>void privateDuels.setReady(socket,payload).catch(featureError));
+  socket.on("series_sync",payload=>{try {const series=duelStore.get(payload?.seriesId,socket.user.id);socket.emit("series_state",privateDuels.snapshot(series,socket.user.id));}catch(error){featureError(error);}});
+  socket.on("series_leave",()=>void privateDuels.leave(socket).catch(featureError));
+  socket.on("round_media_ready",payload=>modernRounds.mediaReady(socket.id,payload));
+  socket.on("round_target_ready",payload=>modernRounds.targetReady(socket.id,payload));
+  socket.on("round_retry",payload=>modernRounds.retry(socket.id,payload));
+  socket.on("emoji_skip_request",payload=>modernRounds.requestSkip(socket.id,payload));
+  socket.on("emoji_skip_respond",payload=>modernRounds.respondSkip(socket.id,payload));
+
   socket.on("join_queue", async (payload) => {
+    if(privateDuels.member(socket.user.id))return socket.emit("operation_error",{detail:"Leave your 1v1 before joining public matchmaking."});
     if (!isPlainObject(payload)) return socket.emit("server_error", { detail: "Invalid queue request." });
     const peerId = readBoundedString(payload.peerId, 128);
     if (!peerId) return socket.emit("server_error", { detail: "Invalid peer ID." });
-    if (getMatchBySocket(socket.id)) {
+    if (getMatchBySocket(socket.id) || modernRounds.pair(socket.id) || pairingSockets.has(socket.id)) {
       return socket.emit("server_error", { detail: "Already in an active match." });
     }
     // A stop or a newer join can arrive while ensureUser is awaiting the DB.
@@ -1809,6 +1888,7 @@ io.on("connection", (socket) => {
       elo: user.elo ?? DEFAULT_ELO,
       isVIP,
       gameMode,
+      protocolVersion: payload.protocolVersion === 2 ? 2 : 1,
     });
 
     const ticket = readBoundedString(payload.ticket, 64);
@@ -1826,6 +1906,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("skip_user", () => {
+    const pair=modernRounds.pair(socket.id);
+    if(privateDuels.member(socket.user.id)||pair?.seriesId){void privateDuels.leave(socket).catch(featureError);return;}
+    if(pair){const ids=[...pair.sockets];modernRounds.close(pair);for(const sid of ids){const next=io.sockets.sockets.get(sid),meta=socketMeta.get(sid);next?.emit("match_skipped",{bySelf:sid===socket.id});if(next&&meta)setTimeout(()=>enqueueSocket(next,meta.peerId,ids.find(id=>id!==sid)),250);}return;}
     const existing = getMatchBySocket(socket.id);
     const meta = socketMeta.get(socket.id);
 
@@ -1926,6 +2009,7 @@ io.on("connection", (socket) => {
    * round the forger is already in.
    */
   socket.on("face_sync_sample", (payload) => {
+    if(modernRounds.pair(socket.id)){modernRounds.faceSample(socket.id,payload);return;}
     if (!isPlainObject(payload)) return;
 
     const existing = getMatchBySocket(socket.id);
@@ -1954,6 +2038,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("live_score", (payload) => {
+    if(modernRounds.pair(socket.id)){modernRounds.score(socket.id,payload);return;}
     if (!isPlainObject(payload)) return;
     const existing = getMatchBySocket(socket.id);
     if (!existing || typeof payload.score !== "number" || !Number.isFinite(payload.score)) return;
@@ -1986,31 +2071,11 @@ io.on("connection", (socket) => {
   // both clients update at the same moment. If the round is locked
   // (countdown already finished) the request is a no-op.
   socket.on("change_emoji", () => {
-    const existing = getMatchBySocket(socket.id);
-    if (!existing) return;
-    const match = activeMatches.get(existing.matchId);
-    if (!match) return;
-    if (match.emojiLocked) return;
-
-    const newEmoji = pickEmojiExcept(match.currentEmoji);
-    match.currentEmoji = newEmoji;
-
-    if (dbAvailable) {
-      pool
-        .query(`UPDATE matches SET current_emoji = $1 WHERE id = $2`, [
-          newEmoji,
-          existing.matchId,
-        ])
-        .catch((err) => warnDbFallback(err));
-    }
-
-    // Broadcast to the whole room so both screens re-render the
-    // target emoji on the same tick. No echo to just the sender —
-    // the local React state has already optimistically updated.
-    io.to(existing.roomId).emit("emoji_changed", { emoji: newEmoji });
+    socket.emit("operation_error",{detail:"Emoji changes require both players to confirm. Update the page to request a skip."});
   });
 
   socket.on("submit_score", async (payload) => {
+    if(modernRounds.pair(socket.id)){modernRounds.score(socket.id,payload,true);return;}
     if (!isPlainObject(payload)) return;
     const existing = getMatchBySocket(socket.id);
     if (!existing || typeof payload.score !== "number" || !Number.isFinite(payload.score)) return;
@@ -2051,6 +2116,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("stop_matching", () => {
+    const pair=modernRounds.pair(socket.id);
+    if(privateDuels.member(socket.user.id)||pair?.seriesId){void privateDuels.leave(socket).catch(featureError);return;}
+    if(pair){const other=pair.sockets.find(id=>id!==socket.id);modernRounds.close(pair);const next=io.sockets.sockets.get(other),meta=socketMeta.get(other);next?.emit("match_skipped",{bySelf:false});if(next&&meta)setTimeout(()=>enqueueSocket(next,meta.peerId,socket.id),250);return;}
     socket.data.queueRequestId = (socket.data.queueRequestId || 0) + 1;
     clearModeSwitchesForSocket(socket.id);
     for (const [ticket, transfer] of pendingModeSwitches) {
@@ -2081,11 +2149,14 @@ io.on("connection", (socket) => {
 
   // ─── Graceful disconnect ─────────────────────────────────────────────────
   socket.on("disconnect", () => {
+    const modernPair=modernRounds.pair(socket.id);
+    if(privateDuels.member(socket.user.id)||modernPair?.seriesId)void privateDuels.disconnect(socket).catch(()=>{});
+    else if(modernPair){const other=modernPair.sockets.find(id=>id!==socket.id);modernRounds.close(modernPair);const next=io.sockets.sockets.get(other),meta=socketMeta.get(other);next?.emit("opponent_left",{});if(next&&meta)setTimeout(()=>enqueueSocket(next,meta.peerId,socket.id),500);}
     clearModeSwitchesForSocket(socket.id);
     removeFromQueue(socket.id);
 
     const existing = getMatchBySocket(socket.id);
-    if (existing) {
+    if (existing && !activeMatches.get(existing.matchId)?.modern) {
       // Update DB: mark match as DISCONNECTED
       if (dbAvailable) {
         pool.query(`UPDATE matches SET status = $1 WHERE id = $2`, ["DISCONNECTED", existing.matchId]).catch((err) => warnDbFallback(err));
@@ -2133,6 +2204,7 @@ io.on("connection", (socket) => {
 
 // ─── HTTP routes ─────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => res.send("ok"));
+app.get("/api/capabilities", (_req,res)=>res.json({privateDuels:process.env.FEATURE_PRIVATE_DUELS!=="false"&&(process.env.NODE_ENV!=="production"||dbAvailable),mutualEmojiSkip:process.env.FEATURE_MUTUAL_EMOJI_SKIP!=="false"}));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 app.get("/ready", (_req, res) => {
   if (!dbAvailable) return res.status(503).json({ status: "unavailable" });
@@ -2187,8 +2259,9 @@ if (!process.env.DATABASE_URL) {
   );
 } else {
   initSchema()
-    .then(() => {
+    .then(async () => {
       dbAvailable = true;
+      await duelStore.recover();
       dbWarningShown = false;
       startExpiredSessionSweep();
       server.listen(PORT, () =>
