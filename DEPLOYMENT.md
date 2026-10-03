@@ -9,6 +9,8 @@
 
 Backend commit `8e7b837` was pushed first and Render auto-deployed it. Its post-deployment probes returned `/ready` HTTP 503 and capabilities `privateDuels: false`, `mutualEmojiSkip: true`. Production rollout was stopped and rollback commit `ba7f793` was pushed to restore the previous backend. The failed readiness probe requires inspection of Render startup/database logs; the exact cause is not yet established. The new frontend was not released to production.
 
+Rollback verification passed: `/ready` returned HTTP 200 with `{"status":"ready"}`, and `/api/capabilities` again returned 404, confirming the previous backend is active. The implementation remains on local branch `codex/private-duel-release`; local `main` points to the verified rollback.
+
 Vercel preview build **passed** (21 routes): https://emoggle-3son9dps8-rounit-s-projects.vercel.app/1v1. The deployed slider and all three game selections were checked in Chrome. Invitation creation correctly remains disabled while the old backend lacks the capabilities endpoint. The preview uses existing Vercel environment settings; its origin must be explicitly allowed by the backend for integrated preview play.
 
 All **57 backend unit tests passed** before publishing the backend commit. Real disposable PostgreSQL integration tests and staging payment transactions remain unperformed; existing production database readiness does not prove the new migration has succeeded.

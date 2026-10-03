@@ -64,6 +64,8 @@ Browser tests use synthetic cameras. The private two-player test prevents extern
 
 ## Local use and production prerequisites
 
+October 4 deployment update: the Vercel preview build passed and the deployed slider/game selections were verified. Backend Git auto-deployment was attempted, but its production readiness probe failed, so it was rolled back. The previous backend's HTTP 200 readiness was verified. The new frontend has not been promoted to production. See [DEPLOYMENT.md](DEPLOYMENT.md) for release URLs, commits and the required Render-account access.
+
 The frontend runs at **http://localhost:3000/**; invite setup is **http://localhost:3000/1v1**. The signaling service runs on **http://localhost:3001**. Local sessions and matches use development memory because the configured PostgreSQL password is rejected. This mode loses state on server restart and does not prove durable reports, payments or database security. `/health` can be healthy while `/ready` reports the missing persistence.
 
 Before production rollout:
