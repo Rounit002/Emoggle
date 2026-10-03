@@ -16,9 +16,8 @@
  *    handle persistence. This keeps the storage decision in the
  *    PlayerNameContext rather than in the modal — the modal has
  *    no idea the name goes to Supabase, and does not need one.
- *  - Optional `required` mode disables the cancel button. The
- *    first-time entry uses this so a brand-new user can't dismiss
- *    the modal without picking a name.
+ *  - `required` means a name is needed to start the selected game.
+ *    Cancelling abandons that selection and lets the visitor keep browsing.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -32,12 +31,11 @@ interface NameEntryModalProps {
   /** Current stored name (if any). Used to pre-fill the input and
    *  to compute the "did the value change?" check. */
   currentName?: string | null;
-  /** When true, the modal has no cancel button and the X / Esc
-   *  handlers are no-ops. The first-time gate uses this. */
+  /** Use first-time game-entry copy rather than edit-name copy. */
   required?: boolean;
   /** Submit handler. Receives the cleaned, validated name. */
   onSubmit: (name: string) => void;
-  /** Cancel handler. Only used when `required` is false. */
+  /** Cancel editing or abandon the selected game without starting it. */
   onCancel?: () => void;
 }
 
@@ -72,11 +70,11 @@ export function NameEntryModal({
     return undefined;
   }, [open, currentName]);
 
-  // Keep keyboard focus inside the dialog. Escape closes only when optional.
+  // Keep keyboard focus inside the dialog; Escape returns to browsing.
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !required) onCancel?.();
+      if (e.key === "Escape") onCancel?.();
       if (e.key !== "Tab") return;
       const focusable = formRef.current?.querySelectorAll<HTMLElement>(
         'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
@@ -94,7 +92,7 @@ export function NameEntryModal({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, required, onCancel]);
+  }, [open, onCancel]);
 
   useEffect(() => {
     if (!open) return;
@@ -153,8 +151,7 @@ export function NameEntryModal({
           aria-modal="true"
           aria-label={required ? "Choose a name" : "Edit your name"}
           onMouseDown={(e) => {
-            // Backdrop click is a "cancel" only when not required.
-            if (e.target === e.currentTarget && !required) onCancel?.();
+            if (e.target === e.currentTarget) onCancel?.();
           }}
         >
           <motion.form
@@ -168,7 +165,7 @@ export function NameEntryModal({
               "relative flex w-full max-w-md flex-col gap-5 rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] p-6 shadow-[10px_10px_0_0_var(--charcoal)] sm:p-7",
             )}
           >
-            {!required && (
+            {onCancel && (
               <button
                 type="button"
                 onClick={onCancel}
@@ -243,7 +240,7 @@ export function NameEntryModal({
             </label>
 
             <div className="flex flex-col-reverse items-center gap-2 sm:flex-row sm:justify-end sm:gap-3">
-              {!required && onCancel && (
+              {onCancel && (
                 <Button
                   type="button"
                   variant="secondary"
@@ -251,7 +248,7 @@ export function NameEntryModal({
                   block
                   className="sm:w-auto"
                 >
-                  Cancel
+                  {required ? "Back to browsing" : "Cancel"}
                 </Button>
               )}
               <Button

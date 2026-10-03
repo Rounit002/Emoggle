@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import ChatBox from "./ChatBox";
+import { EmojiSkipDialog } from "./EmojiSkipDialog";
+import { SeriesPanel } from "./SeriesPanel";
+import { useRoundSupport } from "../context/SupportPromptContext";
 import { useMatchmaking, type MatchGameMode } from "../hooks/useMatchmaking";
 import { useFaceSync } from "../hooks/useFaceSync";
 import FaceSync from "./FaceSync";
@@ -48,6 +51,8 @@ const ROUND_SECONDS = 10;
 type AppPhase = "lobby" | "dueling" | "countdown" | "playing" | "results";
 
 interface DuelArenaProps {
+  privateSeriesId?: string;
+  privateInviteLink?: string | null;
   onBack: () => void;
   modeSwitchTicket?: string | null;
   onModeSwitch?: (mode: MatchGameMode, ticket: string) => void;
@@ -115,7 +120,7 @@ function buildMatchResult(args: {
   };
 }
 
-export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: DuelArenaProps) {
+export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, privateSeriesId, privateInviteLink }: DuelArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const submittedRef = useRef(false);
   const {
@@ -161,7 +166,7 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
   // sample we managed to collect — never a single frame, never
   // the last value the scorer happened to report.
   const {
-    start: startScoreSampling,
+    resume: resumeScoreSampling,
     stop: stopScoreSampling,
     reset: resetScoreSampling,
     getCurrent: getCurrentScoreSamples,
@@ -178,6 +183,7 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
   );
 
   const {
+    seriesState, skipProposal, roundError, readyPrivate, respondSkip, retryRound,
     status,
     remoteStream,
     roundSchedule,
@@ -219,7 +225,10 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
     "emoji",
     modeSwitchTicket,
     onModeSwitch,
+    privateSeriesId,
   );
+
+  useRoundSupport(matchResult?.matchId, phase === "results" && Boolean(matchResult) && (!privateSeriesId || !seriesState?.myReady && (seriesState?.state === "round_result" || seriesState?.state === "completed")));
 
   const mySeat: Seat = useMemo(
     () => seatForIds(localPeerId, partnerPeerId),
@@ -290,13 +299,9 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
   // Drive the sampler off the active phase. `start()` resets any
   // prior run, so consecutive rounds don't share samples.
   useEffect(() => {
-    if (phase === "playing") {
-      startScoreSampling();
-    } else {
-      stopScoreSampling();
-    }
+    if (phase === "playing") resumeScoreSampling(); else stopScoreSampling();
     return stopScoreSampling;
-  }, [phase, startScoreSampling, stopScoreSampling]);
+  }, [phase, resumeScoreSampling, stopScoreSampling]);
 
   useEffect(() => {
     if (status === "matched") {
@@ -306,7 +311,7 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
       resetScoreSampling();
       submittedRef.current = false;
     }
-  }, [status, emojiPrompt, resetScoreSampling]);
+  }, [status, currentMatchId, resetScoreSampling]);
 
   useEffect(() => {
     if (status === "waiting" || status === "idle" || status === "connecting" || status === "stopped") {
@@ -413,19 +418,21 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
   // round even though the clock re-evaluates ten times a second.
   const roundStartedForRef = useRef<string | null>(null);
   useEffect(() => {
+    if (matchResult) { setPhase("results"); return; }
     if (clockPhase === "countdown") {
       setPhase("countdown");
       return;
     }
+    if (["preparing", "preview", "paused", "facesync"].includes(clockPhase)) { setPhase("dueling"); return; }
     if (clockPhase !== "playing" || !roundSchedule) return;
     const roundKey = currentMatchId ?? String(roundSchedule.scanStartsAt);
-    if (roundStartedForRef.current === roundKey) return;
+    if (roundStartedForRef.current === roundKey) { setPhase("playing"); return; }
     roundStartedForRef.current = roundKey;
     setFinalScore(null);
     resetScoreSampling();
     submittedRef.current = false;
     setPhase("playing");
-  }, [clockPhase, currentMatchId, resetScoreSampling, roundSchedule]);
+  }, [clockPhase, currentMatchId, resetScoreSampling, roundSchedule, matchResult]);
 
   /*
    * The server has scored the round — both submissions arrived, or
@@ -494,17 +501,21 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
   // seam idle prevents a second score stack from sitting behind (or, on
   // narrow screens, above) the modal.
   const seamState: "idle" | "playing" | "revealing" =
-    phase === "playing" ? "playing" : "idle";
+    phase === "playing" || ["target", "preview", "paused"].includes(roundSchedule?.serverPhase ?? "") ? "playing" : "idle";
 
   const inMatch = status === "matched";
 
   return (
     <div className="relative flex min-h-screen w-screen flex-col bg-[var(--off-white)] text-[var(--charcoal)]">
+      {privateSeriesId && phase !== "results" && <SeriesPanel inviteLink={privateInviteLink} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} />}
+      {roundError && <div role="alert" className="m-3 rounded-xl bg-[var(--yellow)] p-3 text-center text-[var(--charcoal)]">{roundError} <button onClick={retryRound} className="min-h-11 underline">Retry connection</button></div>}
+      <EmojiSkipDialog proposal={skipProposal} respond={respondSkip} />
+      {roundSchedule?.skipEnabled !== false && status === "matched" && ["preview", "playing"].includes(roundSchedule?.serverPhase ?? "") && phase !== "results" && <button type="button" onClick={requestChangeEmoji} className="fixed bottom-24 left-1/2 z-40 min-h-11 -translate-x-1/2 rounded-full border-2 border-[var(--charcoal)] bg-[var(--yellow)] px-4 text-sm font-bold text-[var(--charcoal)]">Request emoji skip</button>}
       {/* Top bar */}
       <header className="z-30 flex flex-none items-center justify-between gap-2 border-b-[3px] border-[var(--charcoal)] bg-[var(--off-white)] px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <button
-            onClick={onBack}
+            onClick={privateSeriesId ? () => { stopMatching(); onBack(); } : onBack}
             className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[var(--charcoal)] transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--charcoal)]"
             aria-label="Back to home"
           >
@@ -656,7 +667,8 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch }: Du
               myFlag,
               partnerFlag,
             })}
-            onPlayAgain={handleRetry}
+            seriesContent={privateSeriesId ? <SeriesPanel inviteLink={privateInviteLink} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} /> : undefined}
+            onPlayAgain={privateSeriesId ? readyPrivate : handleRetry}
             onLeave={onBack}
             selfLabel={myName ?? "ME"}
             rivalLabel={partnerName ?? "STRANGER"}
@@ -874,14 +886,6 @@ interface SeamColumnProps {
   onRequestChangeEmoji: () => void;
 }
 
-/**
- * Minimum delay between emoji changes (ms). Backs both the
- * client-side cooldown and the effective minimum on the wire —
- * mashing the button faster than this just queues one request per
- * interval, no extra load on the server.
- */
-const EMOJI_CHANGE_COOLDOWN_MS = 1500;
-
 function SeamColumn({
   state,
   faceSync,
@@ -890,37 +894,7 @@ function SeamColumn({
   scoreA,
   scoreB,
   secondsLeft,
-  emojiLocked,
-  onRequestChangeEmoji,
 }: SeamColumnProps) {
-  // The button is only meaningful in the "playing" phase, which
-  // here is the brief pre-scan window where both players can see
-  // the target emoji but the round timer hasn't started yet. Once
-  // emojiLocked flips true (server-driven), the control is dimmed
-  // on both clients simultaneously.
-  const showChangeEmoji = state === "playing" && !emojiLocked && emoji !== null;
-  const [changeArmed, setChangeArmed] = useState(true);
-
-  // Reset the cooldown whenever the target emoji changes — either
-  // because the user just hit the button, or because the server
-  // pushed a new one. This keeps the button armed for the next
-  // possible swap.
-  useEffect(() => {
-    setChangeArmed(false);
-    if (!showChangeEmoji) return;
-    const t = window.setTimeout(() => setChangeArmed(true), EMOJI_CHANGE_COOLDOWN_MS);
-    return () => window.clearTimeout(t);
-  }, [emoji, showChangeEmoji]);
-
-  const handleChangeEmoji = () => {
-    if (!changeArmed || emojiLocked) return;
-    setChangeArmed(false);
-    onRequestChangeEmoji();
-    // Re-arm after the cooldown in case the server didn't echo
-    // back an emoji_changed (e.g. someone else already swapped).
-    window.setTimeout(() => setChangeArmed(true), EMOJI_CHANGE_COOLDOWN_MS);
-  };
-
   return (
     <div
       className="relative flex h-[72px] items-center justify-center sm:inset-auto sm:top-auto sm:z-auto sm:h-auto sm:items-stretch"
@@ -953,34 +927,7 @@ function SeamColumn({
           label={state === "playing" ? "Target" : undefined}
         />
         )}
-        {!faceSync.visible && showChangeEmoji && (
-          <button
-            type="button"
-            onClick={handleChangeEmoji}
-            disabled={!changeArmed}
-            aria-label="Change target emoji"
-            title={
-              emojiLocked
-                ? "Locked — round in progress"
-                : changeArmed
-                  ? "Swap to a new target emoji"
-                  : "Cooldown — wait a moment"
-            }
-            className={cn(
-              "hidden items-center justify-center gap-1.5 rounded-full sm:static sm:mt-2 sm:inline-flex sm:translate-y-0",
-              "border-[2px] border-[var(--charcoal)] bg-[var(--off-white)]",
-              "px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--charcoal)]",
-              "shadow-[2px_2px_0_0_var(--charcoal)]",
-              "transition-transform duration-100",
-              "active:translate-y-[1px] active:shadow-[0_0_0_0_var(--charcoal)]",
-              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--charcoal)]",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-            )}
-          >
-            <Refresh size={12} />
-            <span>{changeArmed ? "Change emoji" : "Wait…"}</span>
-          </button>
-        )}
+
       </div>
     </div>
   );

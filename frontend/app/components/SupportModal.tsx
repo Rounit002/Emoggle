@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { safeCheckoutUrl } from "../lib/supportPrompt";
 import { useUserProfile } from "../context/UserProfileContext";
 
 const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
@@ -13,16 +14,17 @@ function amountInCents(value: string): number | null {
   return Number.isSafeInteger(amount) && amount >= MIN_SUPPORT_CENTS ? amount : null;
 }
 
-export function SupportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function SupportModal({ open, onClose, preserveGame = false }: { open: boolean; onClose: () => void; preserveGame?: boolean }) {
   const { sessionToken, isSessionReady } = useUserProfile();
   const [amount, setAmount] = useState("");
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const close = useCallback(() => {
-    setAmount("");
+    setAmount(""); setCheckoutUrl(null);
     setError(null);
     onClose();
   }, [onClose]);
@@ -41,7 +43,7 @@ export function SupportModal({ open, onClose }: { open: boolean; onClose: () => 
       if (event.key === "Escape" && !busyRef.current) close();
       if (event.key !== "Tab") return;
       const elements = dialogRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled])',
+        'button:not([disabled]), input:not([disabled]), a[href]',
       );
       if (!elements?.length) return;
       const first = elements[0];
@@ -92,7 +94,9 @@ export function SupportModal({ open, onClose }: { open: boolean; onClose: () => 
         setError(typeof data.detail === "string" ? data.detail : "Could not open checkout. Please try again.");
         return;
       }
-      window.location.assign(data.checkoutUrl);
+      const safe = safeCheckoutUrl(data.checkoutUrl);
+      if (!safe) { setError("The checkout address could not be verified. Please try again."); return; }
+      if (preserveGame) setCheckoutUrl(safe); else window.location.assign(safe);
     } catch {
       setError("Could not reach checkout. Please try again.");
     } finally {
@@ -162,6 +166,7 @@ export function SupportModal({ open, onClose }: { open: boolean; onClose: () => 
             {busy ? "Opening checkout…" : !isSessionReady ? "Getting ready…" : !sessionToken ? "Checkout unavailable" : "Continue to secure checkout"}
           </button>
         </form>
+        {checkoutUrl && <a href={checkoutUrl} target="_blank" rel="noopener noreferrer" className="mt-4 block rounded-full bg-[var(--yellow)] p-3 text-center font-bold">Open secure checkout</a>}
         <button type="button" onClick={close} disabled={busy} className="mt-4 min-h-11 w-full text-sm font-bold underline-offset-4 hover:underline disabled:opacity-50">
           Maybe later — let me play
         </button>

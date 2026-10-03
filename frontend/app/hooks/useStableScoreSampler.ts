@@ -64,6 +64,7 @@ export interface StableSamplerState {
 export interface StableSamplerControls extends StableSamplerState {
   /** Start collecting. Resets any prior run. Safe to call repeatedly. */
   start: () => void;
+  resume: () => void;
   /** Stop the interval. Averages stay at their last value. */
   stop: () => void;
   /** Discard all samples and stop. */
@@ -116,18 +117,16 @@ export function useStableScoreSampler(
     // from event handlers / effects, never during render. The
     // ref-based read path is what lets `getCurrent()` return a
     // synchronous, in-tick value right after the round ends.
-    // eslint-disable-next-line react-hooks/refs
     stateRef.current = EMPTY_STATE;
     setState(EMPTY_STATE);
   }, [stop]);
 
-  const start = useCallback(() => {
+  const collect = useCallback((fresh: boolean) => {
     // Always start fresh so two back-to-back rounds don't mix.
     if (intervalRef.current !== null) {
       clearInterval(intervalRef.current);
     }
-    stateRef.current = EMPTY_STATE;
-    setState(EMPTY_STATE);
+    if (fresh) { stateRef.current = EMPTY_STATE; setState(EMPTY_STATE); }
     setIsRunning(true);
 
     intervalRef.current = setInterval(() => {
@@ -160,9 +159,13 @@ export function useStableScoreSampler(
     }, intervalMs);
   }, [intervalMs]);
 
+  const start = useCallback(() => collect(true), [collect]);
+  const resume = useCallback(() => collect(false), [collect]);
+  useEffect(() => () => { if (intervalRef.current !== null) clearInterval(intervalRef.current); }, []);
+
   const getCurrent = useCallback(() => stateRef.current, []);
 
-  return { ...state, start, stop, reset, isRunning, getCurrent };
+  return { ...state, start, resume, stop, reset, isRunning, getCurrent };
 }
 
 /**

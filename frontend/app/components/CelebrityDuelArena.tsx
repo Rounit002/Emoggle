@@ -1,4 +1,6 @@
 "use client";
+import { SeriesPanel } from "./SeriesPanel";
+import { useRoundSupport } from "../context/SupportPromptContext";
 
 /**
  * CelebrityDuelArena
@@ -56,6 +58,8 @@ const ROUND_SECONDS = 10;
 type AppPhase = "lobby" | "matched" | "countdown" | "playing" | "results";
 
 interface CelebrityDuelArenaProps {
+  privateSeriesId?: string;
+  privateInviteLink?: string | null;
   onBack: () => void;
   modeSwitchTicket?: string | null;
   onModeSwitch?: (mode: MatchGameMode, ticket: string) => void;
@@ -116,7 +120,7 @@ function buildResult(
   };
 }
 
-export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwitch }: CelebrityDuelArenaProps) {
+export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwitch, privateSeriesId, privateInviteLink }: CelebrityDuelArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const peakAccumulatorRef = useRef<PeakScoreAccumulator>(createPeakAccumulator());
   const submittedRef = useRef(false);
@@ -144,6 +148,7 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
   // now attaches a `celebrity` field to `match_started` so this
   // single hook drives both the emoji duel and the celebrity arena.
   const {
+    seriesState, roundError, readyPrivate, retryRound,
     status,
     remoteStream,
     roundSchedule,
@@ -179,6 +184,7 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
     "celebrity",
     modeSwitchTicket,
     onModeSwitch,
+    privateSeriesId,
   );
 
   // The celebrity target is passed in the `match_started` payload
@@ -208,6 +214,7 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
 
   const {
     start: startScoreSampling,
+    resume: resumeScoreSampling,
     stop: stopScoreSampling,
     reset: resetScoreSampling,
     getCurrent: getCurrentScoreSamples,
@@ -269,7 +276,7 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
       setImageLoadError(false);
       setPhase("lobby");
     }
-  }, [status]);
+  }, [status, currentMatchId]);
 
   /* Stop the sampler when we leave the playing phase. */
   useEffect(() => {
@@ -326,20 +333,22 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
    * scan window exactly once per match. */
   const roundStartedForRef = useRef<string | null>(null);
   useEffect(() => {
+    if (matchResult) { setPhase("results"); return; }
     if (clockPhase === "countdown") {
       setPhase("countdown");
       return;
     }
+    if (["preparing", "preview", "paused", "facesync"].includes(clockPhase)) { setPhase("matched"); return; }
     if (clockPhase !== "playing" || !roundSchedule) return;
     const roundKey = currentMatchId ?? String(roundSchedule.scanStartsAt);
-    if (roundStartedForRef.current === roundKey) return;
+    if (roundStartedForRef.current === roundKey) { resumeScoreSampling(); setPhase("playing"); return; }
     roundStartedForRef.current = roundKey;
     peakAccumulatorRef.current = createPeakAccumulator();
     submittedRef.current = false;
     setFinalScore(null);
     startScoreSampling();
     setPhase("playing");
-  }, [clockPhase, currentMatchId, roundSchedule, startScoreSampling]);
+  }, [clockPhase, currentMatchId, roundSchedule, startScoreSampling, resumeScoreSampling, matchResult]);
 
   /*
    * The server has scored the round — both submissions arrived, or
@@ -372,6 +381,8 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
     stopMatching();
   }, [stopMatching, stopScoreSampling]);
 
+  useRoundSupport(matchResult?.matchId, phase === "results" && Boolean(matchResult) && (!privateSeriesId || !seriesState?.myReady && (seriesState?.state === "round_result" || seriesState?.state === "completed")));
+
   const myFlag = flagFromAnyOrFallback(myCountry, myCountryCode);
   const partnerFlag = flagFromAnyOrFallback(partnerCountry, partnerCountryCode);
   const inMatch = status === "matched";
@@ -391,10 +402,12 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
 
   return (
     <div className="relative flex min-h-screen w-screen flex-col bg-[var(--off-white)] text-[var(--charcoal)]">
+      {privateSeriesId && phase !== "results" && <SeriesPanel inviteLink={privateInviteLink} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} />}
+      {roundError && <div role="alert" className="m-3 rounded-xl bg-[var(--yellow)] p-3 text-center text-[var(--charcoal)]">{roundError} <button onClick={retryRound} className="min-h-11 underline">Retry connection</button></div>}
       <header className="z-30 flex flex-none items-center justify-between gap-2 border-b-[3px] border-[var(--charcoal)] bg-[var(--off-white)] px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <button
-            onClick={onBack}
+            onClick={privateSeriesId ? () => { stopMatching(); onBack(); } : onBack}
             className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[var(--charcoal)] transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--charcoal)]"
             aria-label="Back to home"
           >
@@ -508,7 +521,8 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
       {phase === "results" && (
         <CelebrityResultScreen
           result={resolvedResult}
-          onPlayAgain={handleRetry}
+          seriesContent={privateSeriesId ? <SeriesPanel inviteLink={privateInviteLink} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} /> : undefined}
+          onPlayAgain={privateSeriesId ? readyPrivate : handleRetry}
           onLeave={onBack}
           selfLabel={myName ?? "ME"}
           rivalLabel={partnerName ?? "RIVAL"}

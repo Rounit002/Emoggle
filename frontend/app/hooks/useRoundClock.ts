@@ -23,7 +23,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RoundSchedule } from "../lib/serverClock";
 
-export type RoundClockPhase = "idle" | "facesync" | "countdown" | "playing" | "ended";
+export type RoundClockPhase = "idle" | "preparing" | "preview" | "paused" | "facesync" | "countdown" | "playing" | "ended";
 
 export interface RoundClockState {
   phase: RoundClockPhase;
@@ -47,6 +47,14 @@ const PENDING_STATE: RoundClockState = { phase: "facesync", countdownValue: null
 
 function evaluate(schedule: RoundSchedule | null, now: number): RoundClockState {
   if (!schedule) return IDLE_STATE;
+  if (schedule.protocolVersion === 2) {
+    const phase = schedule.serverPhase;
+    if (phase === "paused") return { phase: "paused", countdownValue: null, secondsLeft: Math.ceil((schedule.remainingMs ?? 0) / 1000) };
+    if (["preparing", "target", "restarting"].includes(phase ?? "")) return { phase: "preparing", countdownValue: null, secondsLeft: null };
+    if (phase === "result" || phase === "ending") return { phase: "ended", countdownValue: null, secondsLeft: 0 };
+    if (phase === "facesync") return { phase: "facesync", countdownValue: null, secondsLeft: null };
+    if (phase === "preview") return { phase: (schedule.countdownSec ?? 3) <= 1 ? "preview" : "countdown", countdownValue: (schedule.countdownSec ?? 3) <= 1 ? null : Math.max(1, Math.ceil((schedule.countdownEndsAt - now) / 1000)), secondsLeft: null };
+  }
 
   // The FaceSync lead-in sits in front of the round. It renders no
   // digit: the countdown has not started, and showing "7" here
@@ -136,7 +144,7 @@ export function useRoundClock({
       stopTicking();
       if (firedForRef.current !== schedule) {
         firedForRef.current = schedule;
-        onScanEndRef.current?.();
+        if (!schedule.serverPhase || schedule.serverPhase === "playing") onScanEndRef.current?.();
       }
     };
 
@@ -160,6 +168,9 @@ export function useRoundClock({
   // the neutral pre-round state rather than the previous round's
   // numbers. The tick lands in the same commit's effect, so this is
   // at most one frame with no digit on screen.
-  if (snapshot.schedule !== schedule) return PENDING_STATE;
+  if (snapshot.schedule !== schedule) {
+    if (schedule.protocolVersion === 2 && ["result", "ending"].includes(schedule.serverPhase ?? "")) return { phase: "ended", countdownValue: null, secondsLeft: 0 };
+    return PENDING_STATE;
+  }
   return snapshot.state;
 }

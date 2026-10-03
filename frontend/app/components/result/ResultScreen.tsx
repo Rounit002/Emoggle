@@ -70,6 +70,7 @@ export interface MatchResultLike {
 
 interface ResultScreenProps {
   result: MatchResultLike | null;
+  seriesContent?: import("react").ReactNode;
   onPlayAgain: () => void;
   onLeave?: () => void;
   /** Display labels. Defaults to "ME" and "OPPONENT". */
@@ -79,6 +80,7 @@ interface ResultScreenProps {
 
 export function ResultScreen({
   result,
+  seriesContent,
   onPlayAgain,
   onLeave,
   selfLabel = "ME",
@@ -169,7 +171,7 @@ export function ResultScreen({
             paddingRight: "max(0.75rem, env(safe-area-inset-right))",
           }}
           role="dialog"
-          aria-modal="true"
+          aria-modal="true" data-round-result
           aria-label={result ? "Match result" : "Calculating match result"}
         >
           <motion.div
@@ -193,11 +195,12 @@ export function ResultScreen({
                   rivalLabel={rivalLabel}
                 />
 
+                {seriesContent}
                 <ActionRow
                   reactionMessage={reactionMessage}
                   share={share}
                   onShare={handleShareClick}
-                  onPlayAgain={handlePlayAgain}
+                  onPlayAgain={seriesContent ? undefined : handlePlayAgain}
                   onLeave={onLeave}
                 />
               </>
@@ -473,7 +476,7 @@ function ActionRow({
   reactionMessage: string;
   share: ReturnType<typeof useShareScorecard>;
   onShare: () => void;
-  onPlayAgain: () => void;
+  onPlayAgain?: () => void;
   onLeave?: () => void;
 }) {
   return (
@@ -484,6 +487,7 @@ function ActionRow({
       className="mt-1 flex w-full flex-col gap-2 sm:mt-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-3"
     >
       {/* Primary CTA — play again */}
+      {onPlayAgain && (
       <Button
         size="md"
         onClick={onPlayAgain}
@@ -492,6 +496,7 @@ function ActionRow({
       >
         Play Again
       </Button>
+      )}
 
       {/* Secondary CTA — share */}
       <div className="w-full sm:flex-1 sm:basis-1/2">

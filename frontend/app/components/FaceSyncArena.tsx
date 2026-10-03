@@ -28,6 +28,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import VideoPanel from "./VideoPanel";
 import FaceSync from "./FaceSync";
 import ChatBox from "./ChatBox";
+import { SeriesPanel } from "./SeriesPanel";
 import { useMatchmaking, type MatchGameMode } from "../hooks/useMatchmaking";
 import { useFaceSync } from "../hooks/useFaceSync";
 import { useLocalCamera } from "../hooks/useLocalCamera";
@@ -49,12 +50,14 @@ import {
 } from "../ui";
 
 interface FaceSyncArenaProps {
+  privateSeriesId?: string;
+  privateInviteLink?: string | null;
   onBack: () => void;
   modeSwitchTicket?: string | null;
   onModeSwitch?: (mode: MatchGameMode, ticket: string) => void;
 }
 
-export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }: FaceSyncArenaProps) {
+export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, privateSeriesId, privateInviteLink }: FaceSyncArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const {
     stream: localStream,
@@ -88,6 +91,11 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
     skipUser,
     stopMatching,
     startMatching,
+    seriesState,
+    readyPrivate,
+    roundSchedule,
+    roundError,
+    retryRound,
   } = useMatchmaking(
     localStream,
     myName,
@@ -101,11 +109,12 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
     "facesync",
     modeSwitchTicket,
     onModeSwitch,
+    privateSeriesId,
   );
 
   const faceSync = useFaceSync({
     videoRef: webcamRef,
-    matchId: currentMatchId,
+    matchId: privateSeriesId && roundSchedule?.serverPhase === "preparing" ? null : currentMatchId,
     partnerPresent: Boolean(remoteStream),
     result: faceSyncResult,
     skippedFor: faceSyncSkippedFor,
@@ -163,7 +172,7 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
       <header className="z-30 flex flex-none items-center justify-between gap-2 border-b-[3px] border-[var(--charcoal)] bg-[var(--off-white)] px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <button
-            onClick={onBack}
+            onClick={handleCancelSearch}
             className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[var(--charcoal)] transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-[var(--charcoal)]"
             aria-label="Back to home"
           >
@@ -183,6 +192,8 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
         className="flex min-h-0 flex-1 flex-col items-center gap-3 p-3 sm:gap-4 sm:p-4 lg:gap-6 lg:p-6"
         aria-label="FaceSync arena"
       >
+        {privateSeriesId && <SeriesPanel series={seriesState} ready={readyPrivate} leave={handleCancelSearch} inviteLink={privateInviteLink}/>}
+        {privateSeriesId && roundError && <p role="alert">{roundError} <button className="min-h-11 underline" onClick={retryRound}>Retry connection</button></p>}
         {/* Faces stay visible the whole time — the entire joke is
             "do these two look alike", which does not work if the
             result covers them. Stacked on a phone, side by side on
@@ -236,8 +247,8 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
           </div>
 
           <FaceTile
-            label="STRANGER"
-            name={partnerName ?? "Stranger"}
+            label={privateSeriesId ? "FRIEND" : "STRANGER"}
+            name={partnerName ?? (privateSeriesId ? "Friend" : "Stranger")}
             country={partnerCountry}
             countryCode={partnerCountryCode}
             isLocal={false}
@@ -265,7 +276,7 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
         {/* One action, and only once there is something to move on
             from. Offering "next" mid-scan would just make people
             skip past their own result. */}
-        {inMatch && settled && (
+        {!privateSeriesId && inMatch && settled && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -280,7 +291,7 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch }
       </main>
 
       <AnimatePresence>
-        {(status === "idle" || status === "connecting" || status === "waiting" || status === "stopped" || status === "error") && (
+        {!privateSeriesId && (status === "idle" || status === "connecting" || status === "waiting" || status === "stopped" || status === "error") && (
           <LobbyOverlay
             status={status}
             onCancel={handleCancelSearch}

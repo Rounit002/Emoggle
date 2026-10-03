@@ -35,6 +35,12 @@ import type { Socket } from "socket.io-client";
 
 /** Round boundaries, already translated into the local clock. */
 export interface RoundSchedule {
+  skipEnabled?: boolean;
+  serverPhase?: string;
+  generation?: number;
+  remainingMs?: number | null;
+  protocolVersion?: number;
+  countdownSec?: number;
   matchId: string | null;
   /**
    * Local-clock ms when the FaceSync lead-in ends and the round's
@@ -66,6 +72,11 @@ export interface RoundSchedule {
 
 /** Shape of the timing fields every round event carries. */
 export interface RoundSchedulePayload {
+  skipEnabled?: boolean;
+  serverPhase?: string;
+  generation?: number;
+  remainingMs?: number | null;
+  protocolVersion?: number;
   matchId?: string | null;
   serverTime?: number;
   faceSyncEndsAt?: number;
@@ -233,6 +244,7 @@ export function buildRoundSchedule(
 
   return {
     matchId,
+    skipEnabled: payload?.skipEnabled, serverPhase: payload?.serverPhase, generation: payload?.generation, remainingMs: payload?.remainingMs, protocolVersion: payload?.protocolVersion, countdownSec,
     faceSyncEndsAt: Math.min(rawFaceSyncEnd, countdownEndsAt),
     countdownEndsAt,
     scanStartsAt,
@@ -255,7 +267,7 @@ export function scheduleChanged(
   toleranceMs = 150,
 ): boolean {
   if (!current) return true;
-  if (current.matchId !== next.matchId) return true;
+  if (current.matchId !== next.matchId || current.generation !== next.generation || current.serverPhase !== next.serverPhase) return true;
   // A prediction being replaced by the real "go" receipt is always
   // worth adopting, however small the correction.
   if (current.anchored !== next.anchored) return true;

@@ -75,22 +75,10 @@ import {
   setPendingName,
   validateName,
 } from "../lib/storage";
-import {
-  createProfile,
-  ensureAnonymousUser,
-  getProfile,
-  isSupabaseConfigured,
-  saveDisplayName,
-  signOut,
-} from "../lib/supabase/profile";
-
-/**
- * How long the first-time gate waits on Supabase before falling
- * back to the local mirror. Long enough for a slow mobile
- * handshake, short enough that a dead network doesn't look like a
- * broken page.
- */
-const BOOT_TIMEOUT_MS = 6000;
+const isSupabaseConfigured = () => Boolean(
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+);
 
 export type NameSyncStatus =
   /** Resolving the session and profile. */
@@ -158,6 +146,7 @@ export function PlayerNameProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
+      const { ensureAnonymousUser, saveDisplayName } = await import("../lib/supabase/profile");
       const user = await ensureAnonymousUser();
       if (mountedRef.current) setUserId(user.id);
       await saveDisplayName(user.id, next);
@@ -175,85 +164,12 @@ export function PlayerNameProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     mountedRef.current = true;
     const cached = getName();
-
-    if (!isSupabaseConfigured()) {
-      setNameState(cached);
-      setSyncStatus("local-only");
-      setIsHydrated(true);
-      return () => {
-        mountedRef.current = false;
-      };
-    }
-
-    /** Release the gate on the local mirror when Supabase is slow.
-     *  The boot below keeps running either way. */
-    const timer = window.setTimeout(() => {
-      if (!mountedRef.current || playerHasTypedRef.current) return;
-      setNameState((current) => current ?? cached);
-      setIsHydrated(true);
-    }, BOOT_TIMEOUT_MS);
-
-    async function boot() {
-      try {
-        const user = await ensureAnonymousUser();
-        if (!mountedRef.current) return;
-        setUserId(user.id);
-
-        let profile = await getProfile(user.id);
-        // An edit from a previous visit that never reached the
-        // server. It is newer than anything else we have, so it
-        // takes precedence over both the row and the mirror.
-        const pending = getPendingName();
-
-        if (profile) {
-          if (pending && pending !== profile.displayName) {
-            profile = await saveDisplayName(user.id, pending);
-          }
-          clearPendingName();
-        } else {
-          // No row yet: either a queued edit or, for players who
-          // predate this table, the name already in localStorage.
-          const seed = pending ?? cached;
-          if (seed) {
-            profile = await createProfile(user.id, seed);
-            clearPendingName();
-          }
-        }
-
-        if (!mountedRef.current) return;
-        // The player got impatient and named themselves while this
-        // was in flight. Their choice is newer than the row we just
-        // read, so `save()` owns the value from here.
-        if (playerHasTypedRef.current) {
-          setSyncStatus("synced");
-          return;
-        }
-
-        if (profile) {
-          setNameState(profile.displayName);
-          // Refresh the mirror so the fallback path stays accurate.
-          setName(profile.displayName);
-        } else {
-          setNameState(null);
-        }
-        setSyncStatus("synced");
-      } catch {
-        if (!mountedRef.current) return;
-        // Supabase is configured but unreachable. Fall back to the
-        // mirror: a database outage must not stop anyone playing.
-        if (!playerHasTypedRef.current) setNameState(cached);
-        setSyncStatus("error");
-      } finally {
-        if (mountedRef.current) setIsHydrated(true);
-        window.clearTimeout(timer);
-      }
-    }
-
-    void boot();
+    setNameState(cached);
+    setSyncStatus(isSupabaseConfigured() ? "synced" : "local-only");
+    setIsHydrated(true);
 
     return () => {
       mountedRef.current = false;
-      window.clearTimeout(timer);
     };
   }, []);
 
@@ -290,7 +206,7 @@ export function PlayerNameProvider({ children }: { children: ReactNode }) {
     // End the Supabase session too. Leaving it would restore the
     // same profile — and the same name — on the next visit, which
     // is not what "clear my name" means.
-    void signOut();
+    void import("../lib/supabase/profile").then(({ signOut }) => signOut());
   }, []);
 
   const value = useMemo<PlayerNameContextValue>(

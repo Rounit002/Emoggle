@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Quicksand, Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
 import { headers } from "next/headers";
-import "lenis/dist/lenis.css";
 import "./globals.css";
 import { SmoothScroll } from "./components/SmoothScroll";
 import { siteConfig } from "./lib/site";
@@ -11,21 +10,18 @@ import { ThemeProvider } from "./context/ThemeContext";
 const display = Quicksand({
   variable: "--font-display",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
   display: "swap",
 });
 
 const sans = Plus_Jakarta_Sans({
   variable: "--font-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
   display: "swap",
 });
 
 const mono = JetBrains_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
   display: "swap",
 });
 
@@ -98,8 +94,6 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f9f9f9" },
     { media: "(prefers-color-scheme: dark)", color: "#000000" },

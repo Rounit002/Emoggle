@@ -1,4 +1,5 @@
 "use client";
+import { useRoundSupport } from "../context/SupportPromptContext";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -98,7 +99,8 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
 
   const noopScore = useCallback(() => {}, []);
   const expressionRef = useRef<ReturnType<typeof useExpressionScorer> | null>(null);
-  const expression = useExpressionScorer(webcamRef, emojiPrompt, phase === "playing", noopScore);
+  const expression = useExpressionScorer(webcamRef, emojiPrompt, phase === "playing", noopScore, phase === "ready");
+  const trackerPrepared = expression.status !== "idle" && expression.status !== "loading";
   // Mirror the scorer output for the sampler callback.
   useEffect(() => {
     expressionRef.current = expression;
@@ -188,6 +190,7 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
     active: phase === "playing",
     onScanEnd: finishRound,
   });
+  useRoundSupport(phase === "results" && roundStartedAt !== null ? `solo:${roundStartedAt}` : null, phase === "results");
   const roundSeconds = secondsLeft ?? ROUND_SECONDS;
 
   const statusText = useMemo(() => {
@@ -202,7 +205,7 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
   const personalBest = history.length > 0 ? Math.max(...history.map((e) => e.score)) : null;
 
   const startRound = () => {
-    if (localCameraStatus !== "ready") return;
+    if (localCameraStatus !== "ready" || !trackerPrepared) return;
     resetSampling();
     setFinalScore(null);
     finishedRef.current = false;
@@ -357,10 +360,10 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
                 size="lg"
                 onClick={startRound}
                 iconLeft={<Camera size={18} />}
-                disabled={localCameraStatus !== "ready"}
+                disabled={localCameraStatus !== "ready" || !trackerPrepared}
               >
                 {localCameraStatus === "ready"
-                  ? phase === "results" ? "Try again" : "Start scan"
+                  ? !trackerPrepared ? "Preparing face tracker…" : phase === "results" ? "Try again" : "Start scan"
                   : localCameraStatus === "error" ? "Camera unavailable" : "Waiting for camera…"}
               </Button>
               <Button block variant="secondary" onClick={nextEmoji} iconLeft={<Refresh size={16} />}>

@@ -2,18 +2,29 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, MotionConfig, useReducedMotion } from "framer-motion";
-import CelebrityDuelArena from "./CelebrityDuelArena";
-import DuelArena from "./DuelArena";
-import FaceSyncArena from "./FaceSyncArena";
+import dynamic from "next/dynamic";
 import ModeSelect from "./ModeSelect";
-import SoloFaceJudge from "./SoloFaceJudge";
 import { MediaPipeFaceProvider } from "../context/MediaPipeFaceContext";
-import { UserProfileProvider } from "../context/UserProfileContext";
-import { PlayerNameProvider } from "../context/PlayerNameContext";
-import { CountryProvider } from "../context/CountryContext";
+import ExperienceProviders from "./ExperienceProviders";
+import { useSupportPrompt } from "../context/SupportPromptContext";
 import { useSmoothScrollController } from "./SmoothScroll";
 import { useCoveredView } from "./home/useCoveredView";
 import type { MatchGameMode } from "../hooks/useMatchmaking";
+
+const DuelArena = dynamic(() => import("./DuelArena"), { loading: GameLoading });
+const SoloFaceJudge = dynamic(() => import("./SoloFaceJudge"), { loading: GameLoading });
+const CelebrityDuelArena = dynamic(() => import("./CelebrityDuelArena"), { loading: GameLoading });
+const FaceSyncArena = dynamic(() => import("./FaceSyncArena"), { loading: GameLoading });
+
+function GameLoading() {
+  return (
+    <div className="grid min-h-screen place-items-center px-4" role="status">
+      <p className="rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] px-5 py-3 font-bold text-[var(--on-accent)] shadow-[4px_4px_0_0_var(--charcoal)]">
+        Loading game…
+      </p>
+    </div>
+  );
+}
 
 type View = "home" | "arena" | "solo" | "celebrity" | "facesync";
 type ModeId = "camera" | "solo" | "celebrity" | "facesync";
@@ -32,17 +43,7 @@ const VIEW_BY_MATCH_MODE: Record<MatchGameMode, View> = {
 
 export default function HomeExperience() {
   return (
-    <MediaPipeFaceProvider>
-      <UserProfileProvider>
-        <PlayerNameProvider>
-          <CountryProvider>
-            <MotionConfig reducedMotion="user">
-              <HomeContent />
-            </MotionConfig>
-          </CountryProvider>
-        </PlayerNameProvider>
-      </UserProfileProvider>
-    </MediaPipeFaceProvider>
+    <ExperienceProviders><MotionConfig reducedMotion="user"><HomeContent /></MotionConfig></ExperienceProviders>
   );
 }
 
@@ -50,21 +51,19 @@ function HomeContent() {
   const reduceMotion = useReducedMotion();
   const [view, setView] = useState<View>("home");
   const [modeSwitchTicket, setModeSwitchTicket] = useState<string | null>(null);
-  const [supportOpen, setSupportOpen] = useState(true);
+  const { open: supportOpen, close: dismissSupport, show: openSupport } = useSupportPrompt();
   const setSmoothScrollEnabled = useSmoothScrollController();
-  const dismissSupport = useCallback(() => setSupportOpen(false), []);
-  const openSupport = useCallback(() => setSupportOpen(true), []);
 
   useEffect(() => {
     const url = new URL(window.location.href);
     if (!url.searchParams.has("support")) return;
     const timer = window.setTimeout(() => {
-      setSupportOpen(false);
+      dismissSupport();
       for (const key of ["support", "payment_id", "status", "email"]) url.searchParams.delete(key);
       window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [dismissSupport]);
 
   /* Games always open at their beginning. When the player returns,
      restore the landing-page position they came from. */
@@ -128,15 +127,17 @@ function HomeContent() {
     }
   }, [view]);
 
-  const content = view === "arena"
+  const game = view === "arena"
     ? <DuelArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />
     : view === "solo"
       ? <SoloFaceJudge onBack={handleBack} />
       : view === "celebrity"
         ? <CelebrityDuelArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />
-        : view === "facesync"
-          ? <FaceSyncArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />
-          : <ModeSelect onSelect={handleSelect} supportOpen={supportOpen} onDismissSupport={dismissSupport} onOpenSupport={openSupport} />;
+        : <FaceSyncArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />;
+
+  const content = view === "home"
+    ? <ModeSelect onSelect={handleSelect} supportOpen={supportOpen} onDismissSupport={dismissSupport} onOpenSupport={openSupport} />
+    : <MediaPipeFaceProvider>{game}</MediaPipeFaceProvider>;
 
   return (
     <AnimatePresence mode="wait" initial={false}>

@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+/* Skip layout/paint work for below-the-fold landing content until it nears
+   the viewport while reserving a stable fallback size for the scroll range. */
+.deferred-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 760px;
+}
+
 /* =========================================================
    Emoggle — "Vibrant Party Play" design system
    ---------------------------------------------------------

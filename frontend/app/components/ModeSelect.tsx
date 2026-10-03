@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
+import dynamic from "next/dynamic";
 import styles from "./HeroPreview.module.css";
 import { motion } from "framer-motion";
 import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
-import { SupportModal } from "./SupportModal";
 import { ScrollReveal } from "./home/EmojiMotion";
 import {
   GooeyBlock,
@@ -26,8 +27,17 @@ import {
   User,
   cn,
 } from "../ui";
-import { ChooseGameMode, type GameMode } from "./ChooseGameMode";
-import { NameEntryModal } from "./NameEntryModal";
+import type { GameMode } from "./ChooseGameMode";
+
+
+const ChooseGameMode = dynamic(
+  () => import("./ChooseGameMode").then((module) => module.ChooseGameMode),
+  { ssr: false },
+);
+const NameEntryModal = dynamic(
+  () => import("./NameEntryModal").then((module) => module.NameEntryModal),
+  { ssr: false },
+);
 interface ModeSelectProps {
   onSelect: (mode: ModeId) => void;
   supportOpen: boolean;
@@ -35,8 +45,7 @@ interface ModeSelectProps {
   onOpenSupport: () => void;
 }
 
-const SIGNALING_URL =
-  process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
+const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL;
 
 type ModeId = "camera" | "solo" | "celebrity" | "facesync";
 
@@ -142,30 +151,23 @@ const fillClasses: Record<ModeCard["fill"], string> = {
   pink: "on-accent bg-[var(--pink)]",
 };
 
-export default function ModeSelect({ onSelect, supportOpen, onDismissSupport, onOpenSupport }: ModeSelectProps) {
+export default function ModeSelect({ onSelect, supportOpen, onOpenSupport }: ModeSelectProps) {
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
   // True when the "Play now" CTA has opened the mode picker.
   // Lives in ModeSelect (not in the parent) so the home page
   // never unmounts while the modal is open — opening the modal
   // should feel like a stack push, not a route change.
   const [modePickerOpen, setModePickerOpen] = useState(false);
-  // True while the first-time "what's your name?" modal is on
-  // screen. Set automatically on mount if no name is stored, and
-  // re-set by any mode-pick attempt that races ahead of the gate.
-  const [nameModalOpen, setNameModalOpen] = useState(false);
-  // The first-time gate is "required" — the user can't dismiss it
-  // without picking a name. After a name exists, the same modal is
-  // re-used in non-required mode for the "edit name" flow.
-  const [nameModalRequired, setNameModalRequired] = useState(true);
-  // Tracks the next mode the user tried to pick while the name
-  // modal was open, so we can advance to the right picker once
-  // the modal closes successfully.
-  const [pendingMode, setPendingMode] = useState<GameMode | null>(null);
+  // Name entry is opened by choosing a game or explicitly editing a name.
+  // Loading the homepage or opening the picker never asks for a name.
+  const [nameDialog, setNameDialog] = useState<{ mode: GameMode } | "edit" | null>(null);
+  const pendingMode = nameDialog && nameDialog !== "edit" ? nameDialog.mode : null;
 
   const { name, isHydrated: isNameHydrated, save: saveName } = usePlayerName();
   const { country } = useCountry();
 
   useEffect(() => {
+    if (!SIGNALING_URL) return;
     let cancelled = false;
     const fetchCount = async () => {
       try {
@@ -179,37 +181,22 @@ export default function ModeSelect({ onSelect, supportOpen, onDismissSupport, on
         /* server may be offline */
       }
     };
-    fetchCount();
-    const interval = setInterval(fetchCount, 5000);
+    // Presence is supplemental. Keep it out of the critical loading window so
+    // it cannot compete with the LCP portrait or initial hydration.
+    const initial = window.setTimeout(fetchCount, 10_000);
+    const interval = window.setInterval(fetchCount, 15_000);
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
     };
   }, []);
 
-  // Auto-open the first-time name modal once the storage has been
-  // read. We deliberately wait for `isNameHydrated` so we don't
-  // briefly flash the homepage and then slap a modal on top of
-  // it for returning users.
-  useEffect(() => {
-    if (!isNameHydrated || supportOpen) return;
-    if (name) return;
-    if (nameModalOpen) return;
-    const timer = window.setTimeout(() => {
-      setNameModalRequired(true);
-      setNameModalOpen(true);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [isNameHydrated, name, nameModalOpen, supportOpen]);
-
-  // Wrap `handleSelect` so the gate kicks in before any mode pick.
-  // If the user doesn't have a name, we open the modal in
-  // required mode and stash the chosen mode for after submit.
+  // Ask for a name only after a game is chosen, retaining that choice
+  // until a valid name is saved or the visitor returns to browsing.
   const requestMode = (mode: GameMode) => {
     if (!name) {
-      setPendingMode(mode);
-      setNameModalRequired(true);
-      setNameModalOpen(true);
+      setNameDialog({ mode });
       return;
     }
     proceedToMode(mode);
@@ -231,26 +218,22 @@ export default function ModeSelect({ onSelect, supportOpen, onDismissSupport, on
   const proceedToMode = (mode: GameMode) => onSelect(mode);
 
   const handleNameSubmit = (next: string) => {
-    saveName(next);
-    setNameModalOpen(false);
+    if (!saveName(next)) return;
+    setNameDialog(null);
     // If the user was trying to pick a mode while the modal was
     // up, continue that flow now that the gate is satisfied.
     if (pendingMode) {
-      const target = pendingMode;
-      setPendingMode(null);
-      proceedToMode(target);
+      proceedToMode(pendingMode);
     }
   };
 
   const handleEditName = () => {
-    setNameModalRequired(false);
-    setNameModalOpen(true);
+    setNameDialog("edit");
   };
 
   const handleNameModalCancel = () => {
-    if (nameModalRequired) return; // first-time gate has no cancel
-    setNameModalOpen(false);
-    setPendingMode(null);
+    // Cancelling abandons the game choice and returns to browsing.
+    setNameDialog(null);
   };
 
   // No background fill on the wrapper: the page-level DoodleBackdrop
@@ -482,6 +465,12 @@ export default function ModeSelect({ onSelect, supportOpen, onDismissSupport, on
           <HeroPreview />
         </section>
 
+        <section aria-labelledby="private-duel-title" className="mx-auto mb-12 w-full max-w-[1100px] rounded-3xl border-[3px] border-[var(--charcoal)] bg-[var(--purple-container)] p-6 text-[var(--charcoal)] shadow-[5px_5px_0_var(--charcoal)] sm:p-8">
+          <h2 id="private-duel-title" className="font-display text-3xl font-bold">Invite a friend — 1v1</h2>
+          <p className="my-3">Choose 1, 3, or 5 rounds, pick your game, and send a private link. Same friend for the whole series.</p>
+          <a href="/1v1" className="inline-flex min-h-12 items-center rounded-full border-2 border-[var(--charcoal)] bg-[var(--yellow)] px-6 font-bold text-[var(--charcoal)]">Set up a private 1v1</a>
+        </section>
+
         {/* How to play — three scattered, rotated, sticker-shadowed cards */}
         <section className="relative mx-auto w-full max-w-[1100px] pb-16 sm:pb-24">
           <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -578,28 +567,29 @@ export default function ModeSelect({ onSelect, supportOpen, onDismissSupport, on
       {/* Mode picker — opened by the "Play now" CTA. Lives at
           the end of the tree so its portal-like fixed overlay
           sits on top of every other element on the home page. */}
-      <ChooseGameMode
-        open={modePickerOpen}
-        supportOpen={supportOpen}
-        onClose={() => setModePickerOpen(false)}
-        onSelect={handleModalSelect}
-        onOpenSupport={onOpenSupport}
-      />
+      {modePickerOpen && (
+        <ChooseGameMode
+          open
+          supportOpen={supportOpen}
+          onClose={() => setModePickerOpen(false)}
+          onSelect={handleModalSelect}
+          onOpenSupport={onOpenSupport}
+        />
+      )}
 
-      <SupportModal open={supportOpen} onClose={onDismissSupport} />
 
-      {/* Name entry — first-time gate or "edit name" affordance.
-          Required mode for the first-time flow so the user can't
-          dismiss without picking a name; non-required for the
-          edit affordance. Mounted last so the z-index sits on
-          top of every other element. */}
-      <NameEntryModal
-        open={nameModalOpen}
-        currentName={name}
-        required={nameModalRequired}
-        onSubmit={handleNameSubmit}
-        onCancel={handleNameModalCancel}
-      />
+
+      {/* Name entry follows a game choice; a valid name is needed to play.
+          Visitors can cancel and keep browsing, or edit an existing name. */}
+      {nameDialog !== null && (
+        <NameEntryModal
+          open
+          currentName={name}
+          required={pendingMode !== null}
+          onSubmit={handleNameSubmit}
+          onCancel={handleNameModalCancel}
+        />
+      )}
     </div>
   );
 }
@@ -634,8 +624,15 @@ function PreviewColumn({ seat, score, interest, src, alt }: {
     <div className={cn(styles.card, seat === "a" ? styles.left : styles.right)}>
       <span className={styles.badge}>Matched!</span>
       <div className={styles.photo}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt={alt} width={720} height={900} loading="eager" decoding="async" />
+        <Image
+          src={src}
+          alt={alt}
+          width={720}
+          height={900}
+          sizes="(max-width: 639px) 36vw, (max-width: 1023px) 38vw, 270px"
+          loading="eager"
+          fetchPriority={seat === "a" ? "high" : "auto"}
+        />
         <svg className={styles.cameraMark} viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <rect x="4" y="4" width="16" height="16" rx="6" stroke="currentColor" strokeWidth="2.5" />
           <path d="M9 12a3 3 0 0 0 6 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />

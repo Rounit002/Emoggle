@@ -1,1593 +1,348 @@
-# Emoggle - System Architecture Documentation
+# Emoggle architecture
 
-## Table of Contents
-1. [System Overview](#system-overview)
-2. [Architecture Diagram](#architecture-diagram)
-3. [Technology Stack](#technology-stack)
-4. [Core Components](#core-components)
-5. [Data Flow](#data-flow)
-6. [Database Schema](#database-schema)
-7. [API Endpoints](#api-endpoints)
-8. [Real-Time Communication](#real-time-communication)
-9. [Security & Authentication](#security--authentication)
-10. [Deployment Architecture](#deployment-architecture)
-11. [Performance Considerations](#performance-considerations)
-12. [Key Algorithms](#key-algorithms)
-13. [Development Workflow](#development-workflow)
-14. [Troubleshooting Guide](#troubleshooting-guide)
+Reviewed on **2026-10-03** against the current working tree, including local changes. This describes the implemented system. [CODEBASE_GUIDE.md](CODEBASE_GUIDE.md) provides the module walkthrough, review findings, and verification results.
 
----
+## System overview
 
-## System Overview
+Emoggle is a browser webcam game. Next.js renders the site and game screens; an Express/Socket.IO service pairs players and coordinates rounds; MediaPipe calculates facial landmarks in each browser. Live video and audio use a separate PeerJS/WebRTC connection.
 
-**Emoggle** (formerly FitCheckDuel) is a real-time competitive facial expression matching platform where users compete in live face duels through WebRTC video connections. The application features multiple game modes including live emoji duels, solo practice, celebrity face mimicry, and AI-powered fashion judging.
+| Mode | Frontend view | Behavior |
+| --- | --- | --- |
+| Live emoji duel | `DuelArena.tsx` | Pair players, optionally show FaceSync resemblance, count down for three seconds, then compare ten seconds of expression scores. |
+| Solo Emoji Scan | `SoloFaceJudge.tsx` | Run a ten-second local expression round and save browser history. No matchmaking socket is needed. |
+| Celebrity mimic | `CelebrityDuelArena.tsx` | Pair players around one reference image and compare their best valid expression scores. The current target is the IShowSpeed Squint pilot. |
+| FaceSync | `FaceSyncArena.tsx` | Show both players the same resemblance result and keep the session open for chat or another stranger. No emoji scan follows. |
 
-### Key Capabilities
-- **Real-time P2P video communication** via WebRTC/PeerJS
-- **Facial landmark detection** using MediaPipe Face Mesh
-- **Expression scoring algorithm** comparing user expressions to target emojis
-- **ELO-based matchmaking** with ranking system
-- **Gender-filtered matchmaking** (VIP feature)
-- **AI-powered fashion judging** using Google Gemini Vision API
-- **Celebrity face mimicry mode** (in development)
-- **Session-based authentication** with Google OAuth support
-- **Multi-region deployment** with geolocation support
+A fashion-photo judge also exists, but `HomeExperience.tsx` does not expose `UploadJudge.tsx`. The Remotion marketing video is a separate project.
 
-### Game Modes
-1. **Live Face Duel** - Match expressions with a random opponent in real-time
-2. **Solo Practice** - Practice emoji expressions without opponents
-3. **Fashion Judge** - Upload outfit photos for AI critique
-4. **Celebrity Mimic** - Mimic celebrity facial expressions (upcoming)
+## Service boundaries
 
----
+```mermaid
+flowchart LR
+    A["Browser A: UI + MediaPipe"]
+    B["Browser B: UI + MediaPipe"]
+    WEB["Next.js server"]
+    SIGNAL["Express + Socket.IO"]
+    PEER["PeerJS signaling service"]
+    PG["PostgreSQL: users, sessions, matches, reports, payments"]
+    PROFILE["Supabase Auth + profiles with RLS"]
+    DODO["Dodo Payments"]
+    JUDGE["Private FastAPI judge"]
+    GEMINI["Gemini API in AI mode"]
 
-## Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Client Layer (Browser)                   │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │  Next.js 16.3.0 Frontend (React 19 + TypeScript)        │   │
-│  │  ┌────────────────────────────────────────────────────┐ │   │
-│  │  │ Pages (App Router)                                 │ │   │
-│  │  │ - Home, About, Contact, FAQ, Profile, Privacy     │ │   │
-│  │  └────────────────────────────────────────────────────┘ │   │
-│  │  ┌────────────────────────────────────────────────────┐ │   │
-│  │  │ Core Components                                    │ │   │
-│  │  │ - DuelArena, VideoPanel, ScoreCard               │ │   │
-│  │  │ - SoloFaceJudge, UploadJudge, CelebrityDuelArena │ │   │
-│  │  │ - AnalyzingOverlay, Countdown, ChatBox           │ │   │
-│  │  └────────────────────────────────────────────────────┘ │   │
-│  │  ┌────────────────────────────────────────────────────┐ │   │
-│  │  │ Context Providers                                  │ │   │
-│  │  │ - MediaPipeFaceContext, UserProfileContext        │ │   │
-│  │  │ - PlayerNameContext, CountryContext, ThemeContext │ │   │
-│  │  │ - RevenueCatContext (payment integration)         │ │   │
-│  │  └────────────────────────────────────────────────────┘ │   │
-│  │  ┌────────────────────────────────────────────────────┐ │   │
-│  │  │ Custom Hooks                                       │ │   │
-│  │  │ - useExpressionScorer (face scoring algorithm)    │ │   │
-│  │  └────────────────────────────────────────────────────┘ │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│         │ HTTP/WS         │ WebRTC P2P      │ HTTP              │
-└─────────┼─────────────────┼─────────────────┼───────────────────┘
-          │                 │                 │
-          ▼                 │                 ▼
-┌─────────────────────┐     │      ┌─────────────────────┐
-│  Signaling Server   │     │      │   AI Judge Service  │
-│  (Node.js/Express)  │     │      │   (Python/FastAPI)  │
-│  Port: 3001         │     │      │   Port: 8000        │
-│  ┌───────────────┐  │     │      │  ┌───────────────┐  │
-│  │ Socket.io Hub │  │     │      │  │ Gemini Vision │  │
-│  │ - Matchmaking │  │     │      │  │ Fashion Judge │  │
-│  │ - Queue Mgmt  │  │     │      │  │ - AI Mode     │  │
-│  │ - ELO Calc    │  │     │      │  │ - Random Mode │  │
-│  │ - Auth Routes │  │     │      │  └───────────────┘  │
-│  │ - User API    │  │     │      │  ┌───────────────┐  │
-│  │ - Celebrity   │  │     │      │  │ Endpoints:    │  │
-│  │   Features    │  │     │      │  │ - /health     │  │
-│  └───────────────┘  │     │      │  │ - /judge      │  │
-│                     │     │      │  └───────────────┘  │
-└──────────┬──────────┘     │      └─────────────────────┘
-           │                │
-           ▼                │
-┌─────────────────────────────────┐
-│     PostgreSQL Database         │
-│  ┌──────────────────────────┐   │
-│  │ Tables:                  │   │
-│  │ - users                  │   │
-│  │ - sessions               │   │
-│  │ - matches                │   │
-│  │ - celebrity_faces        │   │
-│  │ - moderation_reports     │   │
-│  └──────────────────────────┘   │
-└─────────────────────────────────┘
-
-        WebRTC P2P Connection (via PeerJS)
-┌──────────┐                 ┌──────────┐
-│ Client A │◄───────────────►│ Client B │
-│ (Browser)│    Direct Video │ (Browser)│
-└──────────┘    + Audio      └──────────┘
+    WEB -->|"HTML, JS, CSS, assets"| A
+    WEB -->|"HTML, JS, CSS, assets"| B
+    A <-->|"HTTP + game events"| SIGNAL
+    B <-->|"HTTP + game events"| SIGNAL
+    A <-->|"PeerJS negotiation"| PEER
+    B <-->|"PeerJS negotiation"| PEER
+    A <-->|"WebRTC video/audio; optional TURN relay"| B
+    SIGNAL --> PG
+    A -->|"Own name profile"| PROFILE
+    B -->|"Own name profile"| PROFILE
+    SIGNAL -->|"Create checkout"| DODO
+    DODO -->|"Signed webhook"| SIGNAL
+    SIGNAL -->|"Authenticated image proxy"| JUDGE
+    JUDGE --> GEMINI
 ```
 
----
+The Express service handles game signaling but does **not** host PeerJS. The hooks construct `new Peer(...)` without a custom PeerJS host, using public STUN servers and an optional configured TURN server. Socket.IO carries control, chat, scores, and FaceSync vectors rather than video.
 
-## Technology Stack
+Supabase name profiles and signaling identities are separate. They may use the same database provider, but the code does not map Supabase `auth.users` IDs to signaling `users.id` values.
 
-### Frontend
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| **Next.js** | 16.3.0 | React framework with App Router |
-| **React** | 19.2.4 | UI component library |
-| **TypeScript** | ^5 | Type-safe JavaScript |
-| **Tailwind CSS** | ^4 | Utility-first styling |
-| **Framer Motion** | 12.40.0 | Animation library |
-| **Socket.io Client** | 4.8.3 | WebSocket client for real-time communication |
-| **PeerJS** | 1.5.5 | WebRTC wrapper for P2P video |
-| **MediaPipe Tasks Vision** | 0.10.35 | Face detection & landmark tracking |
-| **react-webcam** | 7.2.0 | Webcam access component |
-| **html-to-image** | 1.11.13 | Screenshot generation for sharing |
-| **Lenis** | 1.3.25 | Smooth scroll library |
-| **RevenueCat Purchases JS** | 1.47.3 | Payment & subscription management |
+## Repository and stack
 
-### Backend (Signaling Server)
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| **Node.js** | >=18 | Runtime environment |
-| **Express** | 4.22.2 | HTTP server framework |
-| **Socket.io** | 4.8.3 | WebSocket server for matchmaking |
-| **pg** | 8.21.0 | PostgreSQL client (raw SQL) |
-| **dotenv** | 17.4.2 | Environment variable management |
-| **cors** | 2.8.5 | Cross-origin resource sharing |
-| **cookie-parser** | 1.4.7 | Cookie parsing middleware |
-| **express-rate-limit** | 7.5.0 | API rate limiting |
-| **nodemon** | 3.0.2 | Development server with auto-reload |
-
-### AI Judge Service
-| Technology | Version | Purpose |
-|------------|---------|---------|
-| **Python** | 3.x | Runtime |
-| **FastAPI** | 0.141.1 | Modern async web framework |
-| **Uvicorn** | 0.52.1 | ASGI server |
-| **Pydantic** | 2.13.4 | Data validation |
-| **google-generativeai** | 0.8.6 | Google Gemini API SDK |
-| **python-dotenv** | 1.2.2 | Environment variable management |
-| **Pillow** | 12.3.0 | Image processing |
-
----
-
-## Core Components
-
-### 1. Frontend Structure
-
-#### Pages (Next.js App Router)
-```
-app/
-├── page.tsx                 # Home/Landing page with mode selection
-├── about/page.tsx          # About page
-├── contact/page.tsx        # Contact form
-├── faq/page.tsx            # Frequently asked questions
-├── privacy/page.tsx        # Privacy policy
-├── terms/page.tsx          # Terms of service
-├── refund/page.tsx         # Refund policy
-├── how-it-works/page.tsx   # Tutorial page
-├── history/page.tsx        # Match history (future)
-└── verify-scorecard/       # Scorecard verification
+```text
+Emoggle-main/
+  index.js                       Delegates to signaling-server/index.js
+  frontend/                      Next.js App Router application
+    app/components/              Landing, arenas, video, chat, results
+    app/context/                 Theme, session, name, country, MediaPipe
+    app/hooks/                   Camera, matchmaking, scoring, timing
+    app/lib/                     Storage, profiles, algorithms, site facts
+    app/ui/                      UI primitives and SVG icons
+    components/ui/               Reusable text animations
+    scripts/                     Unit-style and browser verification
+    public/                      MediaPipe WASM, artwork, theme boot script
+  signaling-server/              Express, Socket.IO, raw PostgreSQL queries
+    middleware/                  Session authentication
+    routes/                      Celebrity catalogue
+    test/                        Unit and multiplayer tests
+    prisma/                      Historical schema/migration files
+  ai-judge/                      FastAPI photo judge and tests
+  supabase/migrations/           Display-name table and RLS
+  marketing-video/               Independent Remotion video and audio
+  graphify-out/                  Generated code graphs and caches
+  .github/                      Security CI and Dependabot
 ```
 
-#### Core Components
-```
-app/components/
-├── AnalyzingOverlay.tsx      # AI fashion analysis loading animation
-├── CelebrityDuelArena.tsx    # Celebrity mimicry game arena
-├── ChatBox.tsx               # In-game real-time chat
-├── ChooseGameMode.tsx        # Game mode picker modal
-├── Countdown.tsx             # Pre-match countdown (3-2-1)
-├── DuelArena.tsx             # Main 1v1 live face duel arena
-├── Footer.tsx                # Site-wide footer navigation
-├── HomeExperience.tsx        # Landing page main section
-├── InfoPageShell.tsx         # Reusable info page layout
-├── ModeSelect.tsx            # Game mode selection screen
-├── NameEntryModal.tsx        # Username entry modal
-├── ScoreCard.tsx             # Post-match results display
-├── SmoothScroll.tsx          # Lenis smooth scroll wrapper
-├── SoloFaceJudge.tsx         # Solo practice mode
-├── UploadJudge.tsx           # Fashion photo upload & AI judge
-├── VideoPanel.tsx            # WebRTC video display panel
-│
-├── home/
-│   ├── EmojiMotion.tsx       # Animated emoji display
-│   └── HeadlineMotion.tsx    # Animated headline text
-│
-└── result/
-    ├── analytics.ts          # Match analytics utilities
-    ├── index.ts              # Result exports
-    ├── ResultScreen.tsx      # Main result screen component
-    ├── SarcasticMessageGenerator.ts  # Funny result messages
-    ├── ShareButton.tsx       # Social share button
-    ├── ShareScoreCard.tsx    # Scorecard image generator
-    ├── ShareScoreCardPortal.tsx  # Portal for rendering scorecard
-    └── useShareScorecard.ts  # Hook for sharing logic
+These are **manifest versions**, not claims about the latest releases:
+
+| Area | Main dependencies |
+| --- | --- |
+| Frontend | Next.js **16.3.5**, React **19.2.4**, TypeScript `^5`, Tailwind `^4`, Framer Motion, MediaPipe Tasks Vision, PeerJS, Socket.IO client, Supabase JS, html-to-image. |
+| Signaling | Node **>=18**, Express 4, Socket.IO 4, `pg`, dotenv, cookie-parser, express-rate-limit, Dodo Payments. CI uses Node 22. |
+| Judge | FastAPI 0.141.1, Uvicorn 0.52.1, Pydantic 2.13.4, google-generativeai 0.8.6, Pillow 12.3.0. CI uses Python 3.12. |
+| Video | Remotion **4.0.529**, React **19.1.0**, TypeScript **5.8.3**; Python/NumPy for sound generation. |
+
+Prisma is not the active database client. `db.js` uses parameterized SQL through `pg`. Lenis remains a dependency, but the current `SmoothScroll` uses native scrolling with a no-op controller.
+
+## Frontend composition
+
+`app/layout.tsx` is the server layout: metadata, fonts, request nonce, theme boot script, `SmoothScroll`, and `ThemeProvider`. `app/template.tsx` is a simple server route wrapper. `app/page.tsx` renders landing content, JSON-LD, and the doodle backdrop. Its client entry point is `HomeExperience.tsx`:
+
+```text
+UserProfileProvider
+  PlayerNameProvider
+    CountryProvider
+      MotionConfig
+        HomeContent
+          home -> ModeSelect
+          game -> MediaPipeFaceProvider -> selected arena
 ```
 
-#### Context Providers
-```
-app/context/
-├── CountryContext.tsx          # User geolocation state
-├── MediaPipeFaceContext.tsx    # MediaPipe initialization & face detection
-├── PlayerNameContext.tsx       # Player username management
-├── RevenueCatContext.tsx       # Payment & subscription state
-├── ThemeContext.tsx            # Light/dark theme toggle
-└── UserProfileContext.tsx      # User profile & ELO management
-```
+Games are client-state views on `/`, not separate routes. Arenas, mode picker, and name gate use dynamic imports. Entering a game resets scroll position; returning home restores the previous position.
 
-#### Custom Hooks
-```
-app/hooks/
-└── useExpressionScorer.ts      # Face landmark scoring algorithm
-```
+Visitors can browse the homepage and informational routes without entering a name. "Play now" opens the mode picker; selecting a game opens name entry only if no saved name exists. A valid saved name starts that selected game. Cancelling name entry abandons the game choice and returns to browsing. Support remains available independently of name entry.
 
-#### Utilities
-```
-app/lib/
-├── emojis.ts                   # Emoji list for random selection
-├── socket.ts                   # Socket.io client singleton
-└── utils.ts                    # Helper functions
-```
+MediaPipe initializes for game views through a shared promise. It creates a GPU FaceLandmarker in video mode with one face and blendshapes. WASM is bundled under `/mediapipe/wasm`; the model comes from Google's model storage using a `latest` URL.
 
----
+`globals.css` provides Tailwind, light/dark tokens, responsive styles, and deferred rendering of lower homepage sections. `useCoveredView` uses a reference-counted `data-covered` attribute to hide the page backdrop while an arena or picker covers it. Motion components honor reduced-motion preferences.
 
-### 2. Signaling Server Components
+## Identity and state
 
-#### Main Entry Point
-- **`index.js`** - Express + Socket.io server
-  - CORS configuration for frontend origins
-  - WebSocket event handlers
-  - Matchmaking queue management
-  - Active match state tracking
-  - ELO calculation system
-  - Celebrity feature routes
+### Signaling session
 
-#### Database Layer
-- **`db.js`** - PostgreSQL connection pool
-  - Raw SQL queries using `pg` library
-  - Connection pooling (max 20 connections)
-  - Fallback to in-memory mode if database unavailable
-  - Schema initialization utilities
+1. `UserProfileProvider` gets a device UUID from localStorage.
+2. When `NEXT_PUBLIC_SIGNALING_SERVER_URL` is set, it calls `POST /api/session`, passing the tab's existing bearer token when available.
+3. The server returns `{ id, elo, isVIP, deviceId, socketToken }`.
+4. The token lives in sessionStorage under `emoggle:tab-session-token:v2`. BroadcastChannel coordination checks whether a duplicated tab copied another active tab's token.
+5. `useMatchmaking` sends the token in Socket.IO `auth.token`. The server derives user identity from it and permits one live socket per signaling user.
 
-#### Routing
-```
-routes/
-└── (Future expansion for modular routing)
-```
+Database tokens are random 32-byte values encoded as 64 hex characters; only SHA-256 hashes are persisted. Database sessions expire after seven days and are swept hourly. HTTP verification can also use the `emoggle_session` cookie, but bootstrap resumes only from an explicit bearer so separate tabs obtain separate users.
 
-#### Key In-Memory State
-```javascript
-const waitingQueue = [];              // Matchmaking queue [{socketId, peerId, ...}]
-const socketMeta = new Map();         // Socket metadata (userId, peerId, elo, gender, etc.)
-const activeMatches = new Map();      // Active match state {matchId: {...}}
-const memoryVipUsers = new Set();     // VIP user cache for quick lookups
-```
+The database-less fallback stores raw tokens and users in process-local Maps. It currently lacks the database path's expiry/revocation behavior. Local multiplayer can run with this fallback, while production celebrity and FaceSync match creation reject persistence failure. Fallback `/ready` returns 503.
 
----
+### Name profile and other local data
 
-### 3. AI Judge Service
+Saving a name validates it, updates localStorage immediately, marks it pending, and lazily writes through the Supabase profile service when configured. That service reuses an existing session or signs in anonymously. `public.profiles` has own-row select/insert/update RLS and a database timestamp trigger.
 
-#### Entry Point
-- **`main.py`** - FastAPI application
-  - `/health` - Health check endpoint
-  - `/judge` - Fashion critique endpoint (accepts base64 image)
+**Current behavior:** `PlayerNameProvider` hydrates from localStorage only. It does not read the remote profile or automatically replay pending writes at startup, despite older comments saying otherwise. `retrySync()` exists but has no current UI consumer. The Supabase client accepts publishable or legacy anon keys, whereas the provider's configuration check requires the publishable-key variable. OAuth helpers exist but are not called by the current UI.
 
-#### Operational Modes
+`storage.ts` caps duel and solo history at 50 entries each, migrates older keys, deduplicates duel entries by match ID, and calculates aggregate stats. `/history` reads this local history rather than a server API. Country data has a 24-hour cache; the current provider reads it on mount and only performs network detection after `refresh()`, which has no current UI caller. Theme uses `emoggle:theme` and defaults to light.
 
-**1. Random Mode** (`JUDGE_MODE=random`)
-- Fallback mode without API key
-- Generates random scores (1.0-10.0)
-- Generic feedback messages
-- 3-6 second simulated processing delay
-- Perfect for development/testing
+## Matchmaking and rounds
 
-**2. AI Mode** (`JUDGE_MODE=ai`)
-- Requires `GEMINI_API_KEY`
-- Uses Google Gemini Vision API (gemini-1.5-flash)
-- Real outfit analysis from webcam/photo
-- Item-by-item critique (shirt, pants, shoes, accessories)
-- Returns: score, verdict (Drip/Drown), roast message, detailed items
+All multiplayer arenas use **`useMatchmaking.ts`**, including celebrity mode. `useCelebrityMatchmaking.ts` remains an unused alternate implementation.
 
----
+### Pairing
 
-## Data Flow
+PeerJS and Socket.IO initialize in parallel after a token is ready. Once both the peer ID and socket are available, the browser emits:
 
-### 1. User Onboarding Flow
-
-```
-┌──────────┐
-│  Client  │
-└─────┬────┘
-      │ 1. First visit (no userId in localStorage)
-      ├──► Display NameEntryModal
-      │
-      │ 2. Submit: { username, age, verified_gender }
-      ├──► POST /api/users/onboard
-      │
-      ▼
-┌─────────────────┐
-│ Signaling Server│
-└────────┬────────┘
-         │ 3. INSERT INTO users (id, username, age, verified_gender, elo=1000)
-         ├──► PostgreSQL
-         │
-         │ 4. Return { id: UUID, username, elo, isVIP, freeGenderMatchesLeft }
-         ├──► Client stores userId in localStorage
-         │
-         ▼
-      User profile created, can join matchmaking
-```
-
----
-
-### 2. Matchmaking Flow
-
-```
-Client A                    Signaling Server                    Client B
-   │                               │                               │
-   │ 1. Connect Socket.io          │                               │
-   ├──────────────────────────────►│                               │
-   │   socket.connect()            │◄──────────────────────────────┤
-   │                               │ socket.connect()              │
-   │                               │                               │
-   │ 2. emit('join_queue')         │                               │
-   ├──────────────────────────────►│                               │
-   │   {                           │◄──────────────────────────────┤
-   │     peerId,                   │ emit('join_queue')            │
-   │     country,                  │   { peerId, country, ... }    │
-   │     username,                 │                               │
-   │     gender,                   │                               │
-   │     seeking,  // 'Any', 'Male', 'Female'                     │
-   │     profile: { elo, ... },    │                               │
-   │     userId                    │                               │
-   │   }                           │                               │
-   │                               │                               │
-   │◄──────────────────────────────┤                               │
-   │ emit('waiting')               │──────────────────────────────►│
-   │                               │    emit('waiting')            │
-   │                               │                               │
-   │                               │ 3. Match found!               │
-   │                               │   - Check gender preferences  │
-   │                               │   - Check ELO proximity       │
-   │                               │   - Remove from queue         │
-   │                               │   - Create match in database  │
-   │                               │   - Generate matchId          │
-   │                               │                               │
-   │◄──────────────────────────────┤                               │
-   │ emit('match_started')         │──────────────────────────────►│
-   │   {                           │    emit('match_started')      │
-   │     matchId,                  │      { matchId, ... }         │
-   │     partnerPeerId,            │                               │
-   │     partnerUsername,          │                               │
-   │     emoji,                    │                               │
-   │     duration: 10000           │                               │
-   │   }                           │                               │
-   │                               │                               │
-   │◄──────────────────────────────┼──────────────────────────────►│
-   │         4. WebRTC P2P Connection Established (via PeerJS)     │
-   │            - Video stream exchange                            │
-   │            - Audio stream exchange                            │
-   │                                                               │
-```
-
----
-
-### 3. Live Face Duel Flow
-
-```
-┌───────────────────────────────────────────────────┐
-│ 1. Match Started                                  │
-│    - Both clients receive 'match_started' event   │
-│    - matchId, partnerPeerId, emoji assigned       │
-└───────────────────┬───────────────────────────────┘
-                    │
-                    ▼
-┌───────────────────────────────────────────────────┐
-│ 2. 3-Second Countdown (server-controlled)         │
-│    - Server emits 'countdown_tick': 3, 2, 1       │
-│    - Countdown component displays timer           │
-└───────────────────┬───────────────────────────────┘
-                    │
-                    ▼
-┌───────────────────────────────────────────────────┐
-│ 3. Emoji Revealed                                 │
-│    - Both clients display the target emoji        │
-│    - Example: 😂 (laughing face)                  │
-└───────────────────┬───────────────────────────────┘
-                    │
-                    ▼
-┌───────────────────────────────────────────────────┐
-│ 4. 10-Second Scan Phase (client-controlled)       │
-│                                                   │
-│    Every frame (60 FPS):                          │
-│    a) MediaPipe detects face landmarks (478 pts)  │
-│    b) useExpressionScorer calculates score (0-10) │
-│       - Mouth width/height ratio                  │
-│       - Eye openness (aspect ratio)               │
-│       - Eyebrow raise distance                    │
-│    c) Track peak score in state                   │
-│    d) Display real-time score on UI               │
-│                                                   │
-│    Optional: Emit score updates via Socket.io     │
-│    - socket.emit('score_update', { score })       │
-└───────────────────┬───────────────────────────────┘
-                    │
-                    ▼
-┌───────────────────────────────────────────────────┐
-│ 5. Submit Scores                                  │
-│    - Client A: emit('submit_score', { matchId,    │
-│                  score: 8.5 })                    │
-│    - Client B: emit('submit_score', { matchId,    │
-│                  score: 7.2 })                    │
-└───────────────────┬───────────────────────────────┘
-                    │
-                    ▼
-┌───────────────────────────────────────────────────┐
-│ 6. Server Finalizes Match                         │
-│    - Determine winner (higher score wins)         │
-│    - Calculate ELO changes (K-factor: 32)         │
-│    - Update database:                             │
-│      UPDATE matches SET                           │
-│        player1_score = 8.5,                       │
-│        player2_score = 7.2,                       │
-│        winner_id = player1_id,                    │
-│        status = 'COMPLETED',                      │
-│        completed_at = NOW()                       │
-│      UPDATE users SET                             │
-│        elo = new_elo                              │
-│        WHERE id IN (player1_id, player2_id)       │
-└───────────────────┬───────────────────────────────┘
-                    │
-                    ▼
-┌───────────────────────────────────────────────────┐
-│ 7. Results Broadcast                              │
-│    - emit('match_result') to both clients         │
-│    - Payload: {                                   │
-│        winner: 'player1',                         │
-│        player1: { score, elo, eloChange },        │
-│        player2: { score, elo, eloChange }         │
-│      }                                            │
-│    - Display ResultScreen with ScoreCard          │
-│    - Show ELO changes (+15 / -15)                 │
-│    - Generate shareable scorecard image           │
-└───────────────────────────────────────────────────┘
-```
-
----
-
-### 4. Fashion Judge Flow
-
-```
-┌──────────┐
-│  Client  │
-└─────┬────┘
-      │ 1. User uploads photo or uses webcam
-      ├──► Capture image (react-webcam or file input)
-      │
-      │ 2. Convert to base64
-      ├──► const base64 = canvas.toDataURL('image/jpeg', 0.8)
-      │
-      │ 3. POST /judge
-      ├──────────────────────────►
-      │   { image: "data:image/jpeg;base64,..." }
-      │
-      ▼
-┌─────────────────┐
-│   AI Judge      │
-│   (FastAPI)     │
-└────────┬────────┘
-         │ 4. Mode: random or ai
-         │
-         ├─ If JUDGE_MODE=random:
-         │  - Generate random score (1.0-10.0)
-         │  - Random verdict ("Drip" or "Drown")
-         │  - Generic roast message
-         │  - Sleep 3-6 seconds (simulate processing)
-         │
-         ├─ If JUDGE_MODE=ai:
-         │  - Decode base64 image
-         │  - Send to Gemini Vision API
-         │  - Prompt: "Rate this outfit from 1-10..."
-         │  - Parse response JSON
-         │  - Extract score, verdict, roast, items
-         │
-         │ 5. Return response
-         ├──────────────────────────►
-         │   {
-         │     score: 7.5,
-         │     verdict: "Drip",
-         │     roast: "Clean lines, confident energy.",
-         │     items: [
-         │       { name: "shirt", status: "Drip", reason: "..." },
-         │       { name: "pants", status: "Drown", reason: "..." }
-         │     ]
-         │   }
-         │
-         ▼
-      Display results with animations
-```
-
----
-
-## Database Schema
-
-### Tables
-
-#### 1. users
-Stores user profiles, authentication, and game statistics.
-
-```sql
-CREATE TABLE users (
-  id                UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
-  socket_id         VARCHAR       UNIQUE,
-  username          VARCHAR       DEFAULT 'anonymous',
-  age               INT,
-  verified_gender   VARCHAR,       -- 'Male', 'Female', 'Other'
-  elo               INT           DEFAULT 1000,
-  is_vip            BOOLEAN       DEFAULT false,
-  free_matches_left INT           DEFAULT 5,
-  created_at        TIMESTAMP     DEFAULT NOW(),
-
-  -- Auth fields
-  email             VARCHAR       UNIQUE,
-  password_hash     VARCHAR,       -- bcrypt hash
-  auth_provider     VARCHAR       DEFAULT 'local',  -- 'local', 'google'
-  google_id         VARCHAR       UNIQUE,
-  login_count       INT           DEFAULT 0,
-  last_login_at     TIMESTAMP,
-  vip_expires_at    TIMESTAMPTZ,
-  revenuecat_event_at TIMESTAMPTZ
-);
-```
-
-**Key Fields:**
-- `elo`: Rating for matchmaking (starts at 1000)
-- `is_vip`: VIP status (enables gender filtering)
-- `free_matches_left`: Free gender-filtered matches for non-VIP users
-- `auth_provider`: 'local' (email/password) or 'google' (OAuth)
-
----
-
-#### 2. sessions
-Session tokens for authentication (JWT alternative with database storage).
-
-```sql
-CREATE TABLE sessions (
-  token       VARCHAR(64) PRIMARY KEY,      -- SHA-256 hash
-  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at  TIMESTAMP DEFAULT NOW(),
-  expires_at  TIMESTAMP DEFAULT (NOW() + INTERVAL '7 days')
-);
-```
-
-**Security:**
-- Tokens stored as SHA-256 hashes
-- 7-day expiry (configurable)
-- Cascade delete on user deletion
-
----
-
-#### 3. matches
-Records of all completed matches.
-
-```sql
-CREATE TABLE matches (
-  id             UUID      PRIMARY KEY DEFAULT gen_random_uuid(),
-  player1_id     UUID      REFERENCES users(id),
-  player2_id     UUID      REFERENCES users(id),
-  current_emoji  VARCHAR,
-  player1_score  FLOAT,
-  player2_score  FLOAT,
-  winner_id      UUID,
-  status         VARCHAR   DEFAULT 'ACTIVE',  -- 'ACTIVE', 'COMPLETED', 'ABANDONED'
-  created_at     TIMESTAMP DEFAULT NOW(),
-  completed_at   TIMESTAMP
-);
-```
-
-**Purpose:**
-- Match history and analytics
-- ELO calculation verification
-- Dispute resolution
-
----
-
-#### 4. celebrity_faces
-Database of celebrity faces for mimicry mode.
-
-```sql
-CREATE TABLE celebrity_faces (
-  id                SERIAL PRIMARY KEY,
-  name              VARCHAR(255) NOT NULL,
-  category          VARCHAR(50) NOT NULL CHECK (category IN ('meme', 'celebrity', 'character')),
-  image_url         TEXT NOT NULL,
-  difficulty        VARCHAR(20) NOT NULL DEFAULT 'medium' CHECK (difficulty IN ('easy', 'medium', 'hard')),
-  facial_landmarks  JSONB,          -- Pre-computed MediaPipe landmarks
-  usage_count       INTEGER NOT NULL DEFAULT 0 CHECK (usage_count >= 0),
-  created_at        TIMESTAMP DEFAULT NOW()
-);
-```
-
-**Categories:**
-- `meme`: Viral meme faces (Doge, Drake, etc.)
-- `celebrity`: Famous people
-- `character`: Fictional characters
-
----
-
-#### 5. moderation_reports
-User-reported inappropriate behavior.
-
-```sql
-CREATE TABLE moderation_reports (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  match_id          UUID NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
-  reporter_user_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  reported_user_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  reason            VARCHAR(64) NOT NULL DEFAULT 'unspecified',
-  created_at        TIMESTAMP DEFAULT NOW(),
-  UNIQUE (match_id, reporter_user_id)  -- One report per match per user
-);
-```
-
----
-
-### Indexes
-
-```sql
--- Users
-CREATE INDEX idx_users_socket_id ON users(socket_id);
-CREATE INDEX idx_users_elo ON users(elo);
-
--- Matches
-CREATE INDEX idx_matches_status ON matches(status);
-CREATE INDEX idx_matches_player1_id ON matches(player1_id);
-CREATE INDEX idx_matches_player2_id ON matches(player2_id);
-
--- Sessions
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
-CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
-
--- Moderation
-CREATE INDEX idx_moderation_reports_reported_user ON moderation_reports(reported_user_id);
-
--- Celebrity Faces
-CREATE INDEX idx_celebrity_faces_category ON celebrity_faces(category);
-CREATE INDEX idx_celebrity_faces_difficulty ON celebrity_faces(difficulty);
-CREATE INDEX idx_celebrity_faces_usage ON celebrity_faces(usage_count);
-```
-
----
-
-## API Endpoints
-
-### Signaling Server (Port 3001)
-
-#### User Management
-
-**POST /api/users/onboard**
-Create new user profile during first visit.
-
-Request:
 ```json
 {
-  "username": "string",
-  "age": 25,
-  "verified_gender": "Male" | "Female" | "Other"
+  "peerId": "browser-peer-id",
+  "name": "Player",
+  "country": null,
+  "countryCode": null,
+  "gameMode": "emoji",
+  "ticket": null
 }
 ```
 
-Response:
-```json
-{
-  "id": "uuid",
-  "username": "string",
-  "elo": 1000,
-  "isVIP": false,
-  "freeGenderMatchesLeft": 5
-}
+The server validates fields, refreshes the authenticated user, and records socket metadata. Queue selection prefers a connected same-mode player who is available and not excluded by a recent skip. **The queue does not filter by ELO, gender, or country.**
+
+If only a different-mode player is waiting, the new arrival receives `switch_mode` and a transfer ticket. `HomeExperience` changes arenas; the replacement socket joins with the same session and ticket. Tickets expire after ten seconds. Both players must have the same mode before pairing.
+
+### Expression rounds
+
+```mermaid
+sequenceDiagram
+    participant A as Browser A
+    participant S as Signaling server
+    participant B as Browser B
+    A->>S: join_queue
+    B->>S: join_queue
+    S-->>A: match_started with peer role and schedule
+    S-->>B: match_started with peer role and schedule
+    A->>B: PeerJS/WebRTC call and camera stream
+    B->>A: Answer with camera stream
+    Note over A,B: Emoji has a FaceSync lead-in; celebrity skips it
+    S-->>A: countdown_tick then go
+    S-->>B: countdown_tick then go
+    A->>S: live_score during ten-second scan
+    B->>S: live_score during ten-second scan
+    A->>S: submit_score
+    B->>S: submit_score
+    S->>S: Finalize once and persist when available
+    S-->>A: Player-relative match_result
+    S-->>B: Player-relative match_result
+    S->>S: Release room, timers, and match indexes
 ```
 
----
-
-**GET /api/users/me?id={userId}**
-Fetch user profile by ID.
+The server publishes absolute timestamps and controls a three-second countdown. `ServerClock` estimates offset from low-RTT `time_sync` acknowledgements. The first zero-count/go packet anchors a full ten-second local scan. Predictions include 1.5 seconds of slack until go arrives. `useRoundClock` evaluates deadlines every 100 ms and on visibility changes, rather than counting interval ticks.
 
-Response:
-```json
-{
-  "id": "uuid",
-  "username": "string",
-  "elo": 1000,
-  "verified_gender": "Male",
-  "is_vip": false,
-  "free_matches_left": 5,
-  "created_at": "2026-08-30T12:00:00Z"
-}
-```
-
----
-
-#### Premium/VIP Status
-
-**GET /api/premium/status?username={name}&userId={id}**
-Check VIP status for a user.
-
-Response:
-```json
-{
-  "username": "string",
-  "isVIP": true,
-  "vipExpiresAt": "2026-12-31T23:59:59Z"
-}
-```
-
----
-
-#### Geolocation
-
-**GET /api/geo**
-Detect user's country from IP address.
-
-Response:
-```json
-{
-  "ip": "1.2.3.4",
-  "countryCode": "US",
-  "country": "🇺🇸 United States",
-  "source": "header" | "geoip"
-}
-```
-
-Uses:
-1. `CF-IPCountry` header (Cloudflare)
-2. `X-Vercel-IP-Country` header (Vercel)
-3. `geoip-lite` library fallback
-
----
-
-#### Authentication (Future)
-
-**POST /api/auth/register**
-Email/password registration.
-
-**POST /api/auth/login**
-Email/password login.
-
-**POST /api/auth/google**
-Google OAuth login.
-
-**POST /api/auth/logout**
-User logout (invalidate session).
-
-**GET /api/auth/me**
-Get current authenticated user (JWT).
-
----
-
-### AI Judge Service (Port 8000)
-
-**GET /health**
-Health check endpoint.
-
-Response:
-```json
-{
-  "status": "ok",
-  "mode": "random" | "ai"
-}
-```
-
----
-
-**POST /judge**
-Analyze outfit from photo.
-
-Request:
-```json
-{
-  "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
-}
-```
-
-Response:
-```json
-{
-  "score": 7.5,
-  "verdict": "Drip" | "Drown",
-  "roast": "Clean lines, confident energy, zero cringe.",
-  "items": [
-    {
-      "name": "shirt",
-      "status": "Drip",
-      "reason": "Color palette immaculate"
-    },
-    {
-      "name": "pants",
-      "status": "Drown",
-      "reason": "Baggy fit clashes with aesthetic"
-    }
-  ]
-}
-```
-
-**Score Ranges:**
-- 8.0-10.0: "Drip" (Good outfit)
-- 1.0-7.9: "Drown" (Needs improvement)
-
----
-
-## Real-Time Communication
-
-### Socket.io Events
-
-#### Client → Server
-
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `join_queue` | `{ peerId, country, username, gender, seeking, profile, userId }` | Enter matchmaking queue |
-| `leave_queue` | - | Exit matchmaking queue |
-| `submit_score` | `{ matchId, score }` | Submit expression score after scan |
-| `skip_partner` | - | Skip current match and re-queue |
-| `signal` | `{ target, signal }` | WebRTC signaling (STUN/TURN) |
-| `chat_message` | `{ message }` | Send chat message to partner |
-| `typing` | `{ isTyping }` | Send typing indicator |
-| `disconnect` | - | User disconnected |
-
----
-
-#### Server → Client
-
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `waiting` | - | In matchmaking queue (waiting for opponent) |
-| `match_started` | `{ matchId, partnerPeerId, partnerUsername, emoji, duration }` | Match found, game starting |
-| `countdown_tick` | `{ count }` | Pre-game countdown: 3, 2, 1 |
-| `match_result` | `{ winner, player1, player2, elo }` | Match finished, show results |
-| `partner_skipped` | - | Partner skipped the match |
-| `opponent_disconnected` | - | Partner disconnected |
-| `usage_update` | `{ isVIP, freeGenderMatchesLeft }` | Credit/usage update |
-| `trigger_paywall` | `{ free_matches_left }` | Show payment modal |
-| `vip_status` | `{ username, isVIP }` | VIP status changed |
-| `chat_message` | `{ message, sender }` | Receive chat message |
-| `partner_typing` | `{ isTyping }` | Partner is typing |
-
----
-
-### WebRTC Connection (PeerJS)
-
-**Initialization:**
-```javascript
-const peer = new Peer(peerId, {
-  host: '0.peerjs.com',
-  port: 443,
-  secure: true,
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
-    ]
-  }
-});
-```
-
-**Caller (Client A):**
-```javascript
-const call = peer.call(partnerPeerId, localStream);
-call.on('stream', (remoteStream) => {
-  videoRef.current.srcObject = remoteStream;
-});
-```
-
-**Receiver (Client B):**
-```javascript
-peer.on('call', (call) => {
-  call.answer(localStream);
-  call.on('stream', (remoteStream) => {
-    videoRef.current.srcObject = remoteStream;
-  });
-});
-```
-
-**Benefits:**
-- Abstracts WebRTC complexity
-- Automatic STUN/TURN fallback
-- No server bandwidth usage (P2P)
-- Built-in signaling via PeerServer
-
----
-
-## Security & Authentication
-
-### Authentication Methods
-
-#### 1. Session-Based Authentication
-- **Session Storage:** PostgreSQL `sessions` table
-- **Token Format:** Random 32-byte string → SHA-256 hash
-- **Cookie:** HTTP-only, secure, SameSite=strict
-- **Expiry:** 7 days (configurable)
-
-#### 2. Google OAuth 2.0 (Future)
-- **Strategy:** Authorization code flow
-- **Scopes:** `profile`, `email`
-- **Provider:** Google Identity Platform
-- **Stored:** `google_id` in users table
-
----
-
-### Security Measures
-
-#### API Security
-- **CORS Whitelist:** Specific origins only
-  ```javascript
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'https://emoggle.vercel.app',
-    'https://emoggle.com',
-    'https://www.emoggle.com'
-  ];
-  ```
-- **Rate Limiting:** (Configured but not enforced yet)
-  ```javascript
-  const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,  // 15 minutes
-    max: 100  // 100 requests per window
-  });
-  ```
-- **Input Validation:** All user inputs sanitized
-- **SQL Injection Prevention:** Parameterized queries
-
-#### WebRTC Security
-- **Peer ID Obfuscation:** Random UUIDs (not user IDs)
-- **Media Encryption:** Mandatory DTLS-SRTP
-- **IP Privacy:** TURN relay servers prevent direct IP exposure
-- **No Recording:** All streams are ephemeral (not stored)
-
-#### Password Security
-- **Hashing:** bcrypt with automatic salt
-- **Rounds:** 10 (configurable)
-- **Never Logged:** Password hashes never appear in logs
-
----
-
-## Deployment Architecture
-
-### Production Environment
-
-```
-┌─────────────────────────────────────────────────┐
-│              Production Deployment              │
-├─────────────────────────────────────────────────┤
-│                                                 │
-│  Frontend:  Vercel                              │
-│  - Domain: emoggle.vercel.app                   │
-│  - Next.js SSR/SSG                              │
-│  - Edge Network CDN (global)                    │
-│  - Automatic HTTPS                              │
-│  - Preview deployments for PRs                  │
-│                                                 │
-│  Signaling Server:  Render / Railway            │
-│  - Node.js 18+ process                          │
-│  - WebSocket support (Socket.io)                │
-│  - Auto-scaling based on load                   │
-│  - Health checks (readiness probe)              │
-│                                                 │
-│  AI Judge:  Render / Railway                    │
-│  - Python 3.x + FastAPI                         │
-│  - Uvicorn ASGI server                          │
-│  - Gemini API integration                       │
-│                                                 │
-│  Database:  PostgreSQL                          │
-│  - Managed service (Render / Neon / Supabase)  │
-│  - Automatic backups (daily)                    │
-│  - Connection pooling (PgBouncer)               │
-│  - SSL/TLS required                             │
-│                                                 │
-└─────────────────────────────────────────────────┘
-```
-
----
-
-### Environment Variables
-
-#### Frontend (`.env.local`)
-```bash
-# API Endpoints
-NEXT_PUBLIC_SIGNALING_SERVER_URL=https://api.emoggle.com
-NEXT_PUBLIC_AI_JUDGE_URL=https://ai-judge.emoggle.com
-
-# PeerJS Configuration
-NEXT_PUBLIC_PEERJS_HOST=0.peerjs.com
-NEXT_PUBLIC_PEERJS_PORT=443
-NEXT_PUBLIC_PEERJS_PATH=/
-NEXT_PUBLIC_PEERJS_SECURE=true
-
-# RevenueCat (Payment)
-NEXT_PUBLIC_REVENUECAT_API_KEY=***
-```
-
-#### Signaling Server (`.env`)
-```bash
-# Database
-DATABASE_URL=postgresql://user:pass@host:5432/emoggle
-
-# Security
-JWT_SECRET=***
-COOKIE_SECRET=***
-
-# CORS
-FRONTEND_URL=https://emoggle.vercel.app
-
-# Environment
-NODE_ENV=production
-PORT=3001
-```
-
-#### AI Judge (`.env`)
-```bash
-# Google Gemini
-GEMINI_API_KEY=***
-GEMINI_MODEL=gemini-1.5-flash
-
-# Operation Mode
-JUDGE_MODE=ai  # or 'random' for testing
-
-# Server
-PORT=8000
-```
-
----
-
-## Performance Considerations
-
-### Frontend Optimization
-
-#### 1. Code Splitting
-```typescript
-// Dynamic imports for heavy components
-const MediaPipeFaceContext = dynamic(
-  () => import('./context/MediaPipeFaceContext'),
-  { ssr: false }  // Client-side only
-);
-
-// Route-based splitting (automatic with Next.js App Router)
-// Each page in app/ is a separate chunk
-```
-
-#### 2. Asset Optimization
-- **Images:** Next.js `<Image>` component (automatic WebP conversion)
-- **Fonts:** Preload critical fonts, swap for non-critical
-- **MediaPipe WASM:** Self-hosted in `/public/mediapipe/` (200KB cached)
-- **Video:** WebRTC streams (no server storage)
-
-#### 3. State Management
-- **Context API:** Minimal re-renders with proper memoization
-- **Local State:** Component-level where possible
-- **Memoization:** `useMemo`, `useCallback` for expensive operations
-  ```typescript
-  const expressionScore = useMemo(() => 
-    calculateExpressionScore(landmarks, targetEmoji),
-    [landmarks, targetEmoji]
-  );
-  ```
-
----
-
-### Backend Optimization
-
-#### 1. In-Memory Caching
-```javascript
-// O(1) lookups for real-time data
-const socketMeta = new Map();          // Socket → User mapping
-const activeMatches = new Map();       // Match state
-const memoryVipUsers = new Set();      // VIP cache
-```
-
-**Trade-off:** Lost on server restart (acceptable for MVP)
-
-#### 2. Database Connection Pooling
-```javascript
-const pool = new Pool({
-  max: 20,                             // Max connections
-  idleTimeoutMillis: 30000,            // 30s idle timeout
-  connectionTimeoutMillis: 2000,       // 2s connection timeout
-  ssl: process.env.NODE_ENV === 'production'
-});
-```
-
-#### 3. Fallback Mechanisms
-- **Database Unavailable:** In-memory matchmaking continues (graceful degradation)
-- **Payment Service Down:** Queue requests, process later
-- **AI Judge Failure:** Fallback to random scoring
-
----
-
-### Real-Time Performance
-
-#### Socket.io Configuration
-```javascript
-const io = new Server(server, {
-  pingTimeout: 60000,                  // 60s before disconnect
-  pingInterval: 25000,                 // Heartbeat every 25s
-  transports: ['websocket', 'polling'],// WebSocket preferred
-  cors: { origin: allowedOrigins }
-});
-```
-
-#### WebRTC Optimization
-- **Codec Preference:** VP8/VP9 (video), Opus (audio)
-- **Resolution:** 640x480 default (adjustable)
-- **Frame Rate:** 30fps (balance quality/bandwidth)
-- **Bandwidth Adaptation:** Automatic based on network conditions
-
----
-
-### Scalability Roadmap
-
-#### Current Limitations
-1. **Single Server:** No horizontal scaling
-2. **In-Memory State:** Lost on restart
-3. **No Redis:** Matchmaking queue not distributed
-4. **No Load Balancer:** Single point of failure
-
-#### Future Improvements
-1. **Redis Pub/Sub:** Distribute matchmaking across servers
-2. **Session Persistence:** Store active matches in Redis
-3. **Load Balancing:** Multiple signaling server instances with sticky sessions
-4. **Database Read Replicas:** Offload analytics queries
-5. **CDN for Static Assets:** CloudFlare/Vercel Edge Network
-6. **Monitoring:** Datadog, New Relic, or Prometheus + Grafana
-
----
-
-## Key Algorithms
-
-### 1. ELO Rating System
-
-**Formula:**
-```javascript
-function calculateEloShift(playerElo, opponentElo, outcome) {
-  const K = 32;  // K-factor (rating volatility)
-  
-  // Expected score: probability of winning (0-1)
-  const expected = 1 / (1 + Math.pow(10, (opponentElo - playerElo) / 400));
-  
-  // Actual outcome: 1 (win), 0.5 (draw), 0 (loss)
-  const delta = Math.round(K * (outcome - expected));
-  
-  return {
-    oldElo: playerElo,
-    newElo: playerElo + delta,
-    delta,
-    expected
-  };
-}
-```
-
-**ELO Tiers:**
-```javascript
-function tierForElo(elo) {
-  if (elo < 800)   return "🗿 Statue";
-  if (elo < 1200)  return "🌱 Novice";
-  if (elo < 1600)  return "🎭 Actor";
-  if (elo < 2000)  return "🎬 Pro";
-  return "🏆 Jim Carrey";
-}
-```
-
----
-
-### 2. Expression Scoring Algorithm
-
-**MediaPipe Face Mesh:** 478 3D facial landmarks
-
-**Scoring Logic:**
-```typescript
-function calculateExpressionScore(
-  landmarks: NormalizedLandmark[],
-  targetEmoji: string
-): number {
-  // 1. Extract facial metrics
-  const mouthWidth = distance(landmarks[61], landmarks[291]);
-  const mouthHeight = distance(landmarks[13], landmarks[14]);
-  const mouthRatio = mouthHeight / mouthWidth;
-  
-  const leftEye = eyeAspectRatio(landmarks, [33, 160, 158, 133, 153, 144]);
-  const rightEye = eyeAspectRatio(landmarks, [362, 385, 387, 263, 373, 380]);
-  const eyeOpenness = (leftEye + rightEye) / 2;
-  
-  const leftBrow = browHeight(landmarks, 70);
-  const rightBrow = browHeight(landmarks, 300);
-  const browRaise = (leftBrow + rightBrow) / 2;
-  
-  // 2. Match against emoji profile
-  const profile = EMOJI_PROFILES[targetEmoji];
-  
-  const mouthScore = compareToRange(mouthRatio, profile.mouthRange);
-  const eyeScore = compareToRange(eyeOpenness, profile.eyeRange);
-  const browScore = compareToRange(browRaise, profile.browRange);
-  
-  // 3. Weighted average (mouth most important)
-  const finalScore = (
-    mouthScore * 0.5 +
-    eyeScore * 0.3 +
-    browScore * 0.2
-  ) * 10;  // Scale to 0-10
-  
-  return Math.min(Math.max(finalScore, 0), 10);
-}
-```
-
-**Emoji Profiles Example:**
-```typescript
-const EMOJI_PROFILES = {
-  '😂': {
-    mouthRange: [0.4, 0.8],   // Wide open mouth
-    eyeRange: [0.1, 0.3],     // Squinted eyes
-    browRange: [0.6, 1.0]     // Raised eyebrows
-  },
-  '😐': {
-    mouthRange: [0.0, 0.1],   // Closed mouth
-    eyeRange: [0.4, 0.6],     // Normal eye opening
-    browRange: [0.4, 0.6]     // Neutral brows
-  }
-  // ... more emojis
-};
-```
-
----
-
-### 3. Matchmaking Algorithm
-
-```javascript
-function findMatch(currentUser, waitingQueue) {
-  // 1. Filter by gender preferences
-  const candidates = waitingQueue.filter(candidate => {
-    // Skip self
-    if (candidate.socketId === currentUser.socketId) return false;
-    
-    // Check mutual gender preferences
-    const currentSeeks = currentUser.seeking || 'Any';
-    const candidateSeeks = candidate.seeking || 'Any';
-    
-    if (currentSeeks !== 'Any' && candidateSeeks !== 'Any') {
-      // Both have preferences, must match
-      return (
-        currentUser.gender === candidateSeeks &&
-        candidate.gender === currentSeeks
-      );
-    } else if (currentSeeks !== 'Any') {
-      return candidate.gender === currentSeeks;
-    } else if (candidateSeeks !== 'Any') {
-      return currentUser.gender === candidateSeeks;
-    }
-    
-    return true;  // Both seeking 'Any'
-  });
-  
-  if (candidates.length === 0) return null;
-  
-  // 2. Prioritize by ELO proximity (±200 range preferred)
-  const closeMatches = candidates.filter(c => 
-    Math.abs(currentUser.elo - c.elo) <= 200
-  );
-  
-  if (closeMatches.length > 0) {
-    return closeMatches[0];  // FIFO within range
-  }
-  
-  // 3. Fallback: First available (FIFO)
-  return candidates[0];
-}
-```
-
-**Priorities:**
-1. Gender preferences (if VIP)
-2. ELO proximity (±200)
-3. FIFO (first in, first out)
-
----
-
-## Development Workflow
-
-### Local Setup
-
-#### Prerequisites
-- Node.js 18+
-- Python 3.8+
-- PostgreSQL 14+
-- npm or pnpm
-
-#### 1. Clone Repository
-```bash
-git clone https://github.com/your-org/emoggle.git
-cd emoggle
-```
-
-#### 2. Setup Database
-```bash
-# Option 1: Local PostgreSQL
-psql -U postgres -c "CREATE DATABASE emoggle;"
-psql -U postgres -d emoggle -f schema.sql
-
-# Option 2: Docker
-docker run -d \
-  --name emoggle-db \
-  -p 5432:5432 \
-  -e POSTGRES_PASSWORD=password \
-  -e POSTGRES_DB=emoggle \
-  postgres:14
-```
-
-#### 3. Start Signaling Server
-```bash
-cd signaling-server
-npm install
-cp .env.example .env
-# Edit .env with DATABASE_URL
-npm run dev  # Port 3001
-```
-
-#### 4. Start AI Judge
-```bash
-cd ai-judge
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with GEMINI_API_KEY (or use JUDGE_MODE=random)
-python main.py  # Port 8000
-```
-
-#### 5. Start Frontend
-```bash
-cd frontend
-npm install
-cp .env.example .env.local
-# Edit .env.local with API URLs
-npm run dev  # Port 3000
-```
-
-#### 6. Test Application
-- Open http://localhost:3000 in **two separate browser tabs**
-- Enter usernames in both tabs
-- Click "Live Face Duel"
-- Both should match and see each other's video
-
----
-
-### PowerShell Quick Start Scripts
-
-**`start-backend.ps1`**
+Explicit submissions are accepted from two seconds before the server scan deadline until four seconds afterward. Live scores are accepted during the scan and grace window, capped at 150 samples per player. At the deadline plus grace, missing scores resolve from received samples or zero. `resultSent` is set before awaiting persistence so submissions and timeout cannot finalize twice.
+
+The canonical `match_result` supplies each player's final score, opponent score, and winner. Completed server match state is released while the frontend keeps its visible result. Skips, stops, and disconnects clear room/timers/vectors/indexes and requeue eligible remaining players. A recent skip excludes the immediate former partner. Missing remote video warns rather than cancelling an otherwise active match.
+
+### FaceSync
+
+FaceSync runs before emoji rounds and as a standalone mode, but not before celebrity rounds.
+
+- The browser derives 20 geometry ratios in a head-relative 3D coordinate system, correcting for video aspect ratio and rejecting invalid, small, out-of-frame, turned, or tilted faces.
+- It collects at least 14 valid samples, up to 40, then uses per-feature medians and a dispersion threshold of 0.05.
+- It sends one vector or `{ unavailable: true }`. The client timeout is 5.5 seconds; the server ceiling is seven seconds.
+- The server validates 20 finite components within `[-4, 4]` and broadcasts an identical deterministic score/category/variant to both players.
+- Vectors are discarded immediately after calculation and during match cleanup; no vector is written to PostgreSQL.
+- Emoji rounds pause for a 3.8-second reveal before their countdown, or start immediately after an unavailable comparison. Standalone FaceSync stays on its result/missed view until players leave or request another stranger.
+
+Standalone FaceSync does not finalize expression scores or update ELO. Its persisted match row stays active until the session ends; resemblance results are not persisted.
+
+## Scoring
+
+| Mode | Algorithm and final aggregation |
+| --- | --- |
+| Emoji | Landmark geometry for common smile, astonished, wink, angry, and sad prompts; blendshapes for other prompts. Scores are bounded to 0..10. The browser samples valid values every 100 ms and submits the mean. The server requires five live samples and averages their mean equally with the submitted mean, rounded to one decimal. |
+| Solo | Same scorer and sampler; final valid-sample mean, or zero, saved locally. |
+| Celebrity | Nine normalized expression metrics, each scored as `clamp(1 - 4 * difference^2, 0, 1)`, combined by weighted mean and scaled to 0..10. Target resolution prefers curated profiles, then landmarks, then category/difficulty defaults. The arena submits its best valid frame, rounded to one decimal. The server accepts the bounded peak; missing submissions fall back to live-sample mean. |
+| FaceSync | Weighted distance divided by feature tolerances, mapped through `100 * exp(-(distance / 1.90)^1.405)`. Display is an integer clamped to **3..99**, with eight reaction categories. This is an entertainment heuristic, not a calibrated identity probability. |
+
+Scores are generated by clients. Window checks, clamping, and sample-count validation do not make them cheat-proof. ELO changes are disabled unless `ENABLE_RANKED_ELO=true`; celebrity also requires `CELEBRITY_AFFECTS_ELO=true`. Enabled ELO uses K=32 and default 1000; it does not affect queue selection.
+
+Results reuse one reaction string for screen and share card. A body portal renders an off-screen 1080 x 1350 card; html-to-image creates a PNG after fonts/layout settle. Sharing uses native file sharing where supported, otherwise download. Result analytics currently log sanitized events to the browser console.
+
+## Persistence
+
+The active signaling schema is `signaling-server/db.js::initSchema()`, called at startup. It uses a pool of up to 20 connections with connection/query/statement timeouts. Match creation and score/payment updates use transactions where appropriate.
+
+| Table | Role |
+| --- | --- |
+| `users` | Signaling UUID, current socket, ELO, VIP flag, device ID, and historical account columns. |
+| `sessions` | Hashed database tokens, user foreign key, creation/expiry timestamps. |
+| `matches` | Players, emoji, scores, winner, status, timestamps, game mode, optional celebrity ID/name. |
+| `celebrity_faces` | Image metadata, difficulty, optional landmark/profile JSON, usage count. |
+| `moderation_reports` | Match, reporter/reported user, reason; unique per match/reporter. This handler stores no camera evidence. |
+| `dodo_webhook_events` | Provider event IDs for replay deduplication. |
+| `support_payments` | Payment/device IDs, requested/charged amounts, currency, refund flag, paid time. |
+| `public.profiles` | Separate Supabase Auth-owned names, timestamps, own-row RLS. |
+
+`schema.sql` is an older baseline missing some current columns/tables. Prisma's historical schema differs from current UUID/ELO conventions. Apply the Supabase profile migration separately: signaling startup does not create it or its policies.
+
+The celebrity seed inserts records but does not supply all their image assets. Only the pilot image is bundled, and active matchmaking explicitly filters to that pilot name. More seeded rows alone do not expand current target selection.
+
+## HTTP and socket contracts
+
+All Express `/api` routes share rate limiting. Session mutations, checkout, and judge also check trusted browser origins.
+
+| Method | Path | Authentication | Behavior |
+| --- | --- | --- | --- |
+| POST | `/api/session` | Optional bearer for resume | Create/resume anonymous signaling session. |
+| DELETE | `/api/session` | Session | Delete database token and clear cookie. |
+| GET | `/api/users/me` | Session | ID, ELO, VIP flag. |
+| POST | `/api/billing/checkout` | Session | Validate USD amount and create Dodo checkout. |
+| POST | `/api/webhooks/dodo` | Signed webhook | Record payment/full-refund events. |
+| POST | `/api/judge` | Session | Proxy bounded image to private judge. |
+| GET | `/api/geo` | Public | Edge country only when headers are explicitly trusted. |
+| GET | `/api/celebrity/random` | Session | Catalogue read with optional difficulty/category. |
+| GET | `/api/celebrity/list` | Session | Validated pagination/category filter. |
+| POST | `/api/celebrity/landmarks` | Session | Fetch stored landmarks by faceId; no landmark computation. |
+| GET | `/api/celebrity/:id` | Session | Read catalogue item. |
+| GET | `/`, `/health` | Public | Process liveness. |
+| GET | `/ready` | Public | Database availability flag; 503 in fallback mode. |
+| GET | `/online` | Public | Connected Socket.IO transport count, not homepage visitors. |
+
+No current auth login/register, onboarding, leaderboard, or server history routes exist. Next.js `llms.txt` and `llms-full.txt` handlers serve product text.
+
+| Direction | Events | Purpose |
+| --- | --- | --- |
+| Client -> server | `time_sync` | Clock acknowledgement handshake. |
+| Client -> server | `join_queue`, `skip_user`, `stop_matching` | Queue, transfer, skip, stop. |
+| Client -> server | `face_sync_sample` | One geometry/unavailable report. |
+| Client -> server | `live_score`, `submit_score` | Scores; v2 packets include attempt ID/generation. |
+| Client -> server | `chat_message`, `typing`, `report_player` | Ephemeral chat/typing and persisted report. |
+| Server -> client | `waiting`, `switch_mode`, `match_started` | Queue, transfer, paired peer metadata and schedule. |
+| Server -> client | `countdown_tick`, `emoji_locked`, `emoji_changed` | Timing and target state. |
+| Server -> client | `face_sync_result`, `face_sync_skipped` | Shared resemblance or bypass. |
+| Server -> client | `partner_live_score`, `partner_score`, `scores_ready`, `match_result` | Live display and canonical result. |
+| Server -> client | `chat_message`, `rival_typing` | Partner messages/typing. |
+| Server -> client | `match_skipped`, `opponent_left` | Reset client match and await requeue. |
+| Server -> client | `user_id`, `usage_update`, `server_error`, `score_rejected` | Identity/entitlements, fatal error, nonfatal score rejection. |
+
+Client listeners for `match_found`, `match_ended`, and `partner_country` are compatibility code, not current server broadcasts.
+
+## Protocol v2 rounds, private series and support prompts
+
+The October 3 implementation adds `signaling-server/roundEngine.js`, `privateDuels.js`, `duelStore.js` and `duel-schema.sql`. See [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md) for verified behavior, configuration and deployment prerequisites.
+
+Compatible emoji/celebrity clients advertise `protocolVersion: 2`. The shared engine reserves a pair separately from its scoring attempt, waits for both assigned media connections, runs the existing emoji FaceSync lead-in, waits for both target acknowledgements, then previews an emoji for one second (celebrity retains three seconds). Scan time is ten seconds. Legacy clients and standalone FaceSync retain their established lifecycle. `change_emoji` cannot bypass consent.
+
+`round_state` carries attempt ID, monotonic schedule generation, phase and timestamps. `round_started` replaces an attempt while retaining the pair, PeerJS connection and chat. `live_score`/`submit_score` and incoming scores/results are checked against the current attempt/generation. `emoji_skip_request` creates an eight-second paused proposal; `emoji_skip_respond` requires two distinct explicit votes. A decline/timeout preserves samples and remaining time; agreement creates a new attempt with a different emoji. There are three proposals per logical round and a five-second resolution cooldown.
+
+`/1v1` is rendered by `PrivateDuelExperience`. One responsive screen combines a purple 1/3/5 round slider (default 3) and radio cards for Emoji Duel, Celebrity Face and Face Sync. The name gate follows explicit invitation creation. Guest invitation previews are read-only until explicit join. Invite secrets use 32 cryptographic random bytes, are stored as SHA-256 digests, appear in the URL fragment and are removed after capture. Secrets expire in fifteen minutes and reserve one guest transactionally. Regeneration invalidates the previous invitation. Only authenticated participants receive snapshots or perform series actions. Private players never enter public queues.
+
+Private Face Sync reuses the pair engine and existing `FaceSyncArena` for repeated resemblance comparisons. Each round requires both players' readiness and fresh attempt/generation-bound face samples. It ends at the shared resemblance result (or unavailable-face outcome), without an emoji/countdown/scoring phase, ELO, competitive points or automatic scored-round support. The ledger records completion; the arena keeps the same cameras/chat between comparisons. The additive schema migration extends the existing game-mode constraint to accept `facesync`.
+
+Authenticated APIs: `POST /api/duels`, `POST /api/duels/invite-preview`, `POST /api/duels/join`, `GET /api/duels/:id`, `POST /api/duels/:id/invite`, `POST /api/duels/:id/cancel`. Public capabilities are at `GET /api/capabilities`. Socket events add `private_join`, `series_ready`, `series_sync`, `series_leave`, `series_state`, `round_media_ready`, `round_target_ready`, `round_retry`, and nonfatal `operation_error`/`round_error`.
+
+A private series plays every selected round against the same friend, waits for both players' readiness initially and between rounds, awards one point per win and half each for a tie, and permits a final draw. The unique `(series_id, round_number)` ledger and transaction update points once. Private rounds do not update ELO. Interrupted unfinished attempts restart after reconnect and renewed readiness; reconnect grace is thirty seconds, lobby/intermission inactivity is 120 seconds and series lifetime is ninety minutes. The signaling process remains one coordinator. On restart it aborts unfinished durable series; old private invitations cannot silently join a public game.
+
+`ExperienceProviders` shares name, country, signaling profile and `SupportPromptProvider`. The provider now renders the single SupportModal outside ModeSelect. Canonical multiplayer results and guarded solo results feed a bounded, deduplicated completion policy: first prompt after one completed round, then after the first completed round following a twelve-hour cooldown. Prompt eligibility is created by a new completion, never by loading historical storage. Display waits for visible results and no conflicting modal. Private readiness disables automatic display after the player's Ready click. Browser locks/storage/BroadcastChannel coordinate tabs; without those APIs coordination is best effort per tab. Manual support remains available.
+
+Private checkout shows an explicit HTTPS Dodo-hosted link in a new tab with `noopener noreferrer`; it preserves the game tab. Returned checkout destinations are restricted to the live/test checkout hosts. Existing signed webhooks remain the payment authority. Calls disclose camera streams only to the assigned peer with the server-issued pair/media nonce; old call callbacks cannot replace a new opponent's stream.
+
+The additive private SQL tables enable RLS and revoke browser/PUBLIC grants. Production PostgreSQL requires verified TLS, with an optional configured CA. Private creation fails closed without persistence in production; memory storage is local-development only. The database constraint/grant suite is included but requires a disposable initialized database; it could not be run against the configured invalid credentials.
+
+## Optional support and judge
+
+**Support:** The shared provider controls manual and completion-triggered prompts (details above). `SupportModal` submits at least $1.00 USD. The server verifies a one-time USD pay-what-you-want Dodo product with a $1.00 minimum, then returns a checkout URL. Signed success webhooks persist payment data; full-refund success marks it refunded. Event/payment IDs prevent duplicate writes. Return query strings are not proof of payment. Support does not grant VIP or gate games.
+
+**Judge:** `UploadJudge` would post to Express `/api/judge`. Express adds the private `X-AI-Judge-Key` header and calls FastAPI `/judge`. FastAPI authenticates, rate-limits, validates base64/signature/Pillow data, and bounds bytes/pixels. Random mode immediately returns demo feedback. AI mode uses Gemini with concurrency/time limits; failures return errors rather than silently switching to random output. No upload persistence is implemented.
+
+## Configuration and local operation
+
+Combine the relevant fields from `frontend/env.example` (services) and `frontend/.env.example` (site verification) into `frontend/.env.local`. Actual environment secrets were not included in this review.
+
+| Component | Variables |
+| --- | --- |
+| Frontend sessions | `NEXT_PUBLIC_SIGNALING_SERVER_URL`; use `http://localhost:3001` locally. The provider has no localhost bootstrap default, although hooks do. |
+| Frontend names | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; client also accepts `NEXT_PUBLIC_SUPABASE_ANON_KEY`, subject to the provider caveat. Enable anonymous Auth and apply the profile migration. |
+| Optional relay | `NEXT_PUBLIC_TURN_URL`, `NEXT_PUBLIC_TURN_USERNAME`, `NEXT_PUBLIC_TURN_CREDENTIAL`; these are browser-visible. |
+| Signaling database | `DATABASE_URL` or `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`. Complete discrete fields rebuild the URL. `DB_CA_CERT` is also read. |
+| Signaling operation | `PORT` (3001), `NODE_ENV`, `FRONTEND_URL`, `TRUST_PROXY_HOPS`, `MAX_CONNECTIONS_PER_IP`, `TRUST_GEO_HEADERS`. |
+| Optional ranking | `ENABLE_RANKED_ELO`, `CELEBRITY_AFFECTS_ELO`; explicitly true to enable. |
+| Private judge proxy | Server-only `AI_JUDGE_URL`, `AI_JUDGE_SHARED_SECRET`; matching secret in FastAPI. |
+| Support | Server-only `DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`, `DODO_PAYMENTS_PRODUCT_ID`, `DODO_PAYMENTS_ENVIRONMENT`, `DODO_PAYMENTS_RETURN_URL`. |
+| FastAPI | `ENVIRONMENT`, `PORT` (8000), `JUDGE_MODE`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `MAX_CONCURRENT_JUDGES`, `ALLOWED_ORIGINS`, `FORWARDED_ALLOW_IPS`, `DEBUG_RELOAD`. |
+
+Legacy example fields `NEXT_PUBLIC_AI_JUDGE_URL`, `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, and `NEXT_PUBLIC_SITE_URL` are not current inputs to the judge proxy, OAuth helper, or canonical site URL. `siteConfig.url` is fixed to `https://emoggle.com`.
+
+Run packages in separate terminals; there is no root npm workspace manifest:
+
 ```powershell
-# Start signaling server and AI judge in background
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd signaling-server; npm run dev"
-Start-Sleep -Seconds 2
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd ai-judge; python main.py"
-Write-Host "Backend services started!" -ForegroundColor Green
+# In signaling-server/
+npm.cmd ci
+npm.cmd run dev
+
+# In frontend/
+npm.cmd ci
+npm.cmd run dev
+
+# Optional, in ai-judge/
+python.exe -m pip install -r requirements.txt
+python.exe main.py
 ```
 
-**`start-frontend.ps1`**
-```powershell
-# Start Next.js frontend
-cd frontend
-npm run dev
-```
+`start-backend.ps1` starts signaling. `start-frontend.ps1` starts port 3000 and redirects output to `frontend/frontend.log`. Database-less local matches do not exercise persistent reports, payments, or catalogue HTTP APIs.
 
----
+## Hosting and operational limits
 
-### Testing Checklist
+Frontend settings/domain aliases indicate Vercel-oriented hosting; this source review does not establish live deployment health. Signaling requires a long-running Socket.IO process; FastAPI is optional. Next.js uses `.next-build`, security headers, and redirects www/Vercel aliases to the apex domain.
 
-#### Manual Testing
-- [ ] New user onboarding flow
-- [ ] Username entry and storage
-- [ ] Solo emoji practice mode
-- [ ] Live face duel matchmaking
-- [ ] WebRTC video connection
-- [ ] Expression scoring accuracy
-- [ ] Match result display
-- [ ] ELO calculation
-- [ ] Gender filter (VIP)
-- [ ] Fashion judge (photo upload)
-- [ ] Chat functionality
-- [ ] Skip partner feature
-- [ ] Disconnect handling
-- [ ] Mobile responsiveness
+`proxy.ts` generates CSP nonces and allowlists configured signaling/Supabase origins plus supporting services. Some RevenueCat/Paddle CSP entries are historical; no RevenueCat context or purchase route is currently wired in. Express enforces CORS, sessions, selected mutation origins, body limits, connection-attempt limits, per-IP sockets, per-event limits, and a total packet budget. Chat is bounded and scrubbed within match rooms; moderation identity comes from server match state.
 
-#### Browser Compatibility
-- [ ] Chrome (primary)
-- [ ] Firefox
-- [ ] Safari
-- [ ] Edge
-- [ ] Mobile Chrome
-- [ ] Mobile Safari
+Queue, matches, transfers, live samples, vectors, and rate-limit maps belong to one Node process. No Redis adapter or shared match coordinator is configured. Replicas would split matchmaking pools without further coordination; restarting discards active rounds and memory sessions. PostgreSQL rows do not rebuild live timers or peer connections.
 
----
+Production database TLS requires `rejectUnauthorized: true`, optionally with `DB_CA_CERT`; URL SSL parameters cannot override verification. A constructor-level regression test covers this configuration, while an actual database handshake remains a deployment prerequisite. TURN credentials are static public build settings. `/ready` checks a flag, not a fresh database query. These operational limits are recorded in the guide.
 
-## Troubleshooting Guide
-
-### Common Issues
-
-#### 1. "Camera not detected"
-**Cause:** Browser permissions denied or HTTPS required
-
-**Solutions:**
-- Check browser settings → Privacy & Security → Camera
-- Ensure using HTTPS (required for `getUserMedia`)
-- Try different browser
-- Restart browser after granting permission
-
----
-
-#### 2. "Failed to connect to partner"
-**Cause:** WebRTC connection blocked by firewall/NAT
-
-**Solutions:**
-- Check firewall settings
-- Configure TURN server relay in PeerJS config
-- Try different network (mobile hotspot)
-- Verify both users are on compatible browsers
-
----
-
-#### 3. "Database unavailable"
-**Cause:** PostgreSQL connection failed
-
-**Solutions:**
-- Verify `DATABASE_URL` in `.env`
-- Check PostgreSQL service is running
-  ```bash
-  # Linux/Mac
-  sudo systemctl status postgresql
-  
-  # Windows
-  Get-Service postgresql*
-  ```
-- Test connection manually:
-  ```bash
-  psql $DATABASE_URL
-  ```
-- **Note:** App continues in degraded mode (in-memory matchmaking)
-
----
-
-#### 4. "MediaPipe loading forever"
-**Cause:** WASM files not loading
-
-**Solutions:**
-- Verify files exist in `/public/mediapipe/wasm/`
-- Check browser console for 404 errors
-- Clear browser cache (Ctrl+Shift+R)
-- Check CORS headers allow WASM mime type
-- Verify CDN URL in MediaPipeContext
-
----
-
-#### 5. "Socket.io connection failed"
-**Cause:** CORS or network issues
-
-**Solutions:**
-- Verify `NEXT_PUBLIC_SIGNALING_SERVER_URL` in `.env.local`
-- Check signaling server is running (port 3001)
-- Review CORS configuration in `signaling-server/index.js`
-- Check browser console for CORS errors
-
----
-
-#### 6. "AI Judge returns errors"
-**Cause:** Invalid API key or quota exceeded
-
-**Solutions:**
-- Verify `GEMINI_API_KEY` in `ai-judge/.env`
-- Check API quota at https://aistudio.google.com/
-- Fallback to `JUDGE_MODE=random` for testing
-- Review AI judge logs for detailed error messages
-
----
-
-## Future Roadmap
-
-### Phase 1: Core Stability (Current)
-- ✅ Basic matchmaking
-- ✅ Live face duel
-- ✅ ELO ranking
-- ✅ Payment integration (RevenueCat)
-- ✅ Solo practice mode
-- ✅ Fashion judge
-- 🔄 Bug fixes and performance optimization
-
-### Phase 2: Enhanced Features (Q4 2026)
-- [ ] Celebrity Face Mimic mode (80% complete)
-- [ ] Friend system and private matches
-- [ ] Tournaments and leaderboards
-- [ ] Match replay system
-- [ ] Social sharing improvements
-- [ ] Mobile app (React Native)
-
-### Phase 3: Scale & Monetization (Q1 2027)
-- [ ] Multi-server architecture (Redis)
-- [ ] Advanced analytics dashboard
-- [ ] Subscription tiers
-- [ ] In-app purchases (emoji packs, themes)
-- [ ] Advertising integration
-- [ ] Creator monetization
-
-### Phase 4: Platform Expansion (Q2 2027)
-- [ ] AI voice mimicry mode
-- [ ] Group duels (4-player)
-- [ ] Custom emoji uploads
-- [ ] Influencer partnerships
-- [ ] Regional tournaments
-- [ ] Esports integration
-
----
-
-## Contributing
-
-### Code Style
-
-**TypeScript/JavaScript:**
-- ESLint configuration (Next.js default)
-- Prettier for formatting
-- Functional React components (hooks)
-- Async/await over promises
-- Descriptive variable names
-
-**Python:**
-- PEP 8 style guide
-- Type hints for all functions
-- FastAPI dependency injection
-- Black for code formatting
-
-### Git Workflow
-1. Create feature branch: `git checkout -b feature/celebrity-mode`
-2. Make changes with descriptive commits
-3. Test locally (all three services)
-4. Submit pull request with description
-5. Code review required
-6. Merge to `main` after approval
-
----
-
-## References
-
-### Official Documentation
-- [Next.js 16 Docs](https://nextjs.org/docs)
-- [Socket.io](https://socket.io/docs/)
-- [PeerJS](https://peerjs.com/docs/)
-- [MediaPipe Face Mesh](https://developers.google.com/mediapipe/solutions/vision/face_landmarker)
-- [Google Gemini API](https://ai.google.dev/docs)
-- [PostgreSQL](https://www.postgresql.org/docs/)
-- [FastAPI](https://fastapi.tiangolo.com/)
-
-### Key Technologies
-- WebRTC: https://webrtc.org/
-- ELO Rating: https://en.wikipedia.org/wiki/Elo_rating_system
-- Face Landmarks: https://arxiv.org/abs/1907.06724
-
----
-
-## License
-
-This project is proprietary. All rights reserved.
-
----
-
-## Support
-
-For issues or questions:
-- GitHub Issues: https://github.com/your-org/emoggle/issues
-- Email: support@emoggle.com
-- Discord: https://discord.gg/emoggle
-
----
-
-**Last Updated:** August 30, 2026
-**Version:** 2.0.0
-**Maintainers:** Emoggle Development Team
+CI audits/builds frontend, audits/tests signaling, and checks Python dependencies/image validation. It does not currently run frontend lint or cover marketing-video. See [verification performed](CODEBASE_GUIDE.md#verification-performed) for checks run during this review.

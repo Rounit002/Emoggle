@@ -106,6 +106,11 @@ async function main() {
     const openedSolo = await clickByText(page, "Solo");
     expect("solo mode opened", openedSolo, openedSolo ? "from the mode picker" : "button not found");
 
+    // Name entry now follows game selection, keeping first arrival browsable.
+    await page.waitForSelector("[role='dialog'][aria-label='Choose a name'] input", { timeout: 10_000 });
+    await page.type("[role='dialog'][aria-label='Choose a name'] input", "Tester");
+    await page.evaluate(() => document.querySelector<HTMLFormElement>("[role='dialog'][aria-label='Choose a name'] form")?.requestSubmit());
+
     // Wait for the camera to come up and the start button to arm.
     await page.waitForFunction(
       () =>
@@ -202,6 +207,10 @@ async function main() {
       /Ate that|Face card valid|Kinda cooked|Try again bestie|No face card/.test(document.body.innerText),
     );
     expect("the result screen stays put", stillResults, stillResults ? "scorer stopped" : "flipped back");
+
+    await page.waitForSelector("button[aria-label='Close support popup']", { timeout: 10_000 });
+    expect("support appears after the completed round", true, "optional result-screen prompt");
+    await page.click("button[aria-label='Close support popup']");
 
     // A second round must behave the same. Replaying used to be
     // where a stale "already finished" guard or a stale start time

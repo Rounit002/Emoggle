@@ -79,11 +79,11 @@ const FACES = new Set<string>(FACE_DOODLES);
 
 /** Doodles per strip. Spacing is `--strip / ITEMS_PER_STRIP`, so it
  *  scales with the viewport instead of bunching up on a phone. */
-const ITEMS_PER_STRIP = 8;
+const ITEMS_PER_STRIP = 5;
 
 /** How far each row sits off the lane's centre line, as a fraction
  *  of a strip. Together they span the viewport's diagonal. */
-const ROW_OFFSETS = [-0.33, -0.11, 0.11, 0.33];
+const ROW_OFFSETS = [-0.28, 0, 0.28];
 
 /** Every doodle position in the whole backdrop, across both lanes. */
 const TOTAL_SLOTS = 2 * ROW_OFFSETS.length * ITEMS_PER_STRIP;
@@ -133,7 +133,7 @@ function vars(custom: Record<`--${string}`, string>): React.CSSProperties {
 }
 
 interface Item {
-  src: string;
+  glyph: string;
   /** Faces keep their yellow; everything else takes a pastel tint. */
   isFace: boolean;
   style: React.CSSProperties;
@@ -150,7 +150,7 @@ function buildStrip(laneIndex: number, rowIndex: number): Item[] {
 
     // Walking the list with a stride coprime to its length visits
     // every doodle before any of them comes round again.
-    const src = DOODLES[(slot * 7 + laneIndex * 3) % DOODLES.length];
+    const source = DOODLES[(slot * 7 + laneIndex * 3) % DOODLES.length];
 
     const scale = 0.74 + noise(seed) * 0.62;
     const tilt = (noise(seed + 1) * 2 - 1) * 16;
@@ -168,11 +168,11 @@ function buildStrip(laneIndex: number, rowIndex: number): Item[] {
     // does not read as a rainbow gradient. The stylesheet desaturates
     // whatever comes out, which is what makes it pastel rather than
     // primary.
-    const isFace = FACES.has(src);
+    const isFace = FACES.has(source);
     const hue = (slot * (360 / TOTAL_SLOTS) + noise(seed + 7) * 26) % 360;
 
     return {
-      src,
+      glyph: String.fromCodePoint(Number.parseInt(source, 16)),
       isFace,
       style: vars({
         "--i": String(i),
@@ -197,19 +197,11 @@ function Strip({ items }: { items: Item[] }) {
     <div className={styles.strip}>
       {items.map((item, i) => (
         <span key={i} className={styles.item} style={item.style}>
-          {/* Plain <img>: these are fixed-size decorative SVGs, so
-              next/image's resizing and srcset machinery has nothing
-              to do here. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <span
             className={item.isFace ? styles.glyph : `${styles.glyph} ${styles.tinted}`}
-            src={`/openmoji/color/svg/${item.src}.svg`}
-            alt=""
-            width={72}
-            height={72}
-            draggable={false}
-            decoding="async"
-          />
+          >
+            {item.glyph}
+          </span>
         </span>
       ))}
     </div>

@@ -255,7 +255,8 @@ export function useExpressionScorer(
   videoRef: RefObject<HTMLVideoElement | null>,
   emoji: string | null,
   active: boolean,
-  onScore: (score: number) => void
+  onScore: (score: number) => void,
+  warmUp = false,
 ): ExpressionState {
   const [state, setState] = useState<ExpressionState>({ score: null, faceBox: null, faceLandmarks: null, status: "idle" });
   const rafRef = useRef<number | null>(null);
@@ -304,6 +305,7 @@ export function useExpressionScorer(
     }
     if (!landmarker) return;
 
+    let warmed = false;
     const tick = () => {
       const video = videoRef.current;
       const scorer = landmarker;
@@ -320,7 +322,9 @@ export function useExpressionScorer(
       // frame while the user is just waiting for a match. Without
       // this gate the tick pegs ~80ms and the browser logs the
       // "requestAnimationFrame handler took <N>ms" violation.
-      if (!active) {
+      // Solo can prepare one frame before starting its competition clock.
+      // This absorbs cold GPU/model initialization without scoring the lobby.
+      if (!active && (!warmUp || warmed)) {
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
@@ -330,6 +334,7 @@ export function useExpressionScorer(
         let result;
         try {
           result = scorer.detectForVideo(video, performance.now());
+          warmed = true;
           detectionErrorRef.current = false;
         } catch (error) {
           if (isBenignTfliteInfo(error)) {
@@ -379,7 +384,7 @@ export function useExpressionScorer(
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [active, emoji, landmarker, landmarkerStatus, videoRef]);
+  }, [active, emoji, landmarker, landmarkerStatus, videoRef, warmUp]);
 
   return state;
 }

@@ -2,6 +2,17 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   turbopack: {},
+  experimental: {
+    // Tailwind's compressed output is small enough to ship with the document.
+    // This removes the render-blocking stylesheet round trip on slow mobile.
+    inlineCss: true,
+  },
+  images: {
+    // The hero portrait cards are intentionally much narrower than a phone.
+    // Include intermediate candidates so high-DPR devices do not jump from a
+    // 256px source directly to a needlessly large 384px source.
+    imageSizes: [128, 160, 192, 256, 320, 384],
+  },
   // Keep generated output isolated from legacy local development caches.
   distDir: ".next-build",
   poweredByHeader: false,

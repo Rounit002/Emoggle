@@ -18,6 +18,10 @@ import {
   type RoundSchedulePayload,
 } from "../lib/serverClock";
 
+import type { SeriesState } from "../lib/privateDuels";
+
+export interface SkipProposal { proposalId: string; expiresAt: number; serverTime: number; agreedSocketIds: string[]; }
+
 const SIGNALING_URL =
   process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 
@@ -60,6 +64,7 @@ export interface ChatMessage {
 
 export interface MatchResult {
   matchId: string;
+  generation?: number;
   myScore: number;
   partnerScore: number;
   winner: "you" | "rival" | "tie";
@@ -80,6 +85,12 @@ export interface MatchResult {
 }
 
 export interface MatchmakingState {
+  seriesState: SeriesState | null;
+  skipProposal: SkipProposal | null;
+  roundError: string | null;
+  readyPrivate: () => void;
+  respondSkip: (agree: boolean) => void;
+  retryRound: () => void;
   status: MatchStatus;
   remoteStream: MediaStream | null;
   localPeerId: string | null;
@@ -220,6 +231,7 @@ export function useMatchmaking(
   gameMode: MatchGameMode = "emoji",
   modeSwitchTicket?: string | null,
   onModeSwitch?: (mode: MatchGameMode, ticket: string) => void,
+  privateSeriesId?: string,
 ): MatchmakingState {
   const profileRef = useRef<UserProfile | null>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -235,6 +247,13 @@ export function useMatchmaking(
   const streamTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stoppedRef = useRef(false);
   const currentMatchIdRef = useRef<string | null>(null);
+  const generationRef = useRef(0);
+  const phaseRef = useRef<string | undefined>(undefined);
+  const mediaSecretRef = useRef<{ pairId?: string; mediaNonce?: string }>({});
+  const proposalRef = useRef<SkipProposal | null>(null);
+  const [seriesState, setSeriesState] = useState<SeriesState | null>(null);
+  const [skipProposal, setSkipProposal] = useState<SkipProposal | null>(null);
+  const [roundError, setRoundError] = useState<string | null>(null);
   const serverClockRef = useRef<ServerClock | null>(null);
 
   // Keep the latest player name + country in refs so the socket
@@ -293,7 +312,7 @@ export function useMatchmaking(
   const buildJoinPayload = useCallback((peerId: string) => {
     const { name, country, countryCode } = identityRef.current;
     return {
-      peerId,
+      peerId, protocolVersion: 2, seriesId: privateSeriesId,
       // All three fields are optional on the server. Trimmed,
       // length-bounded, and never persisted — the server keeps
       // them in socketMeta (in-memory) only for the duration of
@@ -304,7 +323,7 @@ export function useMatchmaking(
       gameMode,
       ticket: modeSwitchTicket ?? null,
     };
-  }, [gameMode, modeSwitchTicket]);
+  }, [gameMode, modeSwitchTicket, privateSeriesId]);
 
   const clearStreamTimeout = useCallback(() => {
     if (streamTimeoutRef.current) {
@@ -331,6 +350,7 @@ export function useMatchmaking(
     }
     pendingCallRef.current?.close();
     pendingCallRef.current = null;
+    mediaSecretRef.current = {}; proposalRef.current = null; setSkipProposal(null); setRoundError(null); phaseRef.current = undefined; generationRef.current = 0;
     partnerPeerIdRef.current = null;
     matchRoleRef.current = null;
     setRemoteStreamSynced(null);
@@ -374,6 +394,7 @@ export function useMatchmaking(
   /* ── Helper: answer an incoming call ── */
   const answerCall = useCallback(
     (call: MediaConnection) => {
+      if (call.peer !== partnerPeerIdRef.current || (mediaSecretRef.current.mediaNonce && (call.metadata?.mediaNonce !== mediaSecretRef.current.mediaNonce || call.metadata?.pairId !== mediaSecretRef.current.pairId))) { call.close(); return; }
       const stream = localStreamRef.current;
       if (!stream) {
         pendingCallRef.current?.close();
@@ -383,8 +404,8 @@ export function useMatchmaking(
       pendingCallRef.current = null;
       callRef.current = call;
       call.answer(stream);
-      call.on("stream", (remote) => setRemoteStreamSynced(remote));
-      call.on("close", () => setRemoteStreamSynced(null));
+      call.on("stream", (remote) => { if (callRef.current === call && call.peer === partnerPeerIdRef.current) setRemoteStreamSynced(remote); });
+      call.on("close", () => { if (callRef.current === call) { callRef.current = null; setRemoteStreamSynced(null); } });
       call.on("error", (err) => console.error("[PeerJS call]", err));
     },
     [setRemoteStreamSynced]
@@ -395,10 +416,10 @@ export function useMatchmaking(
     (peer: Peer, targetPeerId: string) => {
       const stream = localStreamRef.current;
       if (!stream || callRef.current) return;
-      const call = peer.call(targetPeerId, stream);
+      const call = peer.call(targetPeerId, stream, { metadata: mediaSecretRef.current });
       callRef.current = call;
-      call.on("stream", (remote) => setRemoteStreamSynced(remote));
-      call.on("close", () => setRemoteStreamSynced(null));
+      call.on("stream", (remote) => { if (callRef.current === call && call.peer === partnerPeerIdRef.current) setRemoteStreamSynced(remote); });
+      call.on("close", () => { if (callRef.current === call) { callRef.current = null; setRemoteStreamSynced(null); } });
       call.on("error", (err) => console.error("[PeerJS call]", err));
     },
     [setRemoteStreamSynced]
@@ -447,7 +468,7 @@ export function useMatchmaking(
     const joinWhenReady = () => {
       if (stoppedRef.current || !socket.connected || !readyPeerId || joinedConnectionId === socket.id) return;
       joinedConnectionId = socket.id ?? null;
-      socket.emit("join_queue", buildJoinPayload(readyPeerId));
+      socket.emit(privateSeriesId ? "private_join" : "join_queue", buildJoinPayload(readyPeerId));
       setStatus("waiting");
     };
     peer.on("open", (id) => {
@@ -480,6 +501,12 @@ export function useMatchmaking(
        * prediction used before the "go" packet lands.
        */
       const applySchedule = (payload: RoundSchedulePayload, matchId: string | null) => {
+        if (payload.protocolVersion === 2) {
+          if ((payload.generation ?? 0) < generationRef.current) return;
+          if (payload.generation !== generationRef.current || payload.serverPhase !== "playing") goAnchor = null;
+          generationRef.current = payload.generation ?? 0; phaseRef.current = payload.serverPhase;
+          if (payload.serverPhase === "playing" && goAnchor === null) goAnchor = Date.now();
+        }
         const next = buildRoundSchedule(payload, serverClock, matchId, Date.now(), goAnchor);
         setRoundSchedule((previous) => (scheduleChanged(previous, next) ? next : previous));
       };
@@ -547,6 +574,7 @@ export function useMatchmaking(
           partnerCountryCode?: string | null;
           partnerName?: string | null;
           celebrity?: CelebrityTarget;
+          pairId?: string; mediaNonce?: string;
         } & RoundSchedulePayload
       ) => {
           if (stoppedRef.current) return;
@@ -564,6 +592,7 @@ export function useMatchmaking(
           callRef.current?.close();
           callRef.current = null;
           setRemoteStreamSynced(null);
+          mediaSecretRef.current = { pairId: payload.pairId, mediaNonce: payload.mediaNonce };
           partnerPeerIdRef.current = ppId;
           matchRoleRef.current = role === "caller" ? "caller" : "receiver";
           setPartnerPeerId(ppId);
@@ -593,7 +622,8 @@ export function useMatchmaking(
           // A new round: forget the previous round's "go" packet and
           // adopt the server's countdown timeline before anything
           // renders.
-          goAnchor = null;
+          goAnchor = null; generationRef.current = 0;
+          setSkipProposal(null); setRoundError(null);
           applySchedule(schedule, nextMatchId);
           setStatus("matched");
           startStreamTimeout();
@@ -606,6 +636,29 @@ export function useMatchmaking(
 
       socket.on("match_started", handleMatchStarted);
       socket.on("match_found", handleMatchStarted);
+      const validPacket = (data: { matchId?: string | null; generation?: number }) => (!data.matchId || data.matchId === currentMatchIdRef.current) && (data.generation === undefined || data.generation >= generationRef.current);
+      socket.on("round_state", (data: RoundSchedulePayload) => { if (!validPacket(data)) return; applySchedule(data, currentMatchIdRef.current); });
+      socket.on("round_started", (data: RoundSchedulePayload & { emoji?: string; celebrity?: CelebrityTarget; previousMatchId?: string; skipFaceSync?: boolean }) => {
+        if (!data.matchId || data.previousMatchId !== currentMatchIdRef.current) return;
+        currentMatchIdRef.current = data.matchId; setCurrentMatchId(data.matchId); generationRef.current = 0; goAnchor = null;
+        setEmojiPrompt(data.emoji ?? null); setCurrentCelebrity(data.celebrity ?? null); setEmojiLocked(false);
+        setPartnerScore(null); setPartnerLiveScore(null); setMatchResult(null); setFaceSyncResult(null);
+        setFaceSyncSkippedFor(data.skipFaceSync ? data.matchId : null); proposalRef.current = null; setSkipProposal(null); setRoundError(null);
+        applySchedule(data, data.matchId); setStatus("matched");
+      });
+      socket.on("series_state", (data: SeriesState) => {
+        if (data.id !== privateSeriesId) return;
+        setSeriesState(previous => previous && previous.version > data.version ? previous : data);
+        if (["suspended", "aborted", "cancelled", "expired"].includes(data.state)) { resetMatchState(); setStatus(data.state === "suspended" ? "waiting" : "stopped"); }
+      });
+      socket.on("emoji_skip_state", (data: SkipProposal & { matchId: string; generation?: number; status?: string }) => {
+        if (!validPacket(data)) return;
+        const next = data.status ? null : { ...data, expiresAt: Date.now() + Math.max(0, data.expiresAt - data.serverTime) };
+        proposalRef.current = next; setSkipProposal(next);
+      });
+      socket.on("operation_error", (data: { detail?: string }) => setRoundError(data.detail ?? "Please try again."));
+      socket.on("round_error", (data: { detail?: string; matchId?: string }) => { if (validPacket(data)) setRoundError(data.detail ?? "Retry or leave this round."); });
+
 
       /* ── 3. Handle countdown sync from server ── */
       // The tick is a redundant nudge: it re-publishes the schedule
@@ -666,8 +719,9 @@ export function useMatchmaking(
         setPartnerScore(ps);
       });
 
-      socket.on("partner_score", ({ score }: { score: number }) => {
-        setPartnerScore(score);
+      socket.on("partner_score", (data: { score: number; matchId?: string; generation?: number }) => {
+        if (!validPacket(data)) return;
+        setPartnerScore(data.score);
       });
 
       socket.on("match_result", (result: MatchResult) => {
@@ -675,7 +729,7 @@ export function useMatchmaking(
         // left/replaced. For the active match, the first finalized
         // payload wins so duplicate socket delivery cannot mutate an
         // already-rendered result.
-        if (!result || result.matchId !== currentMatchIdRef.current) return;
+        if (!result || result.matchId !== currentMatchIdRef.current || !validPacket(result)) return;
         if (!Number.isFinite(result.myScore) || !Number.isFinite(result.partnerScore)) return;
         clearStreamTimeout();
         setMatchResult((previous) =>
@@ -700,8 +754,9 @@ export function useMatchmaking(
         }
       });
 
-      socket.on("partner_live_score", ({ score }: { score: number }) => {
-        setPartnerLiveScore(score);
+      socket.on("partner_live_score", (data: { score: number; matchId?: string; generation?: number }) => {
+        if (!validPacket(data)) return;
+        setPartnerLiveScore(data.score);
       });
 
       // Server-driven emoji swap. Both clients receive the same
@@ -721,7 +776,7 @@ export function useMatchmaking(
       // later finish, never a shorter round. It also dims the
       // "change emoji" control.
       socket.on("emoji_locked", (payload: RoundSchedulePayload = {}) => {
-        if (payload.matchId && payload.matchId !== currentMatchIdRef.current) return;
+        if (!validPacket(payload)) return;
         setEmojiLocked(true);
         startScanWindow(payload);
       });
@@ -744,6 +799,7 @@ export function useMatchmaking(
       });
 
       socket.on("opponent_left", () => {
+        if (privateSeriesId) return;
         resetMatchState();
         if (!stoppedRef.current) setStatus("waiting");
       });
@@ -774,6 +830,7 @@ export function useMatchmaking(
 
     /* ── 4. Answer incoming calls (receiver role) ── */
     peer.on("call", (call) => {
+      if (!partnerPeerIdRef.current) { call.close(); return; }
       answerCall(call);
     });
 
@@ -810,7 +867,7 @@ export function useMatchmaking(
       setStatus("idle");
       resetMatchState();
     };
-  }, [sessionToken, answerCall, placeCall, resetMatchState, startStreamTimeout, clearStreamTimeout, setRemoteStreamSynced, buildJoinPayload]);
+  }, [sessionToken, answerCall, placeCall, resetMatchState, startStreamTimeout, clearStreamTimeout, setRemoteStreamSynced, buildJoinPayload, privateSeriesId]);
 
   /**
    * Publish this device's facial geometry for the current match,
@@ -824,23 +881,21 @@ export function useMatchmaking(
   const sendFaceSyncSample = useCallback((vector: FaceVector | null) => {
     const socket = socketRef.current;
     if (!socket || !currentMatchIdRef.current) return;
-    socket.emit("face_sync_sample", vector ? { vector } : { unavailable: true });
+    socket.emit("face_sync_sample", { ...(vector ? { vector } : { unavailable: true }), matchId: currentMatchIdRef.current, generation: generationRef.current });
   }, []);
 
   const submitScore = useCallback((score: number) => {
-    socketRef.current?.emit("submit_score", { score });
+    socketRef.current?.emit("submit_score", { score, matchId: currentMatchIdRef.current, generation: generationRef.current });
   }, []);
 
   const submitLiveScore = useCallback((score: number) => {
-    socketRef.current?.emit("live_score", { score });
+    if (phaseRef.current && phaseRef.current !== "playing") return;
+    socketRef.current?.emit("live_score", { score, matchId: currentMatchIdRef.current, generation: generationRef.current });
   }, []);
 
   const requestChangeEmoji = useCallback(() => {
-    // The hook intentionally doesn't gate this on emojiLocked
-    // locally — the server is the only authority. If the user
-    // mashes the button after the lock the server just drops the
-    // event; both clients stay in sync.
-    socketRef.current?.emit("change_emoji");
+    // A request never counts as agreement. The server owns proposal eligibility.
+    socketRef.current?.emit("emoji_skip_request", { matchId: currentMatchIdRef.current, generation: generationRef.current });
   }, []);
 
   const skipUser = useCallback(() => {
@@ -863,11 +918,11 @@ export function useMatchmaking(
     const peerId = peerRef.current?.id;
     setStatus(peerId && socket?.connected ? "waiting" : "connecting");
     if (peerId && socket?.connected) {
-      socket.emit("join_queue", buildJoinPayload(peerId));
+      socket.emit(privateSeriesId ? "private_join" : "join_queue", buildJoinPayload(peerId));
     } else if (socket && !socket.connected) {
       socket.connect();
     }
-  }, [buildJoinPayload, resetMatchState]);
+  }, [buildJoinPayload, resetMatchState, privateSeriesId]);
 
   const sendChat = useCallback((text: string) => {
     if (!text.trim()) return;
@@ -888,7 +943,21 @@ export function useMatchmaking(
     socketRef.current?.emit("report_player");
   }, []);
 
+  useEffect(() => {
+    if (localStream && remoteStream && currentMatchId) socketRef.current?.emit("round_media_ready", { matchId: currentMatchId });
+  }, [localStream, remoteStream, currentMatchId]);
+  useEffect(() => {
+    if (roundSchedule?.serverPhase !== "target") return;
+    let second = 0;
+    const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => socketRef.current?.emit("round_target_ready", { matchId: currentMatchIdRef.current, generation: generationRef.current })); });
+    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
+  }, [roundSchedule]);
+  const readyPrivate = useCallback(() => socketRef.current?.emit("series_ready", { seriesId: privateSeriesId, readinessGeneration: seriesState?.readinessGeneration }), [privateSeriesId, seriesState?.readinessGeneration]);
+  const respondSkip = useCallback((agree: boolean) => socketRef.current?.emit("emoji_skip_respond", { matchId: currentMatchIdRef.current, generation: generationRef.current, proposalId: proposalRef.current?.proposalId, agree }), []);
+  const retryRound = useCallback(() => { setRoundError(null); socketRef.current?.emit("round_retry", { matchId: currentMatchIdRef.current }); }, []);
+
   return {
+    seriesState, skipProposal, roundError, readyPrivate, respondSkip, retryRound,
     status,
     remoteStream,
     localPeerId,

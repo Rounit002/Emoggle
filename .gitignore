@@ -30,3 +30,6 @@
 Thumbs.db
 .vscode/
 .vercel/
+
+# Local browser verification output
+frontend/.verification/

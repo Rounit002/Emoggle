@@ -4,6 +4,7 @@
 .left { --card-accent:#d96370; transform:rotate(-2deg); }
 .right { --card-accent:#7854c7; transform:translateY(12px) rotate(2deg); }
 .badge { position:absolute; z-index:2; top:-22px; left:-4px; padding:5px 13px; border:3px solid var(--card-accent); border-radius:12px 12px 12px 0; background:var(--card-accent); color:#fff; font-size:clamp(11px,3.1cqw,19px); line-height:1.2; font-weight:750; box-shadow:0 2px 4px #17181920; }
+.left .badge { color:#171819; }
 .right .badge { background:var(--card-accent); color:#fff; }
 .photo { position:relative; aspect-ratio:4/5; overflow:hidden; border:5px solid var(--card-accent); border-radius:12px; margin:-5px -5px 0; box-shadow:inset 0 2px 0 #ffffff80,0 2px 0 #17181920; }
 .photo img { width:100%; height:100%; object-fit:cover; }

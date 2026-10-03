@@ -2,6 +2,14 @@
 
 An Omegle-style live face duel where two strangers match the same emoji and compete for the closest expression score.
 
+## Code documentation
+
+- [Architecture](ARCHITECTURE.md): current services, game flows, data ownership, APIs, and configuration.
+- [Codebase guide](CODEBASE_GUIDE.md): module walkthrough, review findings, and checks performed.
+- [Implementation report](IMPLEMENTATION_REPORT.md): private 1v1, mutual skipping, support timing, security checks and production prerequisites.
+
+These documents describe the current source; the original quick-start notes below include historical details.
+
 ## Project Structure
 
 ```
@@ -49,3 +57,5 @@ Copy `.env.example` to `.env.local` in `frontend/` and fill in values.
 | Frontend | Next.js 15, Tailwind CSS, framer-motion, react-webcam, PeerJS |
 | Matchmaking | Node.js, Express, Socket.io |
 | AI Judge | Python, FastAPI, uvicorn, Pydantic |
+
+The approved October 3 feature implementation is documented in [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md): mutual emoji skips, completion-triggered support, and invite-only 1v1 series.

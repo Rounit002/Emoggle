@@ -37,6 +37,7 @@ import {
   X,
   cn,
 } from "../ui";
+import Link from "next/link";
 import DoodleBackdrop from "./home/DoodleBackdrop";
 import { useCoveredView } from "./home/useCoveredView";
 
@@ -287,6 +288,7 @@ export function ChooseGameMode({
             data-lenis-prevent
             className="relative z-10 mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain"
           >
+            <Link href="/1v1" onClick={onClose} className="mx-auto mb-5 block w-fit rounded-full border-2 border-[var(--charcoal)] bg-[var(--yellow)] px-5 py-3 text-center font-bold text-[var(--charcoal)]">Invite a friend — private 1v1</Link>
             <ul className="mx-auto flex w-full max-w-2xl flex-col gap-5 pb-6 sm:gap-6">
               {MODE_OPTIONS.map((option, index) => {
                 const isCelebrity = option.id === "celebrity";

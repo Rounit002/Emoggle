@@ -75,7 +75,7 @@ export default function Home() {
 
         <section
           aria-labelledby="how-emoggle-works"
-          className="border-t-[3px] border-[var(--charcoal)] px-4 py-16 sm:px-5 sm:py-24"
+          className="deferred-section border-t-[3px] border-[var(--charcoal)] px-4 py-16 sm:px-5 sm:py-24"
         >
           <div className="mx-auto max-w-[1200px]">
             <span className="on-accent inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
@@ -174,7 +174,7 @@ export default function Home() {
 
         <section
           aria-labelledby="frequently-asked-questions"
-          className="border-t-[3px] border-[var(--charcoal)] px-4 py-16 sm:px-5 sm:py-24"
+          className="deferred-section border-t-[3px] border-[var(--charcoal)] px-4 py-16 sm:px-5 sm:py-24"
         >
           <div className="mx-auto max-w-4xl">
             <span className="on-accent inline-block rounded-full border-[2px] border-[var(--ink-shadow)] bg-[var(--yellow)] px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--ink-shadow)]">
@@ -214,7 +214,7 @@ export default function Home() {
 
         <nav
           aria-label="About Emoggle"
-          className="border-t-[3px] border-[var(--charcoal)] px-4 py-6 sm:px-5 sm:py-8"
+          className="deferred-section border-t-[3px] border-[var(--charcoal)] px-4 py-6 sm:px-5 sm:py-8"
         >
           <div className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-4 gap-y-1 text-sm font-bold text-[var(--charcoal)] sm:gap-x-6 sm:gap-y-3">
             <Logo size="sm" />

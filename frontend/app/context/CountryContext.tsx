@@ -31,7 +31,7 @@ import {
   useMemo,
   useState,
 } from "react";
-import { detectCountry, type DetectedCountry } from "../lib/geo";
+import { detectCountry, readCachedCountry, type DetectedCountry } from "../lib/geo";
 
 interface CountryContextValue {
   country: DetectedCountry | null;
@@ -46,13 +46,14 @@ interface CountryContextValue {
 const CountryContext = createContext<CountryContextValue | null>(null);
 
 export function CountryProvider({ children }: { children: ReactNode }) {
-  const [country, setCountry] = useState<DetectedCountry | null>(null);
-  const [isResolved, setIsResolved] = useState(false);
+  const [country, setCountry] = useState<DetectedCountry | null>(() => readCachedCountry());
+  const [isResolved, setIsResolved] = useState(true);
   // Bump to trigger a refetch; mounted components re-render but
   // the in-flight promise itself can't be cancelled from here.
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
+    if (refreshTick === 0) return;
     let cancelled = false;
     setIsResolved(false);
     detectCountry()

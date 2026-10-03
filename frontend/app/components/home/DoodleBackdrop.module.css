@@ -128,9 +128,12 @@
 }
 
 .glyph {
-  display: block;
+  display: grid;
+  place-items: center;
   width: 100%;
   height: 100%;
+  font-size: var(--size);
+  line-height: 1;
   /* Theme strength × per-item jitter. The theme half flips with
      dark mode; the jitter half keeps the field from reading as one
      flat sheet of stickers. */

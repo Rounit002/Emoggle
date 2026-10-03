@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:duel-policy": "tsx scripts/test-duel-policy.ts",
+    "verify:private-duel": "tsx scripts/verify-private-duel.ts",
     "test:result": "tsx scripts/test-sarcastic.ts",
     "test:sampler": "tsx scripts/test-sampler.ts",
     "test:country": "tsx scripts/test-country.ts",

@@ -18,8 +18,7 @@ const SESSION_TOKEN_KEY = "emoggle:tab-session-token:v2";
 const LEGACY_SESSION_TOKEN_KEY = "emoggle:session-token";
 const LEGACY_VIP_RECEIPT_KEY = "emoggle:vip-receipt";
 const SESSION_CHANNEL_NAME = "emoggle:tab-session-coordination:v1";
-const SIGNALING_URL =
-  process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
+const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL;
 const SESSION_TOKEN_PATTERN = /^[a-f0-9]{64}$/i;
 
 function getOrCreateDeviceId(): string {
@@ -76,6 +75,11 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
       deviceId,
       isVIP: false,
     };
+    if (!SIGNALING_URL) {
+      setProfile(sanitized);
+      setIsSessionReady(true);
+      return;
+    }
     window.sessionStorage.removeItem(LEGACY_SESSION_TOKEN_KEY);
     const storedToken = window.sessionStorage.getItem(SESSION_TOKEN_KEY);
     const usableToken = storedToken && SESSION_TOKEN_PATTERN.test(storedToken) ? storedToken : null;

@@ -302,27 +302,33 @@ export function TypewriterBlock({
           crawlers and assistive tech, and hide the animated copy
           from the accessibility tree. */}
       <span className="sr-only">{text}</span>
-      <span aria-hidden>
-        {displayed}
-        {stillTyping && (
-          <motion.span
-            aria-hidden
-            /* Caret — uses currentColor so it inherits the text
-               color of the parent (white on the purple chip).
-               Height is 85% of the font size so it reads as a
-               standard terminal cursor, not a fat block. The
-               0.7s easeInOut blink is a steady on/off rather
-               than a smooth fade, so it reads as a caret, not
-               a soft pulse. */
-            className="ml-px inline-block w-[2px] h-[0.85em] bg-current align-middle"
-            animate={{ opacity: [1, 0, 1] }}
-            transition={{
-              duration: 0.7,
-              repeat: Infinity,
-              ease: "easeInOut",
-            }}
-          />
-        )}
+      <span aria-hidden className="inline-grid">
+        {/* Reserve the completed phrase's width from the first frame. The
+            visible typewriter copy overlays it, so every character update is
+            paint-only and cannot recenter the hero or contribute to CLS. */}
+        <span className="invisible col-start-1 row-start-1">{text}</span>
+        <span className="col-start-1 row-start-1">
+          {displayed}
+          {stillTyping && (
+            <motion.span
+              aria-hidden
+              /* Caret — uses currentColor so it inherits the text
+                 color of the parent (white on the purple chip).
+                 Height is 85% of the font size so it reads as a
+                 standard terminal cursor, not a fat block. The
+                 0.7s easeInOut blink is a steady on/off rather
+                 than a smooth fade, so it reads as a caret, not
+                 a soft pulse. */
+              className="ml-px inline-block h-[0.85em] w-[2px] bg-current align-middle"
+              animate={{ opacity: [1, 0, 1] }}
+              transition={{
+                duration: 0.7,
+                repeat: Infinity,
+                ease: "easeInOut",
+              }}
+            />
+          )}
+        </span>
       </span>
     </motion.span>
   );

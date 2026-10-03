@@ -12,3 +12,5 @@ signaling-server/
 .claude/
 .env*
 .vercel/
+marketing-video/
+frontend/.verification/
