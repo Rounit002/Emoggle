@@ -7,13 +7,13 @@
 
 ## Release in progress
 
-Backend commit `8e7b837` was pushed first, preserving compatibility with the existing frontend. Before publishing the new frontend, verify that Render has deployed this commit, `/ready` returns JSON with `status: ready`, and `/api/capabilities` returns `privateDuels: true` and `mutualEmojiSkip: true`.
+Backend commit `8e7b837` was pushed first and Render auto-deployed it. Its post-deployment probes returned `/ready` HTTP 503 and capabilities `privateDuels: false`, `mutualEmojiSkip: true`. Production rollout was stopped and rollback commit `ba7f793` was pushed to restore the previous backend. The failed readiness probe requires inspection of Render startup/database logs; the exact cause is not yet established. The new frontend was not released to production.
 
 Vercel preview build **passed** (21 routes): https://emoggle-3son9dps8-rounit-s-projects.vercel.app/1v1. The deployed slider and all three game selections were checked in Chrome. Invitation creation correctly remains disabled while the old backend lacks the capabilities endpoint. The preview uses existing Vercel environment settings; its origin must be explicitly allowed by the backend for integrated preview play.
 
 All **57 backend unit tests passed** before publishing the backend commit. Real disposable PostgreSQL integration tests and staging payment transactions remain unperformed; existing production database readiness does not prove the new migration has succeeded.
 
-The currently signed-in Render account contains only an unrelated `surviver` service. Access to the account/workspace owning Emoggle is needed if Git auto-deployment does not complete or if database TLS/migration errors require diagnosis. Do not deploy changes to `surviver`.
+The currently signed-in Render account contains only an unrelated `surviver` service. Access to the account/workspace owning Emoggle is required to inspect the failed readiness check and configure a database CA or repair migration permissions if the logs identify either issue. Do not deploy changes to `surviver`. Local implementation commits remain intact; remote main contains the production rollback. Reconcile this history without force-pushing before resuming the release.
 
 ## Completion checks
 
