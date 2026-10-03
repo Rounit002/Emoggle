@@ -57,11 +57,14 @@ async function main() {
     if(!faceSyncMode) await host.keyboard.press('Home');
     await host.click(`label:has(input[name="private-game"][value="${faceSyncMode?'facesync':'emoji'}"])`);
     assert.equal(new URL(host.url()).pathname,'/1v1');
-    await click(host, "Create invitation"); await name(host, "HostTest");
-    await host.waitForSelector('input[aria-label="Invitation link"]', { timeout: 30000 });
-    const link = await host.$eval('input[aria-label="Invitation link"]', el => (el as HTMLInputElement).value);
+    await click(host, "Create room"); await name(host, "HostTest");
+    await host.waitForSelector('input[aria-label="Room code"]', { timeout: 30000 });
+    const code = await host.$eval('input[aria-label="Room code"]', el => (el as HTMLInputElement).value);
     await host.screenshot({ path: `${output}/private-host.png` });
-    await guest.goto(link, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await guest.goto(`${base}/1v1`, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await guest.waitForSelector('[aria-label="Enter room code"]');
+    await guest.type('[aria-label="Enter room code"]', code.toLowerCase());
+    await click(guest, "Find room");
     await guest.waitForFunction(() => document.body.textContent?.includes("You’re invited!"), { timeout: 30000 });
     assert.equal(new URL(guest.url()).hash, "", "Invite fragment stripped");
     assert.equal(await guest.$('[aria-modal="true"]'), null, "Guest preview without name popup");

@@ -3,7 +3,14 @@ const TERMINAL = new Set(["completed", "cancelled", "expired", "aborted"]);
 const INVITE_TTL = 15 * 60000;
 const SERIES_TTL = 90 * 60000;
 const tokenDigest = token => crypto.createHash("sha256").update(token).digest("hex");
-const validToken = token => typeof token === "string" && /^[A-Za-z0-9_-]{43}$/.test(token);
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+// Twelve unbiased base-32 characters give 60 bits of entropy. Formatting is
+// optional; legacy 256-bit link tokens remain case-sensitive during transition.
+const normalizeToken = token => typeof token === "string" && token.length <= 64
+    ? /^[A-Za-z0-9_-]{43}$/.test(token) ? token : token.replace(/[\s-]/g, "").toUpperCase()
+    : "";
+const validToken = token => typeof token === "string" && (/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/.test(token) || /^[A-Za-z0-9_-]{43}$/.test(token));
+const createCode = () => Array.from(crypto.randomBytes(12), byte => CODE_ALPHABET[byte % 32]).join("");
 const fail = (message, status = 409) => Object.assign(new Error(message), { status });
 class DuelStore {
     constructor({ pool, available, production = false, now = Date.now }) {
@@ -60,7 +67,9 @@ class DuelStore {
             const persistent = this.available();
             if (!persistent && this.production)
                 throw fail("Private games need the database. Please retry later.", 503);
-            const now = this.now(), token = crypto.randomBytes(32).toString("base64url"), digest = tokenDigest(token);
+            const now = this.now();
+            let token, digest;
+            do { token = createCode(); digest = tokenDigest(token); } while (this.invites.has(digest));
             const s = { id: crypto.randomUUID(), hostId: userId, guestId: null, gameMode: rules.gameMode, totalRounds: rules.totalRounds, state: "waiting", readinessGeneration: 1, version: 1, currentRound: 1, hostPoints: 0, guestPoints: 0, createdAt: now, expiresAt: now + SERIES_TTL, completedAt: null, results: [], persistent };
             const invite = { digest, seriesId: s.id, expiresAt: now + INVITE_TTL, consumedBy: null, revoked: false };
             if (persistent)
@@ -74,6 +83,7 @@ class DuelStore {
         });
     }
     preview(token) {
+        token = normalizeToken(token);
         if (!validToken(token))
             throw fail("This invitation is unavailable.", 404);
         const i = this.invites.get(tokenDigest(token)), s = i && this.series.get(i.seriesId);
@@ -82,6 +92,7 @@ class DuelStore {
         return { gameMode: s.gameMode, totalRounds: s.totalRounds, expiresAt: i.expiresAt };
     }
     async join(userId, token) {
+        token = normalizeToken(token);
         return this.run(async () => {
             if (!validToken(token))
                 throw fail("This invitation is unavailable.", 404);
@@ -89,7 +100,7 @@ class DuelStore {
             if (!s || !i || i.revoked || i.expiresAt <= this.now() || TERMINAL.has(s.state))
                 throw fail("This invitation is expired or cancelled.", 404);
             if (s.hostId === userId)
-                throw fail("Open this link as your friend, not the host.");
+                throw fail("Share this code with your friend; you are already the host.");
             if (i.consumedBy === userId && s.guestId === userId)
                 return s;
             if (i.consumedBy || s.guestId)
@@ -121,7 +132,9 @@ class DuelStore {
             const s = this.get(id, userId);
             if (s.hostId !== userId || s.guestId || s.state !== "waiting")
                 throw fail("Only an unclaimed host invitation can be regenerated.");
-            const token = crypto.randomBytes(32).toString("base64url"), digest = tokenDigest(token), expiresAt = Math.min(this.now() + INVITE_TTL, s.expiresAt);
+            let token, digest;
+            do { token = createCode(); digest = tokenDigest(token); } while (this.invites.has(digest));
+            const expiresAt = Math.min(this.now() + INVITE_TTL, s.expiresAt);
             if (s.persistent)
                 await this.transaction(async (c) => {
                     await c.query("UPDATE duel_invites SET revoked=true WHERE series_id=$1", [id]);

@@ -15,11 +15,12 @@ async function main() {
     assert.equal((await request('/api/duels', null, { gameMode: 'emoji', totalRounds: 1 })).status, 401);
     const created = await request('/api/duels', h, { gameMode: 'emoji', totalRounds: 3 });
     assert.equal(created.status, 201);
-    const id = created.data.series.id, invite = created.data.inviteToken;
+    const id = created.data.series.id, invite = created.data.roomCode;
+    assert.match(invite, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/);
     assert.equal((await request(`/api/duels/${id}`, o)).status, 404);
-    assert.equal((await request('/api/duels/invite-preview', g, { token: invite })).data.totalRounds, 3);
-    assert.equal((await request('/api/duels/join', h, { token: invite })).status, 409);
-    const results = await Promise.all([request('/api/duels/join', g, { token: invite }), request('/api/duels/join', o, { token: invite })]);
+    assert.equal((await request('/api/duels/invite-preview', g, { code: invite.toLowerCase().match(/.{4}/g).join("-") })).data.totalRounds, 3);
+    assert.equal((await request('/api/duels/join', h, { code: invite.toLowerCase().match(/.{4}/g).join("-") })).status, 409);
+    const results = await Promise.all([request('/api/duels/join', g, { code: invite.toLowerCase().match(/.{4}/g).join("-") }), request('/api/duels/join', o, { code: invite.toLowerCase().match(/.{4}/g).join("-") })]);
     assert.equal(results.filter(r => r.status === 200).length, 1);
     const guestToken = results[0].status === 200 ? g : o;
     const a = await connect(h), b = await connect(guestToken);

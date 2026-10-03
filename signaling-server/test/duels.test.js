@@ -34,12 +34,16 @@ test('invitations: digest only, atomic two-seat claim, self/outsider/revoked/exp
     let now = 100;
     const store = new DuelStore({ available: () => false, now: () => now });
     const { series, token } = await store.create('host', { gameMode: 'emoji', totalRounds: 3 });
-    assert.equal(token.length, 43);
+    assert.match(token, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/);
     assert.ok(store.invites.has(tokenDigest(token)));
     assert.ok(!JSON.stringify([...store.invites]).includes(token));
     assert.throws(() => store.get(series.id, 'outsider'));
     await assert.rejects(store.join('host', token));
-    const attempts = await Promise.allSettled([store.join('guest', token), store.join('other', token)]);
+    const formatted = token.toLowerCase().match(/.{4}/g).join(' - ');
+    assert.equal(store.preview(formatted).totalRounds, 3);
+    assert.throws(() => store.preview('ABCD-EFGH-IJKL'));
+    assert.throws(() => store.preview('A'.repeat(10000)));
+    const attempts = await Promise.allSettled([store.join('guest', formatted), store.join('other', token)]);
     assert.equal(attempts.filter(a => a.status === 'fulfilled').length, 1);
     assert.equal((await store.join('guest', token)).id, series.id);
     assert.throws(() => store.preview(token));

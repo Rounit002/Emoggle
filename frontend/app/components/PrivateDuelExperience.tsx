@@ -27,7 +27,7 @@ type Invitation = {
 };
 type Created = {
     series: SeriesState;
-    inviteToken: string;
+    roomCode: string;
     inviteExpiresAt: number;
 };
 const button = "min-h-12 rounded-full border-2 border-[var(--charcoal)] bg-[var(--yellow)] px-6 py-2 font-bold text-[var(--charcoal)] shadow-[3px_3px_0_var(--charcoal)] disabled:opacity-50";
@@ -40,9 +40,10 @@ function PrivateContent() {
     const [available, setAvailable] = useState<boolean | null>(null);
     const [rounds, setRounds] = useState(3), [mode, setMode] = useState<SeriesState["gameMode"]>("emoji");
     const [invite, setInvite] = useState<string | null>(null), [preview, setPreview] = useState<Invitation | null>(null);
-    const [series, setSeries] = useState<SeriesState | null>(null), [inviteLink, setInviteLink] = useState<string | null>(null);
+    const [series, setSeries] = useState<SeriesState | null>(null), [roomCode, setRoomCode] = useState<string | null>(null);
     const [arena, setArena] = useState(false), [nameOpen, setNameOpen] = useState(false), [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null), [copied, setCopied] = useState(false), [loaded, setLoaded] = useState(false);
+    const [codeDraft, setCodeDraft] = useState("");
     const capturedInvite = useRef<string | null | undefined>(undefined);
     const pending = useRef<"create" | "join" | null>(null), mounted = useRef(true);
     useEffect(() => {
@@ -71,7 +72,7 @@ function PrivateContent() {
             return;
         let cancelled = false;
         if (invite) {
-            duelRequest<Invitation>(sessionToken, "/invite-preview", { token: invite }).then(data => { if (!cancelled)
+            duelRequest<Invitation>(sessionToken, "/invite-preview", { code: invite }).then(data => { if (!cancelled)
                 setPreview(data); }).catch(e => { if (!cancelled)
                 setError(e.message); });
         }
@@ -101,7 +102,7 @@ function PrivateContent() {
         sessionStorage.setItem("emoggle:private-series", s.id);
     }
     catch { /* storage optional */ } };
-    const linkFor = (token: string) => `${window.location.origin}/1v1#invite=${encodeURIComponent(token)}`;
+    const formatCode = (code: string) => code.match(/.{1,4}/g)?.join("-") ?? code;
     const perform = async (action: "create" | "join") => {
         if (!sessionToken || busy)
             return;
@@ -113,10 +114,10 @@ function PrivateContent() {
                 if (!mounted.current)
                     return;
                 remember(result.series);
-                setInviteLink(linkFor(result.inviteToken));
+                setRoomCode(formatCode(result.roomCode));
             }
             else {
-                const result = await duelRequest<SeriesState>(sessionToken, "/join", { token: invite });
+                const result = await duelRequest<SeriesState>(sessionToken, "/join", { code: invite });
                 if (!mounted.current)
                     return;
                 remember(result);
@@ -138,7 +139,7 @@ function PrivateContent() {
     }
     else
         void perform(action); };
-    const back = useCallback(() => { setArena(false); setSeries(null); setInvite(null); setPreview(null); setInviteLink(null); try {
+    const back = useCallback(() => { setArena(false); setSeries(null); setInvite(null); setCodeDraft(""); setPreview(null); setRoomCode(null); try {
         sessionStorage.removeItem("emoggle:private-series");
     }
     catch { /* storage optional */ } }, []);
@@ -154,31 +155,31 @@ function PrivateContent() {
         }
     };
     if (arena && series)
-        return <MediaPipeFaceProvider>{series.gameMode === "emoji" ? <DuelArena privateInviteLink={inviteLink} privateSeriesId={series.id} onBack={back}/> : series.gameMode === "facesync" ? <FaceSyncArena privateInviteLink={inviteLink} privateSeriesId={series.id} onBack={back}/> : <CelebrityDuelArena privateSeriesId={series.id} onBack={back}/>}</MediaPipeFaceProvider>;
+        return <MediaPipeFaceProvider>{series.gameMode === "emoji" ? <DuelArena privateRoomCode={roomCode} privateSeriesId={series.id} onBack={back}/> : series.gameMode === "facesync" ? <FaceSyncArena privateRoomCode={roomCode} privateSeriesId={series.id} onBack={back}/> : <CelebrityDuelArena privateRoomCode={roomCode} privateSeriesId={series.id} onBack={back}/>}</MediaPipeFaceProvider>;
     return <main className={styles.page}>
     <Link href="/" className="mb-8 w-fit rounded-full border-2 bg-[var(--off-white-2)] px-4 py-3 font-bold">← Explore Emoggle</Link>
     <section className={styles.panel}>
       <div className={styles.heading}><div><p className={styles.eyebrow}>JUST YOU + YOUR FRIEND</p><h1 className={styles.title}>Your own 1v1<span>.</span></h1>
-      <p className={styles.subtitle}>Pick your rounds. Choose your game. Send the invite.</p></div><span className={styles.badge} aria-hidden="true">1 vs 1</span></div>
+      <p className={styles.subtitle}>Pick your rounds. Choose your game. Share the room code.</p></div><span className={styles.badge} aria-hidden="true">1 vs 1</span></div>
       {available === false && <p role="status" className="my-3 font-bold">Private 1v1 is unavailable right now. Please try again later.</p>}
       {error && <p role="alert" className="my-4 rounded-xl bg-[var(--yellow)] p-3 font-bold">{error}</p>}
       {!loaded ? <p role="status">Loading…</p> : series ? <>
         <h2 className="text-2xl font-bold">{gameName(series.gameMode)} · {series.totalRounds} {series.totalRounds === 1 ? "round" : "rounds"}</h2>
-        <p className="my-3" role="status">{terminalSeries(series.state) ? "This game has ended." : series.partnerJoined ? "Your friend joined! Enter the lobby, check your cameras, and both click ready." : "Share your link. Your friend can see the rules before joining."}</p>
-        {inviteLink && !series.partnerJoined && <>
-          <input aria-label="Invitation link" readOnly value={inviteLink} className="my-3 min-h-12 w-full rounded-xl border-2 p-3"/>
+        <p className="my-3" role="status">{terminalSeries(series.state) ? "This game has ended." : series.partnerJoined ? "Your friend joined! Enter the lobby, check your cameras, and both click ready." : "Share your room code. Your friend enters it on the 1v1 page to join."}</p>
+        {roomCode && !series.partnerJoined && <>
+          <input aria-label="Room code" readOnly value={roomCode} className="my-3 min-h-12 w-full rounded-xl border-2 p-3"/>
           <button className={button} onClick={async () => { try {
-                await navigator.clipboard.writeText(inviteLink);
+                await navigator.clipboard.writeText(roomCode);
                 setCopied(true);
             }
             catch {
-                setError("Select the link above and copy it.");
-            } }}>{copied ? "Copied!" : "Copy invite link"}</button>
+                setError("Select the code above and copy it.");
+            } }}>{copied ? "Copied!" : "Copy room code"}</button>
         </>}
         {series.role === "host" && !series.partnerJoined && !terminalSeries(series.state) && <button disabled={busy} className="ml-3 min-h-12 underline" onClick={async () => { if (!sessionToken)
             return; setBusy(true); try {
             const data = await duelRequest<Created>(sessionToken, `/${series.id}/invite`, {});
-            setInviteLink(linkFor(data.inviteToken));
+            setRoomCode(formatCode(data.roomCode));
             setCopied(false);
         }
         catch (e) {
@@ -186,8 +187,8 @@ function PrivateContent() {
         }
         finally {
             setBusy(false);
-        } }}>Regenerate link</button>}
-        <p className="my-3 text-sm">Links expire after 15 minutes and admit one friend. Regenerating revokes your previous link.</p>
+        } }}>Regenerate code</button>}
+        <p className="my-3 text-sm">Codes expire after 15 minutes and admit one friend. Regenerating revokes your previous code.</p>
         {!terminalSeries(series.state) && <button className={`${button} mt-4`} onClick={() => { if (!name) {
             pending.current = null;
             setNameOpen(true);
@@ -196,11 +197,11 @@ function PrivateContent() {
             setArena(true); }}>Enter camera lobby</button>}
         {series.role === "host" && !terminalSeries(series.state) && <button className="ml-4 min-h-12 underline" onClick={() => void cancel()}>Cancel 1v1</button>}
         {terminalSeries(series.state) && <button className={button} onClick={back}>Start another 1v1</button>}
-      </> : invite ? preview ? <>
+      </> : invite ? <><button className="mb-4 min-h-11 underline" onClick={() => { setInvite(null); setPreview(null); setError(null); }}>← Back to setup</button>{preview ? <>
         <h2 className="text-2xl font-bold">You’re invited!</h2><p className="my-3">{gameName(preview.gameMode)} · {preview.totalRounds} {preview.totalRounds === 1 ? "round" : "rounds"} · Private, unranked</p>
         <p className="my-3">Joining reserves your seat. Cameras open after you choose to join; both players must be ready before the timer starts.</p>
         <button className={button} disabled={!available || busy || !isHydrated || !sessionToken} onClick={() => begin("join")}>{busy ? "Joining…" : "Join 1v1"}</button>
-      </> : <p role="status">{error ? "Ask your friend for a new invitation." : "Checking invitation…"}</p> : <div className={styles.setup}>
+      </> : <p role="status">{error ? "Ask your friend for a new room code." : "Checking room…"}</p>}</> : <div className={styles.setup}>
         <div className={styles.rounds}>
           <div className={styles.sectionHeading}><label htmlFor="private-rounds">01 <strong>Choose your rounds</strong></label><output htmlFor="private-rounds" className={styles.roundValue}>{rounds}<span>{rounds === 1 ? "round" : "rounds"}</span></output></div>
           <input id="private-rounds" className={styles.slider} type="range" min={1} max={5} step={2} value={rounds} aria-valuetext={`${rounds} rounds`} onChange={event => setRounds(Number(event.target.value))} style={{ background: `linear-gradient(to right, #7055e8 ${(rounds - 1) * 25}%, #ddd7f4 ${(rounds - 1) * 25}%)` }}/>
@@ -210,8 +211,21 @@ function PrivateContent() {
           <input type="radio" name="private-game" value={game.id} checked={mode === game.id} onChange={() => setMode(game.id)}/><span className={styles.gameIcon} style={{ background: game.color }} aria-hidden="true">{game.icon}</span><span className={styles.gameName}>{game.name}</span><span className={styles.gameDescription}>{game.description}</span><span className={styles.check} aria-hidden="true">{mode === game.id ? "✓" : ""}</span>
         </label>)}</div></fieldset>
         <div className={styles.footer}><div><p className={styles.summary}>{rounds} {rounds === 1 ? "round" : "rounds"} · {gameName(mode)}</p><p className={styles.note}>{mode === "facesync" ? "Shared resemblance results. No points, just curiosity." : mode === "celebrity" ? "IShowSpeed Squint challenge. One point per win." : "One point per win. Half a point each for a tie."}</p></div>
-        <button className={styles.create} aria-label={busy ? "Creating…" : "Create invitation"} disabled={!available || busy || !isHydrated || !isSessionReady || !sessionToken} onClick={() => begin("create")}>{busy ? "Creating…" : "Create invitation"}<span aria-hidden="true">↗</span></button></div>
-        <p className={styles.reassurance}>Private link · Same friend every round · No ranking changes</p>
+        <button className={styles.create} aria-label={busy ? "Creating…" : "Create room"} disabled={!available || busy || !isHydrated || !isSessionReady || !sessionToken} onClick={() => begin("create")}>{busy ? "Creating…" : "Create room"}<span aria-hidden="true">↗</span></button></div>
+        <p className={styles.reassurance}>Private room · Same friend every round · No ranking changes</p>
+        <form className={styles.joinRoom} onSubmit={event => {
+            event.preventDefault();
+            const code = codeDraft.replace(/[\s-]/g, "").toUpperCase();
+            if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{12}$/.test(code)) {
+                setError("Enter the 12-character room code your friend shared.");
+                return;
+            }
+            setError(null); setPreview(null); setInvite(code);
+        }}>
+          <label htmlFor="join-room-code"><strong>Have a room code?</strong><span>Enter your friend’s code to see the game and join.</span></label>
+          <div className={styles.joinControls}><input id="join-room-code" aria-label="Enter room code" placeholder="ABCD-EFGH-JKLM" autoComplete="off" autoCapitalize="characters" spellCheck={false} maxLength={32} value={codeDraft} onChange={event => setCodeDraft(event.target.value)} required/>
+          <button className={button} disabled={!available || !sessionToken || busy} type="submit">Find room</button></div>
+        </form>
       </div>}
     </section>
     <button type="button" onClick={support} className="mt-5 min-h-11 self-center font-bold underline">Support Emoggle</button>

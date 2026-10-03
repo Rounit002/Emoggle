@@ -52,7 +52,7 @@ type AppPhase = "lobby" | "dueling" | "countdown" | "playing" | "results";
 
 interface DuelArenaProps {
   privateSeriesId?: string;
-  privateInviteLink?: string | null;
+  privateRoomCode?: string | null;
   onBack: () => void;
   modeSwitchTicket?: string | null;
   onModeSwitch?: (mode: MatchGameMode, ticket: string) => void;
@@ -120,7 +120,7 @@ function buildMatchResult(args: {
   };
 }
 
-export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, privateSeriesId, privateInviteLink }: DuelArenaProps) {
+export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, privateSeriesId, privateRoomCode }: DuelArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const submittedRef = useRef(false);
   const {
@@ -507,7 +507,7 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, priv
 
   return (
     <div className="relative flex min-h-screen w-screen flex-col bg-[var(--off-white)] text-[var(--charcoal)]">
-      {privateSeriesId && phase !== "results" && <SeriesPanel inviteLink={privateInviteLink} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} />}
+      {privateSeriesId && phase !== "results" && <SeriesPanel roomCode={privateRoomCode} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} />}
       {roundError && <div role="alert" className="m-3 rounded-xl bg-[var(--yellow)] p-3 text-center text-[var(--charcoal)]">{roundError} <button onClick={retryRound} className="min-h-11 underline">Retry connection</button></div>}
       <EmojiSkipDialog proposal={skipProposal} respond={respondSkip} />
       {roundSchedule?.skipEnabled !== false && status === "matched" && ["preview", "playing"].includes(roundSchedule?.serverPhase ?? "") && phase !== "results" && <button type="button" onClick={requestChangeEmoji} className="fixed bottom-24 left-1/2 z-40 min-h-11 -translate-x-1/2 rounded-full border-2 border-[var(--charcoal)] bg-[var(--yellow)] px-4 text-sm font-bold text-[var(--charcoal)]">Request emoji skip</button>}
@@ -667,7 +667,7 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, priv
               myFlag,
               partnerFlag,
             })}
-            seriesContent={privateSeriesId ? <SeriesPanel inviteLink={privateInviteLink} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} /> : undefined}
+            seriesContent={privateSeriesId ? <SeriesPanel roomCode={privateRoomCode} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} /> : undefined}
             onPlayAgain={privateSeriesId ? readyPrivate : handleRetry}
             onLeave={onBack}
             selfLabel={myName ?? "ME"}

@@ -51,13 +51,13 @@ import {
 
 interface FaceSyncArenaProps {
   privateSeriesId?: string;
-  privateInviteLink?: string | null;
+  privateRoomCode?: string | null;
   onBack: () => void;
   modeSwitchTicket?: string | null;
   onModeSwitch?: (mode: MatchGameMode, ticket: string) => void;
 }
 
-export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, privateSeriesId, privateInviteLink }: FaceSyncArenaProps) {
+export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, privateSeriesId, privateRoomCode }: FaceSyncArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const {
     stream: localStream,
@@ -192,7 +192,7 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
         className="flex min-h-0 flex-1 flex-col items-center gap-3 p-3 sm:gap-4 sm:p-4 lg:gap-6 lg:p-6"
         aria-label="FaceSync arena"
       >
-        {privateSeriesId && <SeriesPanel series={seriesState} ready={readyPrivate} leave={handleCancelSearch} inviteLink={privateInviteLink}/>}
+        {privateSeriesId && <SeriesPanel series={seriesState} ready={readyPrivate} leave={handleCancelSearch} roomCode={privateRoomCode}/>}
         {privateSeriesId && roundError && <p role="alert">{roundError} <button className="min-h-11 underline" onClick={retryRound}>Retry connection</button></p>}
         {/* Faces stay visible the whole time — the entire joke is
             "do these two look alike", which does not work if the

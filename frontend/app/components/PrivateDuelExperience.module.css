@@ -7,6 +7,12 @@
 .subtitle { margin-top: 14px; max-width: 390px; line-height: 1.6; }
 .badge { display: grid; place-items: center; width: 96px; height: 96px; flex-shrink: 0; border: 3px solid var(--charcoal); border-radius: 26px; background: #ffde59; color: #222; font-size: 22px; font-weight: 900; transform: rotate(8deg); box-shadow: 4px 4px 0 var(--charcoal); }
 .setup { display: grid; gap: 30px; }
+.joinRoom { border-top: 2px dashed var(--charcoal); padding-top: 24px; }
+.joinRoom label { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.joinRoom label span { font-size: 14px; }
+.joinControls { display: flex; flex-wrap: wrap; gap: 12px; }
+.joinControls input { flex: 1 1 200px; min-width: 0; width: 100%; min-height: 48px; border: 2px solid var(--charcoal); border-radius: 12px; padding: 12px; background: var(--off-white); font: inherit; text-transform: uppercase; }
+.joinControls input:focus-visible { outline: 3px solid #7055e8; outline-offset: 3px; }
 .rounds { background: #f1edff; color: #272237; border: 2px solid #d5cbee; border-radius: 20px; padding: 20px 24px 22px; }
 .sectionHeading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .sectionHeading label, .games legend { font-size: 12px; letter-spacing: .06em; }

@@ -59,7 +59,7 @@ type AppPhase = "lobby" | "matched" | "countdown" | "playing" | "results";
 
 interface CelebrityDuelArenaProps {
   privateSeriesId?: string;
-  privateInviteLink?: string | null;
+  privateRoomCode?: string | null;
   onBack: () => void;
   modeSwitchTicket?: string | null;
   onModeSwitch?: (mode: MatchGameMode, ticket: string) => void;
@@ -120,7 +120,7 @@ function buildResult(
   };
 }
 
-export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwitch, privateSeriesId, privateInviteLink }: CelebrityDuelArenaProps) {
+export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwitch, privateSeriesId, privateRoomCode }: CelebrityDuelArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const peakAccumulatorRef = useRef<PeakScoreAccumulator>(createPeakAccumulator());
   const submittedRef = useRef(false);
@@ -402,7 +402,7 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
 
   return (
     <div className="relative flex min-h-screen w-screen flex-col bg-[var(--off-white)] text-[var(--charcoal)]">
-      {privateSeriesId && phase !== "results" && <SeriesPanel inviteLink={privateInviteLink} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} />}
+      {privateSeriesId && phase !== "results" && <SeriesPanel roomCode={privateRoomCode} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} />}
       {roundError && <div role="alert" className="m-3 rounded-xl bg-[var(--yellow)] p-3 text-center text-[var(--charcoal)]">{roundError} <button onClick={retryRound} className="min-h-11 underline">Retry connection</button></div>}
       <header className="z-30 flex flex-none items-center justify-between gap-2 border-b-[3px] border-[var(--charcoal)] bg-[var(--off-white)] px-4 py-3 sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
@@ -521,7 +521,7 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
       {phase === "results" && (
         <CelebrityResultScreen
           result={resolvedResult}
-          seriesContent={privateSeriesId ? <SeriesPanel inviteLink={privateInviteLink} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} /> : undefined}
+          seriesContent={privateSeriesId ? <SeriesPanel roomCode={privateRoomCode} series={seriesState} ready={readyPrivate} leave={() => { stopMatching(); onBack(); }} /> : undefined}
           onPlayAgain={privateSeriesId ? readyPrivate : handleRetry}
           onLeave={onBack}
           selfLabel={myName ?? "ME"}

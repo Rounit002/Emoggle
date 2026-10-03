@@ -69,17 +69,17 @@ class PrivateDuels {
         catch (e) {
             res.status(e.status || 503).json({ detail: e.status ? e.message : "Could not complete this 1v1 request." });
         } };
-        router.post("/", handle(async (req, res) => { this.allowed(req.user.id, "create", 3); const r = await this.reserve(req.user.id, () => o.store.create(req.user.id, req.body)); res.status(201).json({ series: this.snapshot(r.series, req.user.id), inviteToken: r.token, inviteExpiresAt: r.inviteExpiresAt }); }));
-        router.post("/invite-preview", handle(async (req, res) => { this.allowed(req.user.id, "invite", 20); res.json(o.store.preview(req.body?.token)); }));
+        router.post("/", handle(async (req, res) => { this.allowed(req.user.id, "create", 3); const r = await this.reserve(req.user.id, () => o.store.create(req.user.id, req.body)); res.status(201).json({ series: this.snapshot(r.series, req.user.id), roomCode: r.token, inviteToken: r.token, inviteExpiresAt: r.inviteExpiresAt }); }));
+        router.post("/invite-preview", handle(async (req, res) => { this.allowed(req.user.id, "invite", 20); res.json(o.store.preview(req.body?.code ?? req.body?.token)); }));
         router.post("/join", handle(async (req, res) => {
             this.allowed(req.user.id, "invite", 20);
-            const s = await this.reserve(req.user.id, () => o.store.join(req.user.id, req.body?.token));
+            const s = await this.reserve(req.user.id, () => o.store.join(req.user.id, req.body?.code ?? req.body?.token));
             if (s.state === "ready" && !this.deadlines.has(s.id)) this.deadline(s);
             this.emit(s);
             res.json(this.snapshot(s, req.user.id));
         }));
         router.get("/:id", handle(async (req, res) => res.json(this.snapshot(o.store.get(req.params.id, req.user.id), req.user.id))));
-        router.post("/:id/invite", handle(async (req, res) => { this.allowed(req.user.id, "regenerate", 3); const r = await o.store.regenerate(req.params.id, req.user.id); res.json({ series: this.snapshot(r.series, req.user.id), inviteToken: r.token, inviteExpiresAt: r.inviteExpiresAt }); }));
+        router.post("/:id/invite", handle(async (req, res) => { this.allowed(req.user.id, "regenerate", 3); const r = await o.store.regenerate(req.params.id, req.user.id); res.json({ series: this.snapshot(r.series, req.user.id), roomCode: r.token, inviteToken: r.token, inviteExpiresAt: r.inviteExpiresAt }); }));
         router.post("/:id/cancel", handle(async (req, res) => { const s = o.store.get(req.params.id, req.user.id); if (s.hostId !== req.user.id)
             throw fail("Only the host can cancel setup.", 403); await this.end(s, "cancelled"); res.status(204).end(); }));
         return router;

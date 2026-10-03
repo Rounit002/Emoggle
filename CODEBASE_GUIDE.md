@@ -326,7 +326,7 @@ When source or wiring changes, update these two documents together. Keep planned
 
 ## October 3 implementation map
 
-- `frontend/app/1v1/page.tsx` and `components/PrivateDuelExperience.tsx`: private setup, fragment invitation preview, explicit name/join, share/regenerate/cancel lobby, and resumable tab series ID.
+- `frontend/app/1v1/page.tsx` and `components/PrivateDuelExperience.tsx`: private setup, manual room-code entry and preview (legacy fragments accepted), explicit name/join, copy/regenerate/cancel lobby, and resumable tab series ID.
 - `components/PrivateDuelExperience.module.css`: unified round slider/game cards, distinct purple slider, keyboard focus, phone/tablet/desktop layouts and reduced-motion handling. Emoji, Celebrity and Face Sync choices stay in the same setup screen.
 - `components/FaceSyncArena.tsx`: accepts private-series context, shows readiness/comparison completion through SeriesPanel, and keeps private players out of the public next-stranger flow. `roundEngine.finishFaceSync()` finalizes comparisons without competitive points or scored-round donation prompts.
 - `components/SeriesPanel.tsx`: private readiness, round ledger, points, final draw/winner, leave and manual support. Existing emoji/celebrity result and share cards embed this panel.
