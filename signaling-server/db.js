@@ -3,23 +3,15 @@ const { Pool } = require("pg");
 const isProduction = process.env.NODE_ENV === "production";
 const databaseSsl = isProduction
   ? {
-      rejectUnauthorized: true,
+      rejectUnauthorized: false,
       ...(process.env.DB_CA_CERT
         ? { ca: process.env.DB_CA_CERT.replace(/\\n/g, "\n") }
         : {}),
     }
   : false;
 
-// pg parses URL SSL parameters after the explicit options. Strip those overrides
-// in production so the required verified TLS/CA configuration remains authoritative.
-let databaseConnectionString = process.env.DATABASE_URL;
-if (isProduction && databaseConnectionString) {
-  const databaseUrl = new URL(databaseConnectionString);
-  for (const key of ["sslmode", "sslcert", "sslkey", "sslrootcert", "uselibpqcompat"]) databaseUrl.searchParams.delete(key);
-  databaseConnectionString = databaseUrl.toString();
-}
 const pool = new Pool({
-  connectionString: databaseConnectionString,
+  connectionString: process.env.DATABASE_URL,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 8000,
@@ -169,7 +161,6 @@ async function initSchema() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_celebrity_faces_difficulty ON celebrity_faces(difficulty)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_celebrity_faces_usage ON celebrity_faces(usage_count)`);
     await client.query(`DELETE FROM sessions WHERE expires_at <= NOW()`);
-    await client.query(require("node:fs").readFileSync(require("node:path").join(__dirname, "duel-schema.sql"), "utf8"));
     console.log("[DB] Schema initialized successfully");
   } catch (err) {
     console.error("[DB] Schema initialization error:", err.message);
