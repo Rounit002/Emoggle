@@ -1,3 +1,5 @@
+import { SIGNALING_URL } from "./signaling";
+
 export interface SeriesState {
     id: string;
     gameMode: "emoji" | "celebrity" | "facesync";
@@ -24,7 +26,7 @@ export interface SeriesState {
 }
 export const terminalSeries = (state: string) => ["completed", "cancelled", "aborted", "expired"].includes(state);
 export async function duelRequest<T>(token: string, path: string, body?: unknown): Promise<T> {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001"}/api/duels${path}`, {
+    const response = await fetch(`${SIGNALING_URL}/api/duels${path}`, {
         method: body === undefined ? "GET" : "POST", cache: "no-store",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),

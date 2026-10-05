@@ -7,6 +7,7 @@ import styles from "./HeroPreview.module.css";
 import { motion } from "framer-motion";
 import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
+import { SIGNALING_URL } from "../lib/signaling";
 import { ScrollReveal } from "./home/EmojiMotion";
 import {
   GooeyBlock,
@@ -44,8 +45,6 @@ interface ModeSelectProps {
   onDismissSupport: () => void;
   onOpenSupport: () => void;
 }
-
-const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL;
 
 type ModeId = "camera" | "solo" | "celebrity" | "facesync";
 
@@ -167,7 +166,6 @@ export default function ModeSelect({ onSelect, supportOpen, onOpenSupport }: Mod
   const { country } = useCountry();
 
   useEffect(() => {
-    if (!SIGNALING_URL) return;
     let cancelled = false;
     const fetchCount = async () => {
       try {

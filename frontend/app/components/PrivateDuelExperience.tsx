@@ -9,6 +9,7 @@ import { useSupportPrompt } from "../context/SupportPromptContext";
 import { useUserProfile } from "../context/UserProfileContext";
 import { NameEntryModal } from "./NameEntryModal";
 import { duelRequest, terminalSeries, type SeriesState } from "../lib/privateDuels";
+import { SIGNALING_URL } from "../lib/signaling";
 import { useSmoothScrollController } from "./SmoothScroll";
 import styles from "./PrivateDuelExperience.module.css";
 const DuelArena = dynamic(() => import("./DuelArena"));
@@ -59,7 +60,7 @@ function PrivateContent() {
     }, []);
     useEffect(() => {
         const controller = new AbortController();
-        fetch(`${process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001"}/api/capabilities`, { cache: "no-store", signal: controller.signal })
+        fetch(`${SIGNALING_URL}/api/capabilities`, { cache: "no-store", signal: controller.signal })
             .then(async (response) => { if (!response.ok)
             throw new Error(); const data = await response.json(); setAvailable(data.privateDuels === true); })
             .catch(() => { if (!controller.signal.aborted)

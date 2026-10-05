@@ -50,7 +50,7 @@ import {
   type ExpressionProfile,
 } from "../lib/celebrityScoring";
 import { CelebrityResultScreen, type CelebrityResultLike } from "./CelebrityResultScreen";
-import { Logo, Pill, LobbyOverlay, ThemeToggle, ArrowLeft, Timer, cn } from "../ui";
+import { Logo, Pill, LobbyOverlay, ArrowLeft, Timer, cn } from "../ui";
 import { flagFromAnyOrFallback } from "../lib/country";
 
 const ROUND_SECONDS = 10;
@@ -425,7 +425,6 @@ export default function CelebrityDuelArena({ onBack, modeSwitchTicket, onModeSwi
               {roundSeconds}s
             </Pill>
           )}
-          <ThemeToggle size="sm" />
         </div>
       </header>
 

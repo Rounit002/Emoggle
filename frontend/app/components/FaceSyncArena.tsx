@@ -37,12 +37,12 @@ import { usePlayerName } from "../context/PlayerNameContext";
 import { useCountry } from "../context/CountryContext";
 import { MIN_SAMPLES } from "../lib/faceSync/types";
 import { MISSING_FACE_TITLE } from "../lib/faceSync/messages";
+import { flagFromAnyOrFallback } from "../lib/country";
 import {
   Button,
   IconButton,
   Logo,
   LobbyOverlay,
-  ThemeToggle,
   ArrowLeft,
   Mic,
   MicOff,
@@ -168,8 +168,8 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
   const settled = Boolean(faceSyncResult) || bypassed;
 
   return (
-    <div className="relative flex min-h-screen w-screen flex-col bg-[var(--off-white)] text-[var(--charcoal)]">
-      <header className="z-30 flex flex-none items-center justify-between gap-2 border-b-[3px] border-[var(--charcoal)] bg-[var(--off-white)] px-4 py-3 sm:px-6">
+    <div className="relative flex h-[100dvh] w-screen flex-col overflow-hidden bg-[var(--off-white)] text-[var(--charcoal)] sm:h-auto sm:min-h-screen sm:overflow-visible">
+      <header className="z-30 flex flex-none items-center justify-between gap-2 border-b-[3px] border-[var(--charcoal)] bg-[var(--off-white)] px-3 py-2 sm:px-6 sm:py-3">
         <div className="flex min-w-0 items-center gap-3">
           <button
             onClick={handleCancelSearch}
@@ -185,20 +185,21 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
             <span aria-hidden>⚡ </span>FaceSync
           </span>
         </div>
-        <ThemeToggle size="sm" />
       </header>
 
       <main
-        className="flex min-h-0 flex-1 flex-col items-center gap-3 p-3 sm:gap-4 sm:p-4 lg:gap-6 lg:p-6"
+        className="flex min-h-0 flex-1 flex-col items-center gap-2 p-3 pb-2 sm:gap-4 sm:p-4 lg:gap-6 lg:p-6"
         aria-label="FaceSync arena"
       >
         {privateSeriesId && <SeriesPanel series={seriesState} ready={readyPrivate} leave={handleCancelSearch} roomCode={privateRoomCode}/>}
         {privateSeriesId && roundError && <p role="alert">{roundError} <button className="min-h-11 underline" onClick={retryRound}>Retry connection</button></p>}
         {/* Faces stay visible the whole time — the entire joke is
             "do these two look alike", which does not work if the
-            result covers them. Stacked on a phone, side by side on
-            a desktop, with the card between. */}
-        <div className="grid w-full flex-none grid-cols-1 items-start gap-6 sm:grid-cols-2 sm:gap-8">
+            result covers them. Phone: camera / card+action row /
+            camera sharing the viewport height, like the duel, so the
+            whole session (and the chat dock) fits one screen.
+            Desktop: side by side with the card below. */}
+        <div className="grid min-h-0 w-full flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 sm:flex-none sm:grid-cols-2 sm:grid-rows-none sm:items-start sm:gap-8">
           <FaceTile
             label="YOU"
             name={myName ?? "You"}
@@ -214,7 +215,8 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
             isMicMuted={isMicMuted}
           />
 
-          <div className="order-last flex w-full items-center justify-center py-1 sm:col-span-2 [&>*]:max-w-[420px]">
+          <div className="flex w-full items-center justify-center gap-2 px-2.5 sm:order-last sm:col-span-2 sm:px-0 sm:py-1">
+            <div className="flex min-w-0 flex-1 justify-center sm:flex-none sm:w-full [&>*]:max-w-[420px]">
             <AnimatePresence mode="wait" initial={false}>
               {inMatch && faceSyncResult ? (
                 <FaceSync
@@ -226,6 +228,7 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
                   sampleCount={MIN_SAMPLES}
                   sampleTarget={MIN_SAMPLES}
                   variantSeed={variantSeed}
+                  compactOnMobile
                 />
               ) : inMatch && bypassed ? (
                 <MissedCard key="missed" />
@@ -241,9 +244,25 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
                   sampleCount={faceSync.sampleCount}
                   sampleTarget={MIN_SAMPLES}
                   variantSeed={variantSeed}
+                  compactOnMobile
                 />
               ) : null}
             </AnimatePresence>
+            </div>
+            {/* Phone: the next action sits beside the result, in the
+                same slot the duel uses for Skip beside the emoji. */}
+            {!privateSeriesId && inMatch && settled && (
+              <motion.button
+                type="button"
+                onClick={handleNextStranger}
+                initial={{ opacity: 0, x: 8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.25 }}
+                className="min-h-11 flex-none rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] px-4 text-sm font-extrabold uppercase tracking-[0.12em] text-[var(--ink)] shadow-[3px_3px_0_0_var(--charcoal)] transition-transform active:translate-y-[2px] active:shadow-none sm:hidden"
+              >
+                Next
+              </motion.button>
+            )}
           </div>
 
           <FaceTile
@@ -259,7 +278,7 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
         {/* The chat belongs to the active FaceSync session and spans the
             complete camera area, matching the two-up layout above it. */}
         {inMatch && (
-          <div className="h-[72px] w-full flex-none sm:h-[300px]">
+          <div className="h-[64px] w-full flex-none sm:h-[300px]">
             <ChatBox
               messages={messages}
               onSend={sendChat}
@@ -281,7 +300,7 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25 }}
-            className="flex flex-none flex-wrap items-center justify-center gap-3"
+            className="hidden flex-none flex-wrap items-center justify-center gap-3 sm:flex"
           >
             <Button onClick={handleNextStranger} iconLeft={<Refresh size={16} />}>
               Next stranger
@@ -343,9 +362,10 @@ function FaceTile({
   onToggleMic,
   isMicMuted,
 }: FaceTileProps) {
+  const flag = flagFromAnyOrFallback(country, countryCode);
   return (
     <div
-      className="relative mx-auto w-full max-w-[360px] min-w-0 sm:max-w-none"
+      className="relative h-full min-h-0 w-full min-w-0 px-2.5 sm:h-auto sm:px-0"
     >
       <VideoPanel
         framed
@@ -372,13 +392,27 @@ function FaceTile({
         scanBox={null}
         faceLandmarks={null}
         fullBleedOnMobile
+        minimalOnMobile
         localCameraStatus={isLocal ? localCameraStatus : undefined}
         localCameraError={isLocal ? localCameraError : undefined}
         onRetryCamera={isLocal ? onRetryCamera : undefined}
       />
 
+      {/* Mobile identity chip; desktop keeps the framed labels. Chip and
+          mic offsets include the tile's px-2.5 gutter. */}
+      <div className="absolute bottom-2.5 left-5 z-40 flex max-w-[calc(100%-6.5rem)] items-center gap-1.5 rounded-full border border-white/20 bg-black/65 py-1 pl-2 pr-2.5 text-white backdrop-blur-md sm:hidden">
+        <span aria-hidden className="text-sm leading-none">{flag}</span>
+        <span className="truncate text-xs font-bold">{name}</span>
+        <span
+          className="flex-none rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.14em] text-white"
+          style={{ background: isLocal ? "#1976d2" : "var(--pink-deep)" }}
+        >
+          {isLocal ? "You" : label}
+        </span>
+      </div>
+
       {isLocal && onToggleMic && (
-        <div className="absolute bottom-14 right-3 z-40">
+        <div className="absolute bottom-2.5 right-5 z-40 sm:bottom-14 sm:right-3">
           <IconButton
             size="sm"
             variant={isMicMuted ? "default" : "purple"}
@@ -404,17 +438,17 @@ function MissedCard() {
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.96 }}
       transition={{ type: "spring", stiffness: 320, damping: 24 }}
-      className="flex w-full max-w-[420px] flex-col items-center gap-2 rounded-3xl border-[4px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-6 py-6 text-center shadow-[8px_8px_0_0_var(--charcoal)]"
+      className="flex w-full max-w-[420px] flex-col items-center gap-1 rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-3 py-2 text-center shadow-[4px_4px_0_0_var(--charcoal)] sm:gap-2 sm:rounded-3xl sm:border-[4px] sm:px-6 sm:py-6 sm:shadow-[8px_8px_0_0_var(--charcoal)]"
       role="status"
       aria-live="polite"
     >
-      <span className="font-display text-[11px] font-black uppercase tracking-[0.2em] text-[var(--purple-deep)] sm:text-xs">
+      <span className="font-display text-[9px] font-black uppercase tracking-[0.2em] text-[var(--purple-deep)] sm:text-xs">
         <span aria-hidden>⚡ </span>FaceSync
       </span>
-      <span className="font-display text-xl font-bold text-[var(--charcoal)] sm:text-2xl">
+      <span className="font-display text-base font-bold text-[var(--charcoal)] sm:text-2xl">
         {MISSING_FACE_TITLE}
       </span>
-      <p className="text-sm leading-snug text-[var(--on-surface-variant)]">
+      <p className="text-xs leading-snug text-[var(--on-surface-variant)] sm:text-sm">
         Couldn&apos;t get a clear look at both of you this time. Try the next
         stranger.
       </p>

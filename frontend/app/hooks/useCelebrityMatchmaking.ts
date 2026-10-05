@@ -31,6 +31,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 import Peer, { MediaConnection } from "peerjs";
+import { SIGNALING_URL } from "../lib/signaling";
 import { UserProfile } from "../context/UserProfileContext";
 import type { ExpressionProfile } from "../lib/celebrityScoring";
 import {
@@ -40,9 +41,6 @@ import {
   type RoundSchedule,
   type RoundSchedulePayload,
 } from "../lib/serverClock";
-
-const SIGNALING_URL =
-  process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 
 const STREAM_TIMEOUT_MS = 12_000;
 

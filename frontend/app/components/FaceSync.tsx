@@ -52,6 +52,12 @@ interface FaceSyncProps {
    * main event. Same copy, same count-up, larger type.
    */
   variant?: "seam" | "hero";
+  /**
+   * Hero only: below `sm`, collapse to a short horizontal strip
+   * (number beside the verdict) so it fits the slim row between
+   * the two stacked camera cards. Desktop keeps the full hero.
+   */
+  compactOnMobile?: boolean;
 }
 
 /** How long the number spends counting up to its final value. */
@@ -119,8 +125,10 @@ export default function FaceSync({
   sampleTarget,
   variantSeed,
   variant = "seam",
+  compactOnMobile = false,
 }: FaceSyncProps) {
   const hero = variant === "hero";
+  const strip = hero && compactOnMobile;
   const reduceMotion = useReducedMotion() ?? false;
   const revealing = phase === "showing_result" && result !== null;
   const { display, landed } = useCountUp(revealing ? result.score : null, reduceMotion);
@@ -136,7 +144,9 @@ export default function FaceSync({
       className={cn(
         "pointer-events-none z-30 flex w-full flex-col items-center text-center",
         "border-[var(--charcoal)] bg-[var(--off-white-2)]",
-        hero
+        strip
+          ? "max-w-[420px] gap-1 rounded-2xl border-[3px] px-3 py-2 shadow-[4px_4px_0_0_var(--charcoal)] sm:gap-3 sm:rounded-3xl sm:border-[4px] sm:px-8 sm:py-8 sm:shadow-[8px_8px_0_0_var(--charcoal)]"
+          : hero
           ? "max-w-[420px] gap-2 rounded-3xl border-[4px] px-6 py-6 shadow-[8px_8px_0_0_var(--charcoal)] sm:gap-3 sm:px-8 sm:py-8"
           : "max-w-[320px] gap-1.5 rounded-2xl border-[3px] px-3 py-2 shadow-[4px_4px_0_0_var(--charcoal)] sm:max-w-[200px] sm:gap-2 sm:rounded-3xl sm:border-[4px] sm:px-4 sm:py-4 sm:shadow-[6px_6px_0_0_var(--charcoal)]",
       )}
@@ -161,7 +171,7 @@ export default function FaceSync({
           stable identity while its contents change. */}
       <span className={cn(
         "font-display font-black uppercase tracking-[0.2em] text-[var(--purple-deep)]",
-        hero ? "text-[11px] sm:text-xs" : "text-[9px] sm:text-[10px]",
+        strip ? "text-[9px] sm:text-xs" : hero ? "text-[11px] sm:text-xs" : "text-[9px] sm:text-[10px]",
       )}>
         <span aria-hidden>⚡ </span>
         FaceSync
@@ -175,7 +185,10 @@ export default function FaceSync({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="flex w-full flex-col items-center gap-0.5 sm:gap-1"
+            className={cn(
+              "flex w-full items-center gap-0.5 sm:gap-1",
+              strip ? "flex-row justify-center gap-3 sm:flex-col" : "flex-col",
+            )}
           >
             {/* The number is the whole point: everything else on
                 this card is sized relative to it. */}
@@ -189,7 +202,9 @@ export default function FaceSync({
               transition={{ duration: 0.34, ease: "easeOut" }}
               className={cn(
                 "font-display font-black leading-none tracking-tight tabular text-[var(--charcoal)]",
-                hero
+                strip
+                  ? "flex-none text-[2.5rem] sm:text-[clamp(4rem,20vw,6.5rem)]"
+                  : hero
                   ? "text-[clamp(4rem,20vw,6.5rem)]"
                   : "text-[2.6rem] sm:text-[3.4rem]",
               )}
@@ -198,9 +213,14 @@ export default function FaceSync({
               <span className={hero ? "text-[0.45em]" : "text-[1.4rem] sm:text-[1.8rem]"}>%</span>
             </motion.span>
 
+            <div className={cn(
+              "flex min-w-0 flex-col items-center gap-0.5 sm:gap-1",
+              strip && "items-start text-left sm:items-center sm:text-center",
+            )}>
+
             <span className={cn(
               "font-display font-black uppercase tracking-[0.16em] text-[var(--pink-deep)]",
-              hero ? "text-base sm:text-xl" : "text-[9px] sm:text-[11px]",
+              strip ? "text-[11px] sm:text-xl" : hero ? "text-base sm:text-xl" : "text-[9px] sm:text-[11px]",
             )}>
               {bandLabel(result.category)}
             </span>
@@ -211,11 +231,12 @@ export default function FaceSync({
               transition={{ delay: reduceMotion ? 0 : 0.45 }}
               className={cn(
                 "font-bold leading-snug text-[var(--charcoal)]",
-                hero ? "text-base sm:text-lg" : "text-[11px] sm:text-[13px]",
+                strip ? "line-clamp-2 text-[12px] sm:line-clamp-none sm:text-lg" : hero ? "text-base sm:text-lg" : "text-[11px] sm:text-[13px]",
               )}
             >
               {bandLine(result.category, result.variant)}
             </motion.p>
+            </div>
           </motion.div>
         ) : faceMissing ? (
           <motion.div
@@ -274,7 +295,7 @@ export default function FaceSync({
       {/* Always present, never loud. */}
       <p className={cn(
         "font-semibold leading-tight text-[var(--on-surface-variant)] opacity-70",
-        hero ? "text-[10px] sm:text-[11px]" : "text-[8px] sm:text-[9px]",
+        strip ? "text-[8px] sm:text-[11px]" : hero ? "text-[10px] sm:text-[11px]" : "text-[8px] sm:text-[9px]",
       )}>
         {FACE_SYNC_DISCLAIMER}
       </p>

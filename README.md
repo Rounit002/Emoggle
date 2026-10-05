@@ -44,7 +44,9 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000 in **two separate browser tabs** to simulate two users.
+Open http://localhost:3000 in **two separate browser tabs or browsers** to simulate two users. Each tab gets its own anonymous matchmaking session, including when both players use the same PC.
+
+The frontend defaults to the local signaling server at `http://localhost:3001` for both session creation and matchmaking. To use another backend, set `NEXT_PUBLIC_SIGNALING_SERVER_URL` in `frontend/.env.local` and restart the frontend. Local matchmaking can use development-only in-memory sessions when PostgreSQL is unavailable; persistent history and database readiness still require valid database credentials.
 
 ## Environment Variables
 

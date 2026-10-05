@@ -54,7 +54,7 @@ export function Seam({
       />
 
       {/* Center content */}
-      <div className="relative z-10 flex flex-col items-center justify-center gap-2 px-2 py-4">
+      <div className="relative z-10 flex flex-col items-center justify-center gap-2 p-1 sm:px-2 sm:py-4">
         {state === "playing" && (
           <PlayingContent emoji={emoji} secondsLeft={secondsLeft} label={label} />
         )}

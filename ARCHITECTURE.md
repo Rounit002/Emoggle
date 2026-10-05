@@ -305,7 +305,7 @@ Combine the relevant fields from `frontend/env.example` (services) and `frontend
 
 | Component | Variables |
 | --- | --- |
-| Frontend sessions | `NEXT_PUBLIC_SIGNALING_SERVER_URL`; use `http://localhost:3001` locally. The provider has no localhost bootstrap default, although hooks do. |
+| Frontend sessions | `NEXT_PUBLIC_SIGNALING_SERVER_URL`; defaults to `http://localhost:3001` locally. Session creation, matchmaking, and API calls share `app/lib/signaling.ts`. |
 | Frontend names | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; client also accepts `NEXT_PUBLIC_SUPABASE_ANON_KEY`, subject to the provider caveat. Enable anonymous Auth and apply the profile migration. |
 | Optional relay | `NEXT_PUBLIC_TURN_URL`, `NEXT_PUBLIC_TURN_USERNAME`, `NEXT_PUBLIC_TURN_CREDENTIAL`; these are browser-visible. |
 | Signaling database | `DATABASE_URL` or `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`. Complete discrete fields rebuild the URL. `DB_CA_CERT` is also read. |

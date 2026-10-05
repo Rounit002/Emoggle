@@ -52,6 +52,11 @@ interface VideoPanelProps {
   fullBleedOnMobile?: boolean;
   /** Wide camera card with an outside seat label and location. */
   framed?: boolean;
+  /**
+   * Below `sm`, hide the label, rank, name pills and the floating
+   * score card so the parent can render its own compact chips.
+   */
+  minimalOnMobile?: boolean;
 }
 
 const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
@@ -83,6 +88,7 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
       faceLandmarks = null,
       fullBleedOnMobile = false,
       framed = false,
+      minimalOnMobile = false,
     },
     ref
   ) => {
@@ -101,33 +107,37 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
     // — keep them in sync if you tweak the resolution order.
     const flag = flagFromAnyOrFallback(country ?? null, countryCode ?? null);
     const effectiveCameraStatus = localCameraStatus ?? (localStream ? "ready" : "requesting");
+    const mobileBlock = minimalOnMobile ? "hidden sm:block" : "";
+    const mobileFlex = minimalOnMobile ? "hidden sm:flex" : "flex";
 
     return (
-      <div className={framed ? "mx-auto flex w-full max-w-[360px] min-w-0 flex-col gap-3 sm:max-w-none" : "contents"}>
+      <div className={!framed ? "contents" : minimalOnMobile
+        ? "flex h-full min-h-0 w-full min-w-0 flex-col sm:h-auto sm:gap-3"
+        : "mx-auto flex w-full max-w-[360px] min-w-0 flex-col gap-3 sm:max-w-none"}>
         {framed && (
-          <span className="ml-4 w-fit rounded-lg border-2 border-[var(--charcoal)] bg-[var(--off-white)] px-4 py-1 font-display text-sm font-bold text-[var(--charcoal)]">{label}</span>
+          <span className={`ml-4 ${mobileBlock} w-fit rounded-lg border-2 border-[var(--charcoal)] bg-[var(--off-white)] px-4 py-1 font-display text-sm font-bold text-[var(--charcoal)]`}>{label}</span>
         )}
       <div className={framed
-        ? `relative aspect-[4/3] w-full min-w-0 overflow-hidden rounded-[1.75rem] border-[4px] bg-zinc-900 sm:aspect-video sm:rounded-3xl ${isLocal ? "border-[#1976d2]" : "border-[var(--pink-deep)]"}`
+        ? `relative w-full min-w-0 overflow-hidden bg-zinc-900 sm:aspect-video sm:rounded-3xl sm:border-[4px] sm:shadow-none ${minimalOnMobile ? "h-full min-h-0 rounded-[1.5rem] border-[3px] shadow-[4px_4px_0_0_var(--charcoal)] sm:h-auto" : "aspect-[4/3] rounded-[1.75rem] border-[4px]"} ${isLocal ? "border-[#1976d2]" : "border-[var(--pink-deep)]"}`
         : `relative h-full w-full min-h-0 min-w-0 overflow-hidden bg-zinc-900 transition-shadow duration-700 ${panelShape} ${panelBorder}`}>
         <div className="pointer-events-none absolute inset-0 z-20 border border-white/10 shadow-[inset_0_0_80px_rgba(0,0,0,0.65)]" />
         <div className="pointer-events-none absolute inset-0 z-20 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:100%_4px] opacity-35 mix-blend-screen" />
 
         {framed && !isRevealing && !isJudging && (
-          <div className="absolute left-3 top-3 z-30 max-w-[calc(100%-1.5rem)] truncate rounded-lg border-2 border-[var(--charcoal)] bg-[var(--off-white)] px-3 py-1 font-display text-sm font-bold text-[var(--charcoal)]">
+          <div className={`absolute left-3 top-3 z-30 ${mobileBlock} max-w-[calc(100%-1.5rem)] truncate rounded-lg border-2 border-[var(--charcoal)] bg-[var(--off-white)] px-3 py-1 font-display text-sm font-bold text-[var(--charcoal)]`}>
             {playerName ?? label}
           </div>
         )}
         {!framed && !isRevealing && !isJudging && (
           <>
-            <div className="absolute top-3 left-3 z-30 rounded-full border border-white/15 bg-black/65 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-zinc-200 backdrop-blur-md">
+            <div className={`absolute top-3 left-3 z-30 rounded-full border border-white/15 bg-black/65 px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-zinc-200 backdrop-blur-md ${mobileBlock}`}>
               {label}
             </div>
             {/* Rank pill. Modes without a rank (FaceSync has no
                 score and no ELO) pass an empty label and get no
                 pill at all, rather than an empty one. */}
             {rankLabel.trim().length > 0 && (
-              <div className="absolute top-3 right-3 z-30 rounded-full border border-violet-300/30 bg-zinc-950/75 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white shadow-[0_0_22px_rgba(168,85,247,0.22)] backdrop-blur-md">
+              <div className={`absolute top-3 right-3 z-30 rounded-full border border-violet-300/30 bg-zinc-950/75 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-white shadow-[0_0_22px_rgba(168,85,247,0.22)] backdrop-blur-md ${mobileBlock}`}>
                 {rankLabel.replace("|", " | ")}
               </div>
             )}
@@ -139,7 +149,7 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
                 keeps the "You" / "Stranger" text if no name ever
                 arrived; missing/invalid country metadata renders
                 the neutral globe fallback. */}
-            <div className="absolute top-12 left-3 z-30 flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 rounded-full border border-white/15 bg-black/65 px-2.5 py-1 backdrop-blur-md">
+            <div className={`absolute top-12 left-3 z-30 ${mobileFlex} max-w-[calc(100%-1.5rem)] items-center gap-1.5 rounded-full border border-white/15 bg-black/65 px-2.5 py-1 backdrop-blur-md`}>
               <span aria-hidden className="text-base leading-none">
                 {flag}
               </span>
@@ -151,7 +161,7 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
                 it shifts up (`bottom-[4.75rem]`) to clear the
                 score card sitting at the bottom of the tile. On
                 desktop it sits at the standard `bottom-3`. */}
-            <div className={`absolute left-3 z-30 flex items-center gap-2 rounded-full border border-white/15 bg-black/65 px-3 py-1.5 backdrop-blur-md ${fullBleedOnMobile ? "bottom-[4.75rem] sm:bottom-3" : "bottom-3"}`}>
+            <div className={`absolute left-3 z-30 ${mobileFlex} items-center gap-2 rounded-full border border-white/15 bg-black/65 px-3 py-1.5 backdrop-blur-md ${fullBleedOnMobile ? "bottom-[4.75rem] sm:bottom-3" : "bottom-3"}`}>
               <span aria-hidden className="text-lg leading-none">{flag}</span>
               <span className="text-xs font-black uppercase tracking-[0.16em] text-white">{playerName ?? label}</span>
             </div>
@@ -162,7 +172,7 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
           <motion.div
             initial={{ opacity: 0, scale: 0.85 }}
             animate={{ opacity: 1, scale: 1 }}
-            className={`absolute top-14 ${scoreAlign === "left" ? "left-3" : "right-3"} z-30 w-32 rounded-xl border border-emerald-300/25 bg-zinc-950/80 px-3 py-2 shadow-[0_0_26px_rgba(57,255,20,0.14)] backdrop-blur-md sm:w-36`}
+            className={`absolute top-14 ${scoreAlign === "left" ? "left-3" : "right-3"} z-30 ${mobileBlock} w-32 rounded-xl border border-emerald-300/25 bg-zinc-950/80 px-3 py-2 shadow-[0_0_26px_rgba(57,255,20,0.14)] backdrop-blur-md sm:w-36`}
           >
             <div className="text-[9px] font-black uppercase tracking-[0.18em] text-zinc-500">Overall Score</div>
             <div className="flex items-end gap-1">
@@ -304,7 +314,7 @@ const VideoPanel = forwardRef<HTMLVideoElement, VideoPanelProps>(
         )}
       </div>
         {framed && (
-          <span className="ml-4 flex w-fit max-w-[calc(100%-2rem)] items-center gap-2 rounded-lg border-2 border-[var(--charcoal)] bg-[var(--off-white)] px-3 py-1 text-sm font-bold text-[var(--charcoal)]">
+          <span className={`ml-4 ${mobileFlex} w-fit max-w-[calc(100%-2rem)] items-center gap-2 rounded-lg border-2 border-[var(--charcoal)] bg-[var(--off-white)] px-3 py-1 text-sm font-bold text-[var(--charcoal)]`}>
             <span aria-hidden>{flag}</span>
             <span className="truncate">{country || "Location unavailable"}</span>
           </span>

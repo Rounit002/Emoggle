@@ -234,7 +234,7 @@ export default function ChatBox({
     <div
       className={`flex min-h-0 w-full flex-col overflow-hidden rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white)] shadow-[4px_4px_0_0_var(--charcoal)] ${
         compactOnMobile && !isMinimized
-          ? "fixed inset-x-3 bottom-3 z-[60] h-[min(420px,70dvh)] w-auto sm:relative sm:inset-auto sm:z-auto sm:h-full sm:w-full"
+          ? "fixed inset-x-3 bottom-3 z-[60] h-[min(400px,60dvh)] w-auto sm:relative sm:inset-auto sm:z-auto sm:h-full sm:w-full"
           : "relative h-full"
       }`}
       aria-label="In-duel chat"
@@ -242,7 +242,7 @@ export default function ChatBox({
       {/* Header — always visible, even when minimized. This is the
           chat's "always there" affordance: the user always knows
           chat is available, and can tap the header to expand. */}
-      <header className="flex-none flex items-center justify-between gap-2 px-3 py-2.5 border-b-[2px] border-[var(--ink-faint)] bg-[var(--off-white)]">
+      <header className="flex-none flex items-center justify-between gap-2 px-3 py-1.5 sm:py-2.5 border-b-[2px] border-[var(--ink-faint)] bg-[var(--off-white)]">
         <div className="flex min-w-0 items-center gap-2">
           <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border-[2px] border-[var(--ink-shadow)] on-accent-inverse bg-[var(--purple)] text-[10px] font-black uppercase tracking-[0.18em] text-white">
             {partnerLabel.slice(0, 2).toUpperCase()}

@@ -5,7 +5,7 @@ import DoodleBackdrop from "./components/home/DoodleBackdrop";
 import { ScrollReveal } from "./components/home/EmojiMotion";
 import { Headline } from "./components/home/HeadlineMotion";
 import { frequentlyAskedQuestions, siteConfig } from "./lib/site";
-import { Logo, ThemeToggle } from "./ui";
+import { Logo } from "./ui";
 
 export const metadata: Metadata = {
   title: "Free Emoji Face-Matching Webcam Game",
@@ -242,8 +242,6 @@ export default function Home() {
                 {label}
               </Link>
             ))}
-            <span className="ml-auto" />
-            <ThemeToggle size="sm" />
           </div>
         </nav>
       </main>

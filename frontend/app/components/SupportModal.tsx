@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { safeCheckoutUrl } from "../lib/supportPrompt";
 import { useUserProfile } from "../context/UserProfileContext";
 
-const SIGNALING_URL = process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
+import { SIGNALING_URL } from "../lib/signaling";
 const MIN_SUPPORT_CENTS = 100;
 
 function amountInCents(value: string): number | null {

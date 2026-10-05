@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Logo, ThemeToggle } from "../ui";
+import { Logo } from "../ui";
 
 export default function InfoPageShell({
   eyebrow,
@@ -31,7 +31,6 @@ export default function InfoPageShell({
             <Link className="hover:underline" href="/about">About</Link>
             <Link className="hover:underline" href="/faq">FAQ</Link>
             <Link className="hover:underline" href="/history">History</Link>
-            <ThemeToggle size="sm" />
           </div>
         </nav>
 

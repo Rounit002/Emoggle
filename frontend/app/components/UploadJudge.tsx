@@ -5,8 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import AnalyzingOverlay from "./AnalyzingOverlay";
 import { useUserProfile } from "../context/UserProfileContext";
 
-const SIGNALING_URL =
-  process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
+import { SIGNALING_URL } from "../lib/signaling";
 
 interface JudgeResult {
   score: number;

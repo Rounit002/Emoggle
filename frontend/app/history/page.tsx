@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Logo, Pill, Button, ThemeToggle, ArrowLeft, History as HistoryIcon, Eraser, WebEmoji, cn } from "../ui";
+import { Logo, Pill, Button, ArrowLeft, History as HistoryIcon, Eraser, WebEmoji, cn } from "../ui";
 import {
   clearAll as clearAllStorage,
   getMatchHistory,
@@ -62,7 +62,6 @@ export default function HistoryPage() {
           </Link>
           <Logo size="sm" />
           <div className="flex items-center gap-2">
-            <ThemeToggle size="sm" />
             <div className="w-2" />
           </div>
         </header>

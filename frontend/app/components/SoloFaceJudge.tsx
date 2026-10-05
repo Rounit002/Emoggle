@@ -18,7 +18,6 @@ import {
   Logo,
   Pill,
   Score,
-  ThemeToggle,
   ArrowLeft,
   Camera,
   Refresh,
@@ -252,7 +251,6 @@ export default function SoloFaceJudge({ onBack }: SoloFaceJudgeProps) {
               Best {formatScore(personalBest)}/10
             </span>
           )}
-          <ThemeToggle size="sm" />
         </div>
       </header>
 

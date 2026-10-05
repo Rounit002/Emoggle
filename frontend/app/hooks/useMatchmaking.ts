@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 import Peer, { MediaConnection } from "peerjs";
+import { SIGNALING_URL } from "../lib/signaling";
+import { scheduleTargetReady } from "../lib/targetReady";
 import { UserProfile } from "../context/UserProfileContext";
 import type { CelebrityTarget } from "../lib/celebrityScoring";
 import type {
@@ -21,9 +23,6 @@ import {
 import type { SeriesState } from "../lib/privateDuels";
 
 export interface SkipProposal { proposalId: string; expiresAt: number; serverTime: number; agreedSocketIds: string[]; }
-
-const SIGNALING_URL =
-  process.env.NEXT_PUBLIC_SIGNALING_SERVER_URL ?? "http://localhost:3001";
 
 const STREAM_TIMEOUT_MS = 12_000;
 
@@ -948,9 +947,9 @@ export function useMatchmaking(
   }, [localStream, remoteStream, currentMatchId]);
   useEffect(() => {
     if (roundSchedule?.serverPhase !== "target") return;
-    let second = 0;
-    const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => socketRef.current?.emit("round_target_ready", { matchId: currentMatchIdRef.current, generation: generationRef.current })); });
-    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second); };
+    const matchId = roundSchedule.matchId;
+    const generation = roundSchedule.generation;
+    return scheduleTargetReady(() => socketRef.current?.emit("round_target_ready", { matchId, generation }));
   }, [roundSchedule]);
   const readyPrivate = useCallback(() => socketRef.current?.emit("series_ready", { seriesId: privateSeriesId, readinessGeneration: seriesState?.readinessGeneration }), [privateSeriesId, seriesState?.readinessGeneration]);
   const respondSkip = useCallback((agree: boolean) => socketRef.current?.emit("emoji_skip_respond", { matchId: currentMatchIdRef.current, generation: generationRef.current, proposalId: proposalRef.current?.proposalId, agree }), []);
