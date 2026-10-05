@@ -226,6 +226,7 @@ export default function Home() {
                 how the row reads. */}
             {[
               ["/how-it-works", "How it works"],
+              ["/instructions", "Instructions"],
               ["/about", "About"],
               ["/faq", "FAQ"],
               ["/history", "History"],

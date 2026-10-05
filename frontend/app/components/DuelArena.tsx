@@ -44,6 +44,8 @@ import {
   type MatchHistoryEntry,
 } from "../lib/storage";
 import { flagFromAnyOrFallback } from "../lib/country";
+import GameOptionsMenu from "./GameOptionsMenu";
+import type { GameMode } from "./ChooseGameMode";
 
 const ROUND_SECONDS = 10;
 
@@ -55,6 +57,8 @@ interface DuelArenaProps {
   onBack: () => void;
   modeSwitchTicket?: string | null;
   onModeSwitch?: (mode: MatchGameMode, ticket: string) => void;
+  /** Leave for another game mode from the options menu (public play only). */
+  onSelectMode?: (mode: GameMode) => void;
 }
 
 interface RankSnapshot {
@@ -119,7 +123,7 @@ function buildMatchResult(args: {
   };
 }
 
-export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, privateSeriesId, privateRoomCode }: DuelArenaProps) {
+export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, onSelectMode, privateSeriesId, privateRoomCode }: DuelArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const submittedRef = useRef(false);
   const {
@@ -489,6 +493,11 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, priv
     }
   }, [matchResult, reportPartner]);
 
+  const handleLeave = useCallback(() => {
+    if (privateSeriesId) stopMatching();
+    onBack();
+  }, [onBack, privateSeriesId, stopMatching]);
+
   const toggleMic = useCallback(() => {
     if (!localStream) return;
     const next = !isMicMuted;
@@ -508,6 +517,19 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, priv
     inMatch &&
     ["preview", "playing"].includes(roundSchedule?.serverPhase ?? "") &&
     phase !== "results";
+
+  const optionsMenu = (triggerClassName: string) => (
+    <GameOptionsMenu
+      currentMode="camera"
+      partnerLabel={partnerName ?? "Stranger"}
+      onFindNew={privateSeriesId ? undefined : skipUser}
+      onSelectMode={privateSeriesId ? undefined : onSelectMode}
+      onReport={inMatch ? handleReportPartner : undefined}
+      onLeave={handleLeave}
+      leaveLabel={privateSeriesId ? "Leave 1v1" : "Leave duel"}
+      triggerClassName={triggerClassName}
+    />
+  );
 
   return (
     <div className="relative flex h-[100dvh] w-screen flex-col overflow-hidden bg-[var(--off-white)] text-[var(--charcoal)] sm:h-auto sm:min-h-screen sm:overflow-visible">
@@ -544,6 +566,9 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, priv
               {roundSeconds}s
             </Pill>
           )}
+          {/* Desktop home of the options menu; phones get it in the
+              chat bar beside Skip. */}
+          {optionsMenu("hidden sm:inline-flex")}
         </div>
       </header>
 
@@ -553,10 +578,11 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, priv
         className="flex min-h-0 flex-1 flex-col gap-2 p-3 pb-2 sm:gap-4 sm:p-4 lg:gap-6 lg:p-6"
         aria-label="Duel arena"
       >
-        {/* Mobile: camera / emoji+skip row / camera, sharing the viewport
-            height so the whole duel (and the chat dock) fits one screen.
-            The seam is a real grid row, so it cannot cover a face. */}
-        <div className="relative grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 sm:min-h-[480px] sm:flex-1 sm:grid-cols-[1fr_auto_1fr] sm:grid-rows-1 sm:gap-4 lg:min-h-[520px]">
+        {/* Mobile: two stacked camera cards sharing the viewport height
+            so the whole duel (and the chat dock) fits one screen. The
+            seam floats over the gap between them: emoji circle on the
+            left edge, "Skip emoji" beside it. */}
+        <div className="relative grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-3 sm:min-h-[480px] sm:flex-1 sm:grid-cols-[1fr_auto_1fr] sm:grid-rows-1 sm:gap-4 lg:min-h-[520px]">
           {/* Player A column */}
           <DuelColumn
             seat="a"
@@ -636,6 +662,16 @@ export default function DuelArena({ onBack, modeSwitchTicket, onModeSwitch, priv
               matchId={currentMatchId}
               onReport={handleReportPartner}
               compactOnMobile
+              mobileAction={<>{privateSeriesId ? null : (
+                <button
+                  type="button"
+                  onClick={skipUser}
+                  aria-label="Skip this player"
+                  className="h-full min-h-11 flex-none rounded-xl border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-5 text-sm font-extrabold uppercase tracking-[0.12em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--charcoal)] transition-transform active:translate-y-[2px] active:shadow-none"
+                >
+                  Skip
+                </button>
+              )}{optionsMenu("h-full")}</>}
             />
           </div>
         )}
@@ -795,11 +831,18 @@ function DuelColumn({
           onRetryCamera={isLocal ? onRetryCamera : undefined}
         />
 
-        {/* Mobile chips: score top-left (live during the round, then the
-            final score in the same spot), identity bottom-left, mic
-            bottom-right. Desktop keeps VideoPanel's richer overlays. */}
+        {/* Mobile chips sit on the card edge away from the seam, where
+            the emoji circle and "Skip emoji" float: top card at its top,
+            bottom card at its bottom. Score first (live during the
+            round, then final in the same spot), then identity. The mic
+            takes the opposite corner. Desktop keeps VideoPanel's richer
+            overlays. */}
+        <div className={cn(
+          "absolute left-2.5 right-14 z-40 flex items-center gap-1.5 sm:hidden",
+          isA ? "top-2.5" : "bottom-2.5",
+        )}>
         <div
-          className="absolute left-2.5 top-2.5 z-40 inline-flex items-center gap-1.5 rounded-xl border-[2px] border-white/25 bg-black/70 px-2.5 py-1 text-white shadow-lg backdrop-blur-md sm:hidden"
+          className="inline-flex flex-none items-center gap-1.5 rounded-xl border-[2px] border-white/25 bg-black/70 px-2.5 py-1 text-white shadow-lg backdrop-blur-md sm:hidden"
           aria-label={`${isFinal ? "Final" : "Live"} score ${displayScore === null ? "pending" : displayScore.toFixed(1)} out of 10`}
         >
           <span className="font-mono text-lg font-black leading-none tabular-nums">
@@ -819,7 +862,7 @@ function DuelColumn({
           )}
         </div>
 
-        <div className="absolute bottom-2.5 left-2.5 z-40 flex max-w-[calc(100%-4.5rem)] items-center gap-1.5 rounded-full border border-white/20 bg-black/65 py-1 pl-2 pr-2.5 text-white backdrop-blur-md sm:hidden">
+        <div className="flex min-w-0 items-center gap-1.5 rounded-full border border-white/20 bg-black/65 py-1 pl-2 pr-2.5 text-white backdrop-blur-md sm:hidden">
           <span aria-hidden className="text-sm leading-none">{flag}</span>
           <span className="truncate text-xs font-bold">{playerName}</span>
           {isLocal && (
@@ -831,9 +874,10 @@ function DuelColumn({
             </span>
           )}
         </div>
+        </div>
 
         {isLocal && (
-          <div className="absolute bottom-2.5 right-2.5 z-40 sm:hidden">
+          <div className={cn("absolute right-2.5 z-40 sm:hidden", isA ? "bottom-2.5" : "top-2.5")}>
             <IconButton
               size="sm"
               variant={isMicMuted ? "default" : isA ? "purple" : "pink"}
@@ -942,13 +986,19 @@ function SeamColumn({
 }: SeamColumnProps) {
   return (
     <div
-      className="relative flex h-[76px] items-center justify-center sm:inset-auto sm:top-auto sm:z-auto sm:h-auto sm:items-stretch"
+      className={cn(
+        "pointer-events-none absolute inset-x-0 top-1/2 z-50 flex h-0 items-center sm:pointer-events-auto sm:relative sm:inset-auto sm:top-auto sm:z-auto sm:h-auto sm:items-stretch sm:justify-center",
+        faceSync.visible ? "justify-center px-3" : "justify-start pl-4",
+      )}
       aria-hidden={state === "idle"}
     >
       <div
         className="absolute left-1/2 top-3 bottom-3 hidden w-1 -translate-x-1/2 bg-[var(--charcoal)] sm:block"
       />
-      <div className="relative z-10 flex w-full flex-row items-center justify-center sm:w-auto sm:flex-col sm:gap-0">
+      <div className={cn(
+        "relative z-10 flex flex-row items-center gap-3 sm:w-auto sm:flex-col sm:justify-center sm:gap-0 [&>*]:pointer-events-auto",
+        faceSync.visible ? "w-full justify-center" : "justify-start",
+      )}>
         <AnimatePresence mode="wait" initial={false}>
           {faceSync.visible && (
             <FaceSync
@@ -976,9 +1026,9 @@ function SeamColumn({
           <button
             type="button"
             onClick={onRequestChangeEmoji}
-            className="ml-3 min-h-11 rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white)] px-5 text-sm font-extrabold uppercase tracking-[0.12em] text-[var(--charcoal)] shadow-[3px_3px_0_0_var(--charcoal)] transition-transform active:translate-y-[2px] active:shadow-none sm:hidden"
+            className="min-h-10 rounded-full border-[3px] border-[var(--charcoal)] bg-[var(--off-white)] px-4 text-xs font-extrabold uppercase tracking-[0.12em] text-[var(--charcoal)] shadow-[3px_3px_0_0_var(--charcoal)] transition-transform active:translate-y-[2px] active:shadow-none sm:hidden"
           >
-            Skip
+            Skip emoji
           </button>
         )}
 

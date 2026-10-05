@@ -42,7 +42,7 @@ export function Seam({
     <div
       className={cn(
         "relative flex flex-col items-center justify-center",
-        "min-w-[64px] w-[72px] sm:min-w-[80px] sm:w-[120px] lg:w-[150px]",
+        "min-w-[88px] w-[88px] sm:min-w-[80px] sm:w-[120px] lg:w-[150px]",
         className,
       )}
       aria-hidden={state === "idle"}
@@ -95,7 +95,9 @@ function PlayingContent({
             transition={{ duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
             className={cn(
               "flex aspect-square w-full max-w-[180px] items-center justify-center",
-              "rounded-full border-[3px] border-[var(--ink-shadow)] on-accent bg-[var(--yellow)] sm:rounded-2xl",
+              // White ring on phones, where the circle floats over the
+              // dark camera cards; the charcoal outline returns at sm+.
+              "rounded-full border-[4px] border-white on-accent bg-[var(--yellow)] sm:rounded-2xl sm:border-[3px] sm:border-[var(--ink-shadow)]",
               "shadow-[5px_5px_0_0_var(--charcoal)]",
               "lg:max-w-[220px]",
             )}

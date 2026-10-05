@@ -128,12 +128,12 @@ function HomeContent() {
   }, [view]);
 
   const game = view === "arena"
-    ? <DuelArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />
+    ? <DuelArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} onSelectMode={handleSelect} />
     : view === "solo"
       ? <SoloFaceJudge onBack={handleBack} />
       : view === "celebrity"
         ? <CelebrityDuelArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />
-        : <FaceSyncArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} />;
+        : <FaceSyncArena onBack={handleBack} modeSwitchTicket={modeSwitchTicket} onModeSwitch={handleModeSwitch} onSelectMode={handleSelect} />;
 
   const content = view === "home"
     ? <ModeSelect onSelect={handleSelect} supportOpen={supportOpen} onDismissSupport={dismissSupport} onOpenSupport={openSupport} />

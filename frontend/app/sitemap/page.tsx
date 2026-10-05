@@ -10,6 +10,7 @@ export const metadata: Metadata = {
 const links = [
   ["/", "Play Emoggle"],
   ["/how-it-works", "How the emoji face game works"],
+  ["/instructions", "Instructions: what every button does"],
   ["/about", "About Emoggle"],
   ["/faq", "Frequently asked questions"],
   ["/history", "Game history"],

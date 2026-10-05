@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { ChatMessage } from "../hooks/useMatchmaking";
 
@@ -57,6 +57,12 @@ interface ChatBoxProps {
   onReport?: () => void;
   /** Start as a compact dock below 640px; expanding opens a bottom sheet. */
   compactOnMobile?: boolean;
+  /**
+   * Compact mobile dock only: a control rendered inside the dock to
+   * the right of the message field (e.g. the skip-player button), so
+   * the whole bottom bar reads as one box.
+   */
+  mobileAction?: ReactNode;
 }
 
 const MOBILE_CHAT_QUERY = "(max-width: 639px)";
@@ -122,6 +128,7 @@ export default function ChatBox({
   matchId,
   onReport,
   compactOnMobile = false,
+  mobileAction,
 }: ChatBoxProps) {
   const [input, setInput] = useState("");
   const [minimizedPreference, setMinimizedPreference] = useState<boolean | null>(null);
@@ -229,6 +236,38 @@ export default function ChatBox({
     () => `Message ${partnerLabel}…`,
     [partnerLabel],
   );
+
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+
+  // Phone dock: one box holding a tap-to-open message field and the
+  // caller's action. Opening it shows the full chat as a bottom sheet.
+  if (compactOnMobile && isMobileViewport && isMinimized) {
+    return (
+      <div
+        className="flex h-full w-full items-center gap-2 rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--off-white)] p-2 shadow-[4px_4px_0_0_var(--charcoal)]"
+        aria-label="In-duel chat"
+      >
+        <button
+          type="button"
+          onClick={() => setMinimizedPreference(false)}
+          aria-label={`Open chat with ${partnerLabel}`}
+          className="flex h-full min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border-[2px] border-[var(--charcoal)] bg-[var(--off-white-2)] px-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--charcoal)]"
+        >
+          {rivalTyping ? (
+            <span className="truncate text-[12px] font-bold text-[var(--ink-muted)]">{partnerLabel} is typing…</span>
+          ) : lastMessage ? (
+            <span className="truncate text-[13px] text-[var(--charcoal)]">
+              <span className="font-extrabold">{lastMessage.fromSelf ? "You" : partnerLabel}: </span>
+              {lastMessage.text}
+            </span>
+          ) : (
+            <span className="truncate text-[13px] text-[var(--ink-muted)]">{placeholder}</span>
+          )}
+        </button>
+        {mobileAction}
+      </div>
+    );
+  }
 
   return (
     <div

@@ -28,6 +28,7 @@ export default function InfoPageShell({
           </Link>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-bold text-[var(--charcoal)]">
             <Link className="hover:underline" href="/how-it-works">How it works</Link>
+            <Link className="hover:underline" href="/instructions">Instructions</Link>
             <Link className="hover:underline" href="/about">About</Link>
             <Link className="hover:underline" href="/faq">FAQ</Link>
             <Link className="hover:underline" href="/history">History</Link>

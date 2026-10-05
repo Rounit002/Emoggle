@@ -38,6 +38,8 @@ import { useCountry } from "../context/CountryContext";
 import { MIN_SAMPLES } from "../lib/faceSync/types";
 import { MISSING_FACE_TITLE } from "../lib/faceSync/messages";
 import { flagFromAnyOrFallback } from "../lib/country";
+import GameOptionsMenu from "./GameOptionsMenu";
+import type { GameMode } from "./ChooseGameMode";
 import {
   Button,
   IconButton,
@@ -55,9 +57,11 @@ interface FaceSyncArenaProps {
   onBack: () => void;
   modeSwitchTicket?: string | null;
   onModeSwitch?: (mode: MatchGameMode, ticket: string) => void;
+  /** Leave for another game mode from the options menu (public play only). */
+  onSelectMode?: (mode: GameMode) => void;
 }
 
-export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, privateSeriesId, privateRoomCode }: FaceSyncArenaProps) {
+export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, onSelectMode, privateSeriesId, privateRoomCode }: FaceSyncArenaProps) {
   const webcamRef = useRef<HTMLVideoElement>(null);
   const {
     stream: localStream,
@@ -165,6 +169,19 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
    * has to stay on screen until the player asks for someone new.
    */
   const bypassed = Boolean(currentMatchId) && faceSyncSkippedFor === currentMatchId;
+
+  const optionsMenu = (triggerClassName: string) => (
+    <GameOptionsMenu
+      currentMode="facesync"
+      partnerLabel={partnerName ?? (privateSeriesId ? "Friend" : "Stranger")}
+      onFindNew={privateSeriesId ? undefined : handleNextStranger}
+      onSelectMode={privateSeriesId ? undefined : onSelectMode}
+      onReport={inMatch ? reportPartner : undefined}
+      onLeave={handleCancelSearch}
+      leaveLabel={privateSeriesId ? "Leave 1v1" : "Leave FaceSync"}
+      triggerClassName={triggerClassName}
+    />
+  );
   const settled = Boolean(faceSyncResult) || bypassed;
 
   return (
@@ -185,6 +202,9 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
             <span aria-hidden>⚡ </span>FaceSync
           </span>
         </div>
+        {/* Desktop home of the options menu; phones get it in the
+            chat bar beside Skip. */}
+        {optionsMenu("hidden sm:inline-flex")}
       </header>
 
       <main
@@ -249,20 +269,6 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
               ) : null}
             </AnimatePresence>
             </div>
-            {/* Phone: the next action sits beside the result, in the
-                same slot the duel uses for Skip beside the emoji. */}
-            {!privateSeriesId && inMatch && settled && (
-              <motion.button
-                type="button"
-                onClick={handleNextStranger}
-                initial={{ opacity: 0, x: 8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.25 }}
-                className="min-h-11 flex-none rounded-2xl border-[3px] border-[var(--charcoal)] bg-[var(--yellow)] px-4 text-sm font-extrabold uppercase tracking-[0.12em] text-[var(--ink)] shadow-[3px_3px_0_0_var(--charcoal)] transition-transform active:translate-y-[2px] active:shadow-none sm:hidden"
-              >
-                Next
-              </motion.button>
-            )}
           </div>
 
           <FaceTile
@@ -288,6 +294,16 @@ export default function FaceSyncArena({ onBack, modeSwitchTicket, onModeSwitch, 
               matchId={currentMatchId}
               onReport={reportPartner}
               compactOnMobile
+              mobileAction={<>{privateSeriesId ? null : (
+                <button
+                  type="button"
+                  onClick={handleNextStranger}
+                  aria-label="Skip this player"
+                  className="h-full min-h-11 flex-none rounded-xl border-[2px] border-[var(--charcoal)] bg-[var(--yellow)] px-5 text-sm font-extrabold uppercase tracking-[0.12em] text-[var(--ink)] shadow-[2px_2px_0_0_var(--charcoal)] transition-transform active:translate-y-[2px] active:shadow-none"
+                >
+                  Skip
+                </button>
+              )}{optionsMenu("h-full")}</>}
             />
           </div>
         )}

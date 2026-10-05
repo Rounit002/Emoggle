@@ -4,6 +4,7 @@ import { siteConfig } from "./lib/site";
 const routes = [
   { path: "", priority: 1, changeFrequency: "weekly" },
   { path: "/how-it-works", priority: 0.8, changeFrequency: "monthly" },
+  { path: "/instructions", priority: 0.6, changeFrequency: "monthly" },
   { path: "/about", priority: 0.7, changeFrequency: "monthly" },
   { path: "/faq", priority: 0.7, changeFrequency: "monthly" },
   { path: "/sitemap", priority: 0.3, changeFrequency: "monthly" },
