@@ -114,6 +114,18 @@ export default async function RootLayout({
     >
       <head>
         <Script src="/theme-boot.js" strategy="beforeInteractive" nonce={nonce} />
+        {/* Google tag (gtag.js) */}
+        <Script
+          src="https://www.googletagmanager.com/gtag/js?id=G-Y3KCQ4P931"
+          strategy="afterInteractive"
+          nonce={nonce}
+        />
+        <Script id="google-tag" strategy="afterInteractive" nonce={nonce}>
+          {`window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-Y3KCQ4P931');`}
+        </Script>
       </head>
       <body className="min-h-full flex flex-col">
         <SmoothScroll>

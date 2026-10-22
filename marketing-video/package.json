@@ -1,0 +1,23 @@
+{
+  "name": "emoggle-marketing-video",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Remotion marketing video for Emoggle — \"2:07 AM\"",
+  "scripts": {
+    "sounds": "python scripts/make_audio.py",
+    "studio": "remotion studio",
+    "render": "remotion render Emoggle207AM out/emoggle-207am.mp4",
+    "still": "remotion still Emoggle207AM out/poster.png --frame=900"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.529",
+    "@remotion/google-fonts": "4.0.529",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.529"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.8",
+    "typescript": "5.8.3"
+  }
+}
