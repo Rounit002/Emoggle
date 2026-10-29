@@ -23,7 +23,8 @@
     "verify:facesync-mode": "tsx scripts/verify-facesync-mode.ts",
     "verify:mode-picker-scroll": "tsx scripts/verify-mode-picker-scroll.ts",
     "verify:name-migration": "tsx scripts/verify-name-migration.ts",
-    "verify:supabase": "tsx scripts/verify-supabase.ts"
+    "verify:supabase": "tsx scripts/verify-supabase.ts",
+    "indexnow": "node scripts/indexnow.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.35",
