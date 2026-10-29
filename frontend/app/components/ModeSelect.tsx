@@ -357,6 +357,12 @@ export default function ModeSelect({ onSelect, supportOpen, onOpenSupport }: Mod
             </motion.div>
 
             <h1 className="mt-5 font-display text-[clamp(2.35rem,11.5vw,2.75rem)] font-bold leading-[1.05] tracking-tight text-[var(--charcoal)] sm:mt-8 sm:text-[clamp(2.75rem,6vw,4.5rem)] lg:mt-10">
+              {/* Small kicker so the page's main heading says what the
+                  game is in words people search for; the tagline below
+                  carries no keywords on its own. */}
+              <span className="mb-3 block font-sans text-xs font-extrabold uppercase tracking-[0.18em] text-[var(--on-surface-variant)] sm:mb-4 sm:text-sm">
+                Emoggle · The emoji face-matching game
+              </span>
               {/* "Match faces." — per-word reveal with a slightly
                   larger stagger than the section headlines so the
                   hero lands with more weight. Plays once on

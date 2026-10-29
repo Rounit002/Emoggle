@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { guides } from "../lib/guides";
 import { Logo } from "../ui";
 
 export default function InfoPageShell({
@@ -48,6 +49,18 @@ export default function InfoPageShell({
         </header>
 
         <div className="info-content pb-16">{children}</div>
+
+        <nav
+          aria-label="Guides"
+          className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t-[3px] border-[var(--charcoal)] py-6 text-sm font-bold text-[var(--charcoal)]"
+        >
+          <span className="text-[var(--on-surface-variant)]">Guides:</span>
+          {guides.map(({ path, label }) => (
+            <Link key={path} className="hover:underline" href={path}>
+              {label}
+            </Link>
+          ))}
+        </nav>
 
         <footer className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t-[3px] border-[var(--charcoal)] py-6 text-sm font-bold text-[var(--charcoal)]">
           <Link className="hover:underline" href="/">Play Emoggle</Link>

@@ -1,3 +1,4 @@
+import { guides } from "../lib/guides";
 import { siteConfig } from "../lib/site";
 
 export function GET() {
@@ -18,6 +19,10 @@ Canonical site: ${siteConfig.url}/
 - [How ${siteConfig.name} works](${siteConfig.url}/how-it-works): Steps, expression scoring, browser requirements, and privacy details.
 - [About ${siteConfig.name}](${siteConfig.url}/about): Neutral product overview, official spelling, and key facts.
 - [Frequently asked questions](${siteConfig.url}/faq): Factual answers about cost, webcam access, solo mode, multiplayer, and face data.
+
+## Guides
+
+${guides.map(({ path, label }) => `- [${label}](${siteConfig.url}${path})`).join("\n")}
 
 ## Policies
 
