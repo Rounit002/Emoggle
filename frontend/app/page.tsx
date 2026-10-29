@@ -4,11 +4,14 @@ import HomeExperience from "./components/HomeExperience";
 import DoodleBackdrop from "./components/home/DoodleBackdrop";
 import { ScrollReveal } from "./components/home/EmojiMotion";
 import { Headline } from "./components/home/HeadlineMotion";
+import { guides } from "./lib/guides";
 import { frequentlyAskedQuestions, siteConfig } from "./lib/site";
 import { Logo } from "./ui";
 
 export const metadata: Metadata = {
-  title: "Free Emoji Face-Matching Webcam Game",
+  // Root page: the layout's "%s | Emoggle" template does not apply here,
+  // so the brand has to be written into the title itself.
+  title: { absolute: "Emoggle: Free Emoji Face-Matching Webcam Game" },
   description: siteConfig.description,
   alternates: { canonical: "/" },
   openGraph: { url: "/" },
@@ -229,6 +232,7 @@ export default function Home() {
               ["/instructions", "Instructions"],
               ["/about", "About"],
               ["/faq", "FAQ"],
+              ...guides.map(({ path, label }) => [path, label]),
               ["/history", "History"],
               ["/privacy", "Privacy"],
               ["/terms", "Terms"],

@@ -51,9 +51,9 @@ export default function AboutPage() {
         <h2>Official name and common search spellings</h2>
         <p>
           The official product name is <strong>Emoggle</strong>. If you arrived
-          here after searching for Emogul, Omogul, Emogle, or Emoogle, you are
-          in the right place: those are common spellings people use when
-          looking for the Emoggle emoji face-matching game.
+          here after searching for Emogle or Emoogle, you are in the right
+          place: those are common misspellings of Emoggle. Emoggle scores how
+          well you copy an emoji expression. It does not rate how people look.
         </p>
       </section>
 

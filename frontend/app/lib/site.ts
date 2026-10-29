@@ -1,6 +1,6 @@
 export const siteConfig = {
   name: "Emoggle",
-  alternateNames: ["Emogul", "Omogul", "Emogle", "Emoogle"],
+  alternateNames: ["Emogle", "Emoogle"],
   // Keep every canonical URL and sitemap entry on the verified apex host.
   // A stale deployment environment variable previously emitted vercel.app
   // URLs into the production sitemap, which Search Console rejected.
@@ -9,7 +9,7 @@ export const siteConfig = {
   description:
     "Match emoji expressions in live webcam duels with strangers or play solo. Emoggle is a free browser face-expression game—no download needed.",
   supportEmail: "rounit7667@gmail.com",
-  contentLastModified: "2026-09-26",
+  contentLastModified: "2026-10-29",
 };
 
 export const frequentlyAskedQuestions = [
@@ -19,9 +19,9 @@ export const frequentlyAskedQuestions = [
       "Emoggle is a browser-based emoji face-matching game. It shows players an emoji and scores how closely their facial expression matches it.",
   },
   {
-    question: "I searched for Emogul or Omogul. Is this Emoggle?",
+    question: "How do you spell Emoggle?",
     answer:
-      "Yes. Emoggle is the official name of this emoji face-matching game. Emogul, Omogul, Emogle, and Emoogle are common search spellings for Emoggle.",
+      "Emoggle is spelled E-M-O-G-G-L-E. It is an emoji face-matching game, not a face-rating or looks-scoring site. Emogle and Emoogle are common misspellings of the name.",
   },
   {
     question: "Is Emoggle free?",

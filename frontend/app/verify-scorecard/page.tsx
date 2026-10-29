@@ -9,7 +9,13 @@
  * capture flow can be caught by `npm run verify:scorecard`
  * without a full E2E suite.
  */
+import type { Metadata } from "next";
 import { ShareScoreCard } from "../components/result/ShareScoreCard";
+
+export const metadata: Metadata = {
+  title: "Scorecard verifier",
+  robots: { index: false, follow: false },
+};
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;

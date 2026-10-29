@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { guides } from "../lib/guides";
 
 export const metadata: Metadata = {
   title: "HTML Sitemap",
@@ -13,12 +14,13 @@ const links = [
   ["/instructions", "Instructions: what every button does"],
   ["/about", "About Emoggle"],
   ["/faq", "Frequently asked questions"],
+  ...guides.map(({ path, label }) => [path, label] as const),
   ["/history", "Game history"],
   ["/contact", "Contact"],
   ["/privacy", "Privacy policy"],
   ["/terms", "Terms and conditions"],
   ["/refund", "Refunds and cancellations"],
-] as const;
+];
 
 export default function SitemapPage() {
   return (
